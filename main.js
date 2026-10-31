@@ -13,6 +13,10 @@ let win = null;
 
 // Hồ sơ riêng (dùng khi chạy thử song song với bản đang mở): CLAUDE_GUI_USERDATA=<thư mục>
 if (process.env.CLAUDE_GUI_USERDATA) app.setPath('userData', process.env.CLAUDE_GUI_USERDATA);
+// Video nền: Chromium trên Windows đẩy video lên lớp phủ DirectComposition riêng; mỗi lần lớp này bật / tắt
+// (vòng lặp quay về đầu, có gì đè lên, đổi ảnh nền, đổi cỡ cửa sổ) màn hình nháy đen một khung. Vẽ video chung với
+// phần còn lại của giao diện thì hết nháy (tốn thêm chút GPU, không đáng kể với một video nền).
+if (process.platform === 'win32') app.commandLine.appendSwitch('disable-direct-composition-video-overlays');
 
 // ---------- Settings ----------
 // Mã ứng dụng cho thanh tác vụ / thông báo Windows (CLAUDE_GUI_APPID chỉ dùng khi chạy thử song song)

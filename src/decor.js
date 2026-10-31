@@ -101,7 +101,20 @@
     if (BG.media.childNodes.length && !reduced() && fxK !== 'none') {
       if (BG.old) BG.old.remove();
       const old = h('div', { class: 'bg-old' });
-      old.append(...BG.media.childNodes);
+      // Video cũ: thay bằng ảnh chụp khung đang hiện rồi nhả bộ giải mã — chuyển video đang chạy sang chỗ khác làm nó
+      // mất khung (nháy đen), và giải mã hai video 4K cùng lúc lúc đổi ảnh dễ làm GPU nghẽn.
+      old.append(...[...BG.media.childNodes].filter((n) => !n.classList || !n.classList.contains('bg-guard')).map((n) => {
+        if (n.tagName !== 'VIDEO') return n;
+        try {
+          if (n.readyState < 2 || !n.videoWidth) return n;
+          const k = Math.min(1, 1920 / n.videoWidth);
+          const cv = h('canvas', { class: n.className, width: Math.round(n.videoWidth * k), height: Math.round(n.videoHeight * k) });
+          cv.getContext('2d').drawImage(n, 0, 0, cv.width, cv.height);
+          cv.style.cssText = n.style.cssText;
+          n.pause(); n.removeAttribute('src'); n.load();
+          return cv;
+        } catch { return n; }
+      }));
       BG.layer.insertBefore(old, BG.media); // nằm dưới ảnh mới
       BG.old = old;
       BG.media.classList.add('swap');
