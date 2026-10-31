@@ -110,6 +110,7 @@ contextBridge.exposeInMainWorld('api', {
   larkResolve: inv('lark:resolve'),
   larkSend: inv('lark:send'),
   larkSendFile: inv('lark:sendFile'),
+  larkRefetch: inv('lark:refetch'),
   onLarkRead: on('lark:read'),
   onLarkState: on('lark:state'),
   onLarkMsg: on('lark:msg'),

@@ -1455,6 +1455,30 @@ function larkFilePath(id, name) {
   fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, `${String(id || Date.now()).replace(/[^\w-]/g, '').slice(-24)}_${String(name || 'file').replace(/[\\/:*?"<>|]/g, '_').slice(-120)}`);
 }
+// Gọi thẳng HTTP (không qua SDK): SDK tải tệp dạng stream nên khi lỗi chỉ còn "Request failed with status code 400",
+// mất mã lỗi Lark (vd 99991672 thiếu quyền im:message:readonly) → người dùng không biết sửa gì.
+let larkTok = null;
+async function larkToken(force) {
+  if (!force && larkTok && larkTok.app === settings.larkAppId && Date.now() < larkTok.exp) return larkTok.v;
+  const r = await net.fetch(larkBase() + '/open-apis/auth/v3/tenant_access_token/internal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_id: settings.larkAppId, app_secret: larkSecret() }) });
+  const j = await r.json().catch(() => ({}));
+  if (!j.tenant_access_token) throw new Error(j.code ? larkErr(j.code, j.msg) : 'Không lấy được token Lark (HTTP ' + r.status + ')');
+  larkTok = { app: settings.larkAppId, v: j.tenant_access_token, exp: Date.now() + Math.max(60, (j.expire || 7200) - 300) * 1000 };
+  return larkTok.v;
+}
+const larkBase = () => (settings.larkDomain === 'feishu' ? 'https://open.feishu.cn' : 'https://open.larksuite.com');
+async function larkApi(url, raw) {
+  for (let i = 0; i < 2; i++) {
+    const r = await net.fetch(larkBase() + url, { headers: { Authorization: 'Bearer ' + (await larkToken(i > 0)) } });
+    const ct = r.headers.get('content-type') || '';
+    if (r.ok && raw && !/json/i.test(ct)) return Buffer.from(await r.arrayBuffer());
+    const j = await r.json().catch(() => ({ code: r.status, msg: 'HTTP ' + r.status }));
+    if (j.code === 99991663 || j.code === 99991661) continue; // token hết hạn → lấy lại
+    if (!r.ok || j.code) throw new Error(larkErr(j.code || r.status, j.msg));
+    return j;
+  }
+  throw new Error('Token Lark không hợp lệ');
+}
 async function larkFetchRes(m) {
   if (!lark || !lark.client) throw new Error('Chưa kết nối Lark');
   let c = {};
@@ -1463,15 +1487,26 @@ async function larkFetchRes(m) {
   const key = img ? c.image_key : c.file_key;
   if (!key) return null;
   const name = c.file_name || (img ? 'image.png' : m.message_type === 'audio' ? 'audio.opus' : m.message_type === 'media' ? 'video.mp4' : key);
+  const kind = img ? 'image' : m.message_type === 'media' ? 'video' : larkKind(name);
   const p = larkFilePath(m.message_id, name);
   try {
-    const r = await lark.client.im.messageResource.get({ path: { message_id: m.message_id, file_key: key }, params: { type: img ? 'image' : 'file' } });
-    await r.writeFile(p);
+    const buf = await larkApi(`/open-apis/im/v1/messages/${encodeURIComponent(m.message_id)}/resources/${encodeURIComponent(key)}?type=${img ? 'image' : 'file'}`, true);
+    fs.writeFileSync(p, buf);
   } catch (e) {
-    const d = e && e.response && e.response.data;
-    return { name, kind: larkKind(name), error: d && d.code ? larkErr(d.code, d.msg) : e.message };
+    return { name, kind, error: e.message, retry: true };
   }
-  return { name, kind: img ? 'image' : m.message_type === 'media' ? 'video' : larkKind(name), path: p, size: fs.statSync(p).size };
+  return { name, kind, path: p, size: fs.statSync(p).size };
+}
+// Tải lại ảnh / tệp đã lỗi (vd sau khi thêm quyền): lấy lại nội dung tin theo id rồi tải
+async function larkRefetch(messageId) {
+  try {
+    if (!lark || !lark.client) throw new Error('Chưa kết nối Lark');
+    const j = await larkApi(`/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`);
+    const it = j.data && j.data.items && j.data.items[0];
+    if (!it) throw new Error('Không tìm thấy tin (có thể đã bị thu hồi).');
+    const att = await larkFetchRes({ message_id: messageId, message_type: it.msg_type, content: it.body && it.body.content });
+    return att ? { ok: !att.error, att, error: att.error } : { ok: false, error: 'Tin này không có ảnh / tệp.' };
+  } catch (e) { return { ok: false, error: e.message }; }
 }
 // o: { openId, path } hoặc { openId, name, data(base64) } (ảnh dán từ clipboard)
 function larkSendFile(o) {
@@ -1507,7 +1542,8 @@ function larkErr(code, msg) {
   const m = String(msg || '');
   if (+code === 99991672 || /Access denied/i.test(m)) {
     const sc = (m.match(/\[([^\]]+)\]/) || [])[1] || '';
-    return `Bot thiếu quyền ${sc || '(xem chi tiết)'} — thêm ở Lark Developer → Permissions & Scopes rồi tạo version mới và phát hành. Nếu đã thêm thì chờ admin duyệt version là được. (${code})`;
+    const need = sc.split(/,\s*/).includes('im:message:readonly') ? 'im:message:readonly' : sc;
+    return `Bot thiếu quyền ${need || '(xem chi tiết)'} — thêm ở Lark Developer → Permissions & Scopes rồi tạo version mới và phát hành. Nếu đã thêm thì chờ admin duyệt version là được. (${code})`;
   }
   return `${code}: ${m}`;
 }
@@ -2309,6 +2345,7 @@ function registerIpc() {
   ipcMain.handle('lark:resolve', (_e, emails) => larkResolve(emails || []));
   ipcMain.handle('lark:send', (_e, o) => larkSend(o || {}));
   ipcMain.handle('lark:sendFile', (_e, o) => larkSendFile(o || {}));
+  ipcMain.handle('lark:refetch', (_e, id) => larkRefetch(String(id || '')));
   ipcMain.handle('nb:lib', (_e, op, data) => nbLib(op, data));
   ipcMain.handle('nb:servers', (_e, cwd) => nbServers(cwd));
   ipcMain.handle('nb:scan', (_e, dir, q) => nbScan(dir, q));

@@ -218,9 +218,19 @@
     }
   }
   const fileUrl = (p) => 'file:///' + String(p).replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/, '$1:');
-  function attEl(a) {
+  function attEl(a, m) {
     if (!a) return null;
-    if (!a.path) return h('div', { class: 'lkd-file err', text: `⚠ ${a.name || 'Tệp'} — ${a.error || 'không tải về được'}` });
+    if (!a.path) {
+      const box = h('div', { class: 'lkd-file err' }, h('span', { text: `⚠ ${a.name || 'Tệp'} — ${a.error || 'không tải về được'}` }));
+      if (m && m.id && api.larkRefetch) box.append(h('button', { class: 'btn sm', text: 'Tải lại', title: 'Thử tải lại (vd sau khi đã thêm quyền cho bot)', onclick: async (e) => {
+        e.stopPropagation(); e.target.disabled = true; e.target.textContent = 'Đang tải…';
+        const r = await api.larkRefetch(m.id);
+        if (r.att) m.att = r.att;
+        if (!r.ok) toast(r.error || 'Không tải được', true);
+        saveThreads(); render();
+      } }));
+      return box;
+    }
     const open = () => (CG.viewer && CG.viewer.openFile ? CG.viewer.openFile(a.path) : api.openPath(a.path));
     if (a.kind === 'image') return h('img', { class: 'lkd-img', src: fileUrl(a.path), title: a.name + ' — bấm để xem', onclick: open });
     if (a.kind === 'video') return h('video', { class: 'lkd-img', src: fileUrl(a.path), controls: true, preload: 'metadata' });
@@ -322,7 +332,7 @@
       const first = !prev || prev.from !== m.from;
       list.append(h('div', { class: `lkd-m ${m.from}${first ? ' first' : ''}${m.from === 'them' && !m.done ? ' new' : ''}`, title: hm(m.t) },
         m.from === 'them' ? h('span', { class: 'lkd-av', text: (p.name || '?').trim().charAt(0).toUpperCase() }) : null,
-        h('div', { class: 'lkd-b' + (m.att ? ' att' : '') }, attEl(m.att), m.att && /^\[[^\]]+\]$/.test(m.text || '') ? null : m.text || null),
+        h('div', { class: 'lkd-b' + (m.att ? ' att' : '') }, attEl(m.att, m), m.att && /^\[[^\]]+\]$/.test(m.text || '') ? null : m.text || null),
         m.from === 'me' && first ? h('span', { class: 'lkd-via', text: m.via === 'claude' ? 'Claude soạn' : 'bạn' }) : null));
       if (m === lastMe) list.append(h('div', { class: 'lkd-read' + (m.read ? ' on' : ''), text: m.read ? `✓✓ Đã xem ${hm(m.read)}` : '✓ Đã gửi' }));
       prev = m;

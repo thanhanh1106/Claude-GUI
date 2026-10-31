@@ -16,6 +16,7 @@
   const SCOPES = [
     ['im:message:send_as_bot', 'Send messages as an app', 'Bắt buộc · gửi tin', true],
     ['im:message.p2p_msg:readonly', 'Read private messages sent to the bot', 'Bắt buộc · nhận tin trả lời', true],
+    ['im:message:readonly', 'Read messages in private and group chats', 'Bắt buộc · tải ảnh / tệp người kia gửi', true],
     ['contact:user.id:readonly', 'Obtain user ID via email or mobile number', 'Bắt buộc · tìm người theo email (nút Kiểm tra)', true],
     ['im:resource', 'Read and upload images or other files', 'Tuỳ chọn · gửi / nhận ảnh, video, tệp', false],
     ['im:message.group_at_msg:readonly', 'Read group chat messages mentioning the bot', 'Tuỳ chọn · hỏi trong nhóm', false],
