@@ -59,6 +59,21 @@
       // Ảnh động không chạy khi khung bị ẩn → không tốn CPU
       BG.media.style.visibility = document.hidden ? 'hidden' : '';
     });
+    // Ảnh nền động hay bị đứng: Chromium tự dừng video (cửa sổ bị che hết, tiết kiệm pin, giải mã bị kẹt) hoặc play() bị từ chối
+    // một lần là không ai gọi lại → mỗi 3 giây kiểm tra: đáng lẽ phải chạy mà đang dừng / khung hình không nhích thì cho chạy lại.
+    const kick = () => {
+      const v = BG.media.querySelector('video');
+      if (!v || document.hidden || reduced() || v.readyState < 2) { BG.vt = null; return; }
+      if (v.paused || v.ended) { v.play().catch(() => {}); BG.vt = null; return; }
+      if (BG.vt != null && v.currentTime === BG.vt) {
+        // giải mã bị kẹt: tua nhẹ để trình phát nạp lại khung hình (không load() lại — sẽ chèn video thêm lần nữa)
+        if (++BG.stuck >= 2) { BG.stuck = 0; try { v.currentTime = (v.currentTime + 0.05) % (v.duration || 1e9); } catch {} v.play().catch(() => {}); }
+      } else BG.stuck = 0;
+      BG.vt = v.currentTime;
+    };
+    BG.stuck = 0;
+    setInterval(kick, 3000);
+    window.addEventListener('focus', kick);
   }
   function applyBg() {
     const c = cfg();

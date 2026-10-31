@@ -172,9 +172,11 @@
     setKit(k) { this.kit = kitOf(k); this.layout(); }
     bottom() { return this.st.y + this.TH; }
     // ---------- nền đứng ----------
+    // nhận diện một nền: theo mã phiên (dòng ở thanh bên được vẽ lại liên tục → phần tử DOM đổi) hoặc theo phần tử
+    pkey(p) { return p ? p.row || p.win || p.el : null; }
     support(x, y, only) {
       let best = null; const cx = x + this.PW * .5;
-      for (const p of this.w.plats()) { if (only && p.el !== only && !p.main) continue; if (cx >= p.x1 + 4 && cx <= p.x2 - 4 && p.y >= y - 2 && (!best || p.y < best.y)) best = p; }
+      for (const p of this.w.plats()) { if (only && this.pkey(p) !== only && !p.main) continue; if (cx >= p.x1 + 4 && cx <= p.x2 - 4 && p.y >= y - 2 && (!best || p.y < best.y)) best = p; }
       return best;
     }
     mainP() { return this.w.plats().find((p) => p.main) || null; }
@@ -244,7 +246,7 @@
     }
     goAlert() {
       const a = this.alert, st = this.st, B = this.w.bounds();
-      if (a.dest) { const d = a.dest(); if (!d) { this.setMode('notice', 1e9); return; } if (st.ground && st.ground.el === d.el) { this.arrive(); return; } this.climbTo(d); return; }
+      if (a.dest) { const d = a.dest(); if (!d) { this.setMode('notice', 1e9); return; } if (st.ground && this.pkey(st.ground) === this.pkey(d)) { this.arrive(); return; } this.climbTo(d); return; }
       const tx = a.tx ? a.tx() : a.cursor && this.mouse ? this.mouse.x - this.PW / 2 : null;
       if (tx == null) { this.arrive(); return; }
       st.target = clamp(tx, B.l, B.r - this.PW); this.setMode('walk', 9000);
@@ -419,7 +421,10 @@
         if (!st.ground) {
           st.vy += 2200 * dt; st.x += st.vx * dt; st.y += st.vy * dt;
           if (st.x < B.l) { st.x = B.l; st.vx *= -.5; } if (st.x > B.r - this.PW) { st.x = B.r - this.PW; st.vx *= -.5; }
-          const p = st.vy >= 0 ? this.support(st.x, this.bottom() - st.vy * dt - 1, st.jumpP && st.jumpP.el) : null;
+          // đang nhảy mà chỗ đáp biến mất (cuộn khỏi khung, phiên hết chờ…) → bỏ đích, lái về sàn chính thay vì rơi lọt ra ngoài
+          if (st.jumpP && !w.plats().some((q) => this.pkey(q) === this.pkey(st.jumpP))) st.jumpP = null;
+          if (!st.jumpP && m0 && st.vy > 0 && !this.support(st.x, this.bottom())) { const tx = clamp(st.x, m0.x1, m0.x2 - this.PW); if (Math.abs(tx - st.x) > 2) st.vx = clamp((tx - st.x) * 4, -900, 900); }
+          const p = st.vy >= 0 ? this.support(st.x, this.bottom() - st.vy * dt - 1, st.jumpP && this.pkey(st.jumpP)) : null;
           if (p && this.bottom() >= p.y) {
             st.y = p.y - this.TH;
             if (st.vy > 520 && !st.jumpP) { st.vy *= -.32; st.vx *= .7; this.bot.hop(); }
@@ -462,7 +467,7 @@
           if (st.food && this.items.includes(st.food)) { if (st.food.landed && st.ground.main) this.setMode('eat', st.food.food === 'bead' ? 800 : 1700); else if (st.ground.main) st.until = now + 400; else this.setMode('walk', 3000); }
           else if (st.bug && this.items.includes(st.bug)) this.setMode('catch', 1200);
           else if (st.ball && this.items.includes(st.ball)) { const b = st.ball; b.vx = (b.x > st.x + this.PW / 2 ? 1 : -1) * rnd(350, 600); b.vy = -rnd(300, 520); b.rest = false; st.ball = null; this.add('vui', 6); w.xp(1); this.heart('⚽'); this.setMode('cheer', 900); }
-          else if (st.climbTo) { const p = w.plats().find((q) => q.el === st.climbTo.el); if (p) this.jumpTo(p); else { st.climbTo = null; this.chooseNext(); } }
+          else if (st.climbTo) { const p = w.plats().find((q) => this.pkey(q) === this.pkey(st.climbTo)); if (p) this.jumpTo(p); else { st.climbTo = null; this.chooseNext(); } }
           else if (a) { if (a.dest) this.goAlert(); else this.arrive(); }
           else if (st.after) { const af = st.after; st.after = null; if (af === 'sleep') this.setMode('sleep', 1e9); else if (af === 'dnd') this.setMode('dndsit', 1e9); else this.setMode('read', rnd(5000, 9000)); }
           else this.chooseNext();
