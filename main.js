@@ -176,10 +176,27 @@ const MID_RULE = `Messages from the user that start with "${MID_TAG}" were typed
 const PREVIEW_RULE = 'This session runs inside Claude GUI, which automatically shows files you create (HTML, Markdown, PDF, SVG, images) and localhost URLs printed by commands in its built-in side viewer. ' +
   'So when you want to show the user a web page, a local server, or a document, do NOT open it in an external browser or app (no `start`, `Start-Process`, `Invoke-Item`, `explorer`, `open`, `xdg-open`, `python -m webbrowser`); just create the file or start the server and mention the path or URL.';
 // Lark: Claude soạn câu hỏi cho người thật (game designer…) → GUI hiện thẻ cho người dùng duyệt rồi bot gửi; câu trả lời quay về phiên
+// Xưng hô tiếng Việt cho người trong danh bạ Lark: theo giới tính + tuổi của họ và của người dùng (hoặc "Gọi là" tự đặt)
+function larkAddress(c, me) {
+  const g = c.gender === 'm' ? 'nam' : c.gender === 'f' ? 'nữ' : '';
+  const age = +c.age || 0, myAge = +(me && me.age) || 0;
+  let call = String(c.call || '').trim(), self = '';
+  if (!call && g) {
+    const elder = g === 'nam' ? 'anh' : 'chị';
+    if (age && myAge && age < myAge - 1) { call = 'em'; self = (me.gender === 'f' ? 'chị' : me.gender === 'm' ? 'anh' : 'mình'); }
+    else if (age && myAge && age >= myAge + 20) { call = g === 'nam' ? 'chú' : 'cô'; self = 'cháu'; }
+    else { call = elder; self = 'em'; }
+    call = call + ' ' + String(c.name || '').trim().split(/\s+/).pop();
+  }
+  const bits = [g, age ? age + ' tuổi' : ''].filter(Boolean).join(', ');
+  return (bits ? bits + '; ' : '') + (call ? `address them as "${call}"${self ? `, refer to the user (sender) as "${self}"` : ''}` : 'gender unknown: use their name, never guess anh/chị');
+}
 function larkRule() {
   const cs = (settings.larkContacts || []).filter((c) => c && c.name);
   if (!settings.larkAppId || !settings.larkSecretEnc || settings.larkOn === false || !cs.length) return '';
-  return 'LARK MESSAGING (built into Claude GUI). Claude GUI has its own Lark bot and can message these real people: ' + cs.map((c) => c.name + (c.role ? ` (${c.role})` : '')).join('; ') + '. ' +
+  const me = { age: settings.larkMeAge, gender: settings.larkMeGender };
+  return 'LARK MESSAGING (built into Claude GUI). Claude GUI has its own Lark bot and can message these real people: ' + cs.map((c) => c.name + ` (${[c.role, larkAddress(c, me)].filter(Boolean).join('; ')})`).join(' | ') + '. ' +
+    'Vietnamese pronouns follow gender and age, NOT the name (e.g. Ngọc, Linh, Anh can be a man or a woman) — when writing a Lark message or talking about these people, use exactly the address given above. ' +
     'There is NO Lark MCP server, tool, CLI or API for you to call, and you never need app_id/app_secret: do not search for tools (ToolSearch, MCP resources, shell) and never say Lark is unavailable. ' +
     'The ONLY way to send a Lark message is: when the user asks you to message/ask/tell someone over Lark (e.g. "hỏi Thành Anh qua Lark: …", "nhắn cho designer", "hỏi designer đi"), or agrees to your suggestion to do so, ' +
     'write the message (for a question: short and self-contained — context, the exact doubt, the options, links to the design/doc; for a plain message like "Hello": send it as given) and END your reply with exactly one block:\n' +

@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.17.6-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.17.7-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -55,7 +55,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - Máy kia: **Nhập** → chọn lại thư mục tương ứng (✓/✗ có tồn tại), xem trạng thái git + MCP cần dùng (vd gdd) → GUI thay đường dẫn trong kế hoạch / tệp RUN và ghi **ghi chú CHUYỂN MÁY** ở đầu context.md (hoặc đầu prompt từng bước): xuất từ máy nào / nhập vào đâu, thư mục đã đổi, đường dẫn **không có ở máy này**, phiên cũ không có, git cần ở commit nào. Kế hoạch nhập vào ở trạng thái tắt — xem rồi bật / duyệt.
 
 **Hỏi người thật qua Lark** (Cài đặt → Lark) — Claude soạn câu hỏi cho game designer / người khác, bạn duyệt rồi bot gửi, câu trả lời quay về đúng phiên:
-- Cần một app tự tạo trên Lark Developer: bật Bot; quyền bắt buộc `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `contact:user.id:readonly` (tuỳ chọn `im:message.group_at_msg:readonly` để hỏi trong nhóm); sự kiện **Message received** (`im.message.receive_v1`) nhận qua **kết nối dài** (không cần server); publish và thêm người cần hỏi vào phạm vi dùng. Dán App ID + Secret vào Cài đặt → Lark (Secret mã hoá bằng safeStorage), thêm danh bạ (tên, vai trò, email Lark).
+- Cần một app tự tạo trên Lark Developer: bật Bot; quyền bắt buộc `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `contact:user.id:readonly` (tuỳ chọn `im:message.group_at_msg:readonly` để hỏi trong nhóm); sự kiện **Message received** (`im.message.receive_v1`) nhận qua **kết nối dài** (không cần server); publish và thêm người cần hỏi vào phạm vi dùng. Dán App ID + Secret vào Cài đặt → Lark (Secret mã hoá bằng safeStorage), thêm danh bạ (tên, vai trò, email Lark, **giới tính + tuổi** để Claude xưng hô đúng anh / chị / em / cô / chú thay vì đoán theo tên; có ô "Gọi là" để tự đặt). Điền thêm giới tính / tuổi của bạn ở mục Câu trả lời.
 - Bảo Claude "hỏi designer đi" → Claude soạn câu hỏi đủ ngữ cảnh → **thẻ duyệt** (chọn người nhận, sửa nội dung, Gửi / Chép / Huỷ). Không bấm Gửi thì không có gì được gửi ra ngoài. Tự soạn: menu ▴ cạnh nút gửi → **Hỏi qua Lark…**; Sổ tài liệu → ❓ Câu hỏi mở → **📨 Lark**.
 - Người nhận nhắn lại bao nhiêu tin cũng được (Reply hoặc nhắn thẳng cho bot) → tin vào **khung chat Lark trên ô nhập** của đúng phiên (chấm số ở thanh bên, mỗi người một tab). Bot không gửi "đã nhận". Chờ và chat qua lại **không tốn token**: Claude chỉ đọc khi bấm **Phân tích (n tin)** — cả cụm trong một lượt — hoặc khi bạn gửi tin tiếp theo (tin Lark chưa phân tích được kèm vào). Claude nhận **cả đoạn chat hai chiều** (câu bạn hỏi trong khung chat + câu trả lời, tin mới đánh dấu ★), không chỉ câu trả lời — để hiểu đúng ngữ cảnh. Ô nhập trong khung để nhắn thẳng cho người đó qua bot, không qua Claude (hiện bên kia là "Tên bạn: …"). Câu hỏi từ Sổ tài liệu thì trả lời tự ghim vào tài liệu. Tin không gắn với phiên nào vào **Hộp thư** (Cài đặt → Lark).
 - Khung chat gửi / nhận **ảnh, video, tệp** (📎, dán ảnh Ctrl+V, kéo thả; cần quyền `im:resource`) — tệp nhận được tải về máy, Claude đọc được khi Phân tích. Hiện **✓✓ Đã xem** khi người kia đọc tin (thêm sự kiện **Message read** `im.message.message_read_v1`).

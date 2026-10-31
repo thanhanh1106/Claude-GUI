@@ -391,6 +391,22 @@
     saveThreads(); render();
   }
 
+// Xưng hô tiếng Việt cho người trong danh bạ Lark: theo giới tính + tuổi của họ và của người dùng (hoặc "Gọi là" tự đặt)
+  function larkAddress(c, me) {
+    const g = c.gender === 'm' ? 'nam' : c.gender === 'f' ? 'nữ' : '';
+    const age = +c.age || 0, myAge = +(me && me.age) || 0;
+    let call = String(c.call || '').trim(), self = '';
+    if (!call && g) {
+      const elder = g === 'nam' ? 'anh' : 'chị';
+      if (age && myAge && age < myAge - 1) { call = 'em'; self = (me.gender === 'f' ? 'chị' : me.gender === 'm' ? 'anh' : 'mình'); }
+      else if (age && myAge && age >= myAge + 20) { call = g === 'nam' ? 'chú' : 'cô'; self = 'cháu'; }
+      else { call = elder; self = 'em'; }
+      call = call + ' ' + String(c.name || '').trim().split(/\s+/).pop();
+    }
+    const bits = [g, age ? age + ' tuổi' : ''].filter(Boolean).join(', ');
+    return (bits ? bits + '; ' : '') + (call ? `address them as "${call}"${self ? `, refer to the user (sender) as "${self}"` : ''}` : 'gender unknown: use their name, never guess anh/chị');
+  }
+  const meXH = () => ({ age: S.settings.larkMeAge, gender: S.settings.larkMeGender });
   // Tin người dùng nhắc tới Lark → đính kèm nhắc ngắn (có sẵn định dạng khối): phiên cũ từng trả lời "không có Lark" vẫn làm đúng
   function hint(content, display, conv) {
     const s = S.settings || {};
@@ -403,7 +419,7 @@
     const hit = ask || (conv._lkHint && t.length < 60);
     conv._lkHint = ask;
     if (!hit) return content;
-    const note = `\n\n[Claude GUI: Lark is connected and built into Claude GUI (contacts: ${cs.map((c) => c.name).join(', ')}). ` +
+    const note = `\n\n[Claude GUI: Lark is connected and built into Claude GUI (contacts: ${cs.map((c) => `${c.name} — ${larkAddress(c, meXH())}`).join(' | ')}; pronouns follow gender/age, not the name). ` +
       'To message someone, do not search for tools — end your reply with exactly this block and the GUI shows a send card:\n' +
       '```lark-ask\n{"to": "<contact name>", "question": "<the message>"}\n```\nAny earlier reply saying Lark is unavailable is outdated.]';
     if (typeof content === 'string') return content + note;
@@ -518,6 +534,9 @@
       contactsGroup(u),
       u.group('Câu trả lời', '',
         u.row('Tên của bạn trong tin nhắn', 'Hiện ở đầu câu hỏi (“Anh (dev) hỏi…”) và trước tin bạn nhắn thẳng (“Anh (dev): …”) — vì bên kia thấy mọi tin là từ bot.', u.text(s.larkMe || '', (v) => u.set({ larkMe: v }), { placeholder: 'vd: Thành Anh (dev)' })),
+        u.row('Giới tính / tuổi của bạn', 'Để chọn xưng hô: người kia lớn tuổi hơn → gọi anh / chị, xưng em; nhỏ hơn → gọi em.', h('div', { class: 'row', style: 'gap:6px;display:flex' },
+          Object.assign(u.select([['', '—'], ['m', 'Nam'], ['f', 'Nữ']], s.larkMeGender || '', (v) => u.set({ larkMeGender: v })), { style: 'min-width:84px' }),
+          Object.assign(u.text(s.larkMeAge ? String(s.larkMeAge) : '', (v) => u.set({ larkMeAge: +v || '' }), { placeholder: 'Tuổi' }), { style: 'width:70px' }))),
         u.row('Cách nhận trả lời', 'Tin người kia nhắn (Reply hoặc nhắn thẳng cho bot, nhiều tin liên tiếp) hiện ở khung Lark trên ô nhập của phiên đã hỏi. Claude chỉ đọc khi bạn bấm “Phân tích”, hoặc khi bạn gửi tin tiếp theo (nếu bật “kèm”) — chờ và chat qua lại không tốn token.', null, { stack: true })),
       inboxGroup(u) || '',
       historyGroup(u) || '',
@@ -533,11 +552,21 @@
         const name = h('input', { type: 'text', class: 'text-input', placeholder: 'Tên', value: c.name || '' });
         const role = h('input', { type: 'text', class: 'text-input', placeholder: 'Vai trò (vd Game Designer)', value: c.role || '' });
         const email = h('input', { type: 'text', class: 'text-input', placeholder: 'email Lark', value: c.email || '' });
+        const gender = h('select', { class: 'text-input', title: 'Giới tính — để Claude xưng hô đúng (anh / chị), không đoán theo tên' },
+          [['', 'Giới tính'], ['m', 'Nam'], ['f', 'Nữ']].map(([v, t]) => h('option', { value: v, text: t, selected: (c.gender || '') === v })));
+        const age = h('input', { type: 'number', class: 'text-input', placeholder: 'Tuổi', min: 10, max: 99, value: c.age || '', title: 'Tuổi (ước chừng cũng được) — so với tuổi của bạn để chọn anh / chị / em / cô / chú' });
+        const call = h('input', { type: 'text', class: 'text-input', placeholder: 'Gọi là…', value: c.call || '', title: 'Để trống thì tự chọn theo giới tính + tuổi. Ghi đè nếu muốn, vd "sếp Ngọc", "anh Ngọc"' });
+        const xh = h('div', { class: 'lk-xh' });
+        const showXh = () => { xh.textContent = (c.gender || c.call) ? 'Claude sẽ: ' + larkAddress(c, meXH()).replace(/address them as/, 'gọi là').replace(/refer to the user \(sender\) as/, 'xưng') : 'Chưa có giới tính — Claude sẽ gọi bằng tên, không đoán anh / chị.'; };
+        showXh();
+        gender.onchange = () => { c.gender = gender.value; save(); showXh(); };
+        age.onchange = () => { c.age = age.value ? +age.value : ''; save(); showXh(); };
+        call.onchange = () => { c.call = call.value.trim(); save(); showXh(); };
         const mark = h('span', { class: 'lk-mark', text: c.openId ? '✓' : '', title: c.openId ? 'Đã tìm thấy trên Lark' : '' });
         name.onchange = () => { c.name = name.value.trim(); save(); };
         role.onchange = () => { c.role = role.value.trim(); save(); };
         email.onchange = () => { c.email = email.value.trim(); c.openId = ''; mark.textContent = ''; save(); };
-        box.append(h('div', { class: 'lk-crow' }, name, role, email, mark,
+        box.append(h('div', { class: 'lk-crow' }, name, role, email, gender, age, call, mark,
           h('button', { class: 'btn sm', text: 'Kiểm tra', onclick: async () => {
             const r = await api.larkResolve([c.email]);
             if (!r.ok) return toast(r.error, true);
@@ -546,12 +575,12 @@
             toast(c.openId ? `Tìm thấy ${c.name || c.email} trên Lark.` : `Không thấy ${c.email} — phải cùng tổ chức và nằm trong phạm vi dùng của app.`, !c.openId);
             save();
           } }),
-          h('button', { class: 'icon-btn sm', html: svg('x', 14), title: 'Xoá', onclick: () => { list.splice(i, 1); save(); draw(); } })));
+          h('button', { class: 'icon-btn sm', html: svg('x', 14), title: 'Xoá', onclick: () => { list.splice(i, 1); save(); draw(); } })), xh);
       });
       box.append(h('button', { class: 'btn sm', text: '+ Thêm người', onclick: () => { list.push({ name: '', role: '', email: '' }); draw(); } }));
     };
     draw();
-    return u.group('Danh bạ', 'Người Claude được đề xuất hỏi (Claude chỉ thấy tên + vai trò). Email là email tài khoản Lark của họ.', u.row('', '', box, { stack: true }));
+    return u.group('Danh bạ', 'Người Claude được đề xuất hỏi (Claude chỉ thấy tên, vai trò và cách xưng hô — không thấy email). Điền giới tính + tuổi để Claude gọi đúng anh / chị / em thay vì đoán theo tên. Email là email tài khoản Lark của họ.', u.row('', '', box, { stack: true }));
   }
   function inboxGroup(u) {
     const list = (S.settings.larkInbox || []).slice(-20).reverse();
