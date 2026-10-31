@@ -10,6 +10,8 @@
 
   const DEFAULTS = {
     bg: null, // { path, kind, name, strength, blur, fit, place, glass, calm, focal }
+    bgPool: [], // kho tự đổi ảnh nền: [{ id, path, kind, name, crop, area, focal, slot }] — mỗi ảnh có vùng cắt riêng
+    bgRot: null, // { on, mode: seq | rand | slot, every (phút, 0 = mỗi lần mở app), fx, noRep, idle, cur, last, seen }
     accent: '',
     doneFx: 'off', // off | confetti | bloom
     logoFx: 'off', // off | rainbow | glow
@@ -94,6 +96,17 @@
       return;
     }
     BG.src = key;
+    const fxK = rotCfg().fx;
+    if (BG.media.childNodes.length && !reduced() && fxK !== 'none') {
+      if (BG.old) BG.old.remove();
+      const old = h('div', { class: 'bg-old' });
+      old.append(...BG.media.childNodes);
+      BG.layer.insertBefore(old, BG.media); // nằm dưới ảnh mới
+      BG.old = old;
+      BG.media.classList.add('swap');
+      BG.media.classList.toggle('zoom', fxK === 'zoom');
+      setTimeout(() => { if (BG.old === old) { old.remove(); BG.old = null; } }, 10000); // ảnh mới không nạp được thì cũng bỏ ảnh cũ
+    }
     BG.media.innerHTML = '';
     BG.focal = b.focal && b.focal.v === 3 ? b.focal : null;
     const url = fileUrl(b.path);
@@ -119,6 +132,7 @@
       }
       layoutBg();
       BG.media.classList.add('in');
+      if (BG.old) { const o = BG.old; BG.old = null; setTimeout(() => { o.remove(); BG.media.classList.remove('swap', 'zoom'); }, 1600); }
     };
     BG.media.classList.remove('in');
     if (b.kind === 'video') {
@@ -278,10 +292,12 @@
   // =====================================================================
   // Trình cắt ảnh nền
   // =====================================================================
-  function openCropper() {
+  function openCropper(target) {
     const c = cfg();
-    if (!c.bg || !c.bg.path) return;
-    const b = { ...BG_DEFAULT, ...c.bg };
+    const src = target || c.bg;
+    if (!src || !src.path) return Promise.resolve(false);
+    const b = { ...BG_DEFAULT, ...(c.bg || {}), ...src };
+    const isCur = !!(c.bg && c.bg.path === b.path);
     const url = fileUrl(b.path);
     const media = b.kind === 'video' ? h('video', { src: url, muted: true, preload: 'auto' }) : h('img', { src: url, draggable: 'false' });
     if (b.kind === 'video') { media.muted = true; media.addEventListener('loadeddata', () => { try { media.currentTime = 0.05; } catch {} }); }
@@ -293,7 +309,7 @@
     const info = h('div', { class: 'cr-info' });
     let area = b.area === 'window' ? 'window' : 'chat';
     let mode = area; // chat | window | free
-    let iw = 0, ih = 0, ds = 1, crop = null, focal = BG.focal;
+    let iw = 0, ih = 0, ds = 1, crop = null, focal = isCur ? BG.focal : (src.focal || null);
     const ratio = () => (mode === 'free' ? null : aspectOf(mode));
     const clamp = () => {
       crop.w = Math.min(1, Math.max(0.05, crop.w)); crop.h = Math.min(1, Math.max(0.05, crop.h));
@@ -424,13 +440,71 @@
       const cancel = h('button', { class: 'btn', text: 'Huỷ', onclick: () => { m.close(); resolve(false); } });
       const ok = h('button', { class: 'btn primary', text: 'Áp dụng', onclick: async () => {
         m.close();
-        const cur = cfg().bg || b;
-        await save({ bg: { ...cur, crop: crop ? { x: +crop.x.toFixed(4), y: +crop.y.toFixed(4), w: +crop.w.toFixed(4), h: +crop.h.toFixed(4) } : null, area, fit: 'crop', focal: focal || cur.focal } });
+        const cr = crop ? { x: +crop.x.toFixed(4), y: +crop.y.toFixed(4), w: +crop.w.toFixed(4), h: +crop.h.toFixed(4) } : null;
+        const now = cfg(), patch = {};
+        // vùng cắt lưu theo từng ảnh: ảnh trong kho giữ vùng cắt riêng, ảnh đang làm nền cập nhật luôn
+        if ((now.bgPool || []).some((p) => p.path === b.path)) patch.bgPool = now.bgPool.map((p) => (p.path === b.path ? { ...p, crop: cr, area, focal: focal || p.focal || null } : p));
+        if (isCur || !target) { const cur = now.bg || b; patch.bg = { ...cur, crop: cr, area, fit: 'crop', focal: focal || cur.focal }; }
+        await save(patch);
         resolve(true);
       } });
-      m = CG.modal('Cắt ảnh nền', body, [cancel, ok], { cls: 'cropper' });
+      m = CG.modal('Cắt ảnh nền' + (target && target.name ? ' — ' + target.name : ''), body, [cancel, ok], { cls: 'cropper' });
     });
   }
+
+  // =====================================================================
+  // Tự đổi ảnh nền theo giờ: kho ảnh (mỗi ảnh có vùng cắt riêng), đổi tuần tự / ngẫu nhiên / theo khung giờ
+  // =====================================================================
+  const ROT_DEF = { on: false, mode: 'seq', every: 30, fx: 'fade', noRep: true, idle: true };
+  const rotCfg = () => ({ ...ROT_DEF, ...(cfg().bgRot || {}) });
+  const poolList = () => (cfg().bgPool || []).filter((p) => p && p.path);
+  // theo khung giờ: ảnh có giờ bắt đầu lớn nhất ≤ giờ hiện tại (trước ảnh sớm nhất thì lấy ảnh muộn nhất của hôm trước)
+  function slotPick(list, hr) {
+    const s = list.filter((p) => p.slot != null).sort((a, b) => a.slot - b.slot);
+    if (!s.length) return null;
+    let best = s[s.length - 1];
+    for (const p of s) if (p.slot <= hr) best = p;
+    return best;
+  }
+  function rotPick(dir = 1) {
+    const r = rotCfg(), L = poolList();
+    if (!L.length) return null;
+    if (r.mode === 'slot') return slotPick(L, new Date().getHours());
+    const ci = L.findIndex((p) => p.id === r.cur);
+    if (r.mode === 'seq' || L.length === 1) return L[(ci + dir + L.length) % L.length] || L[0];
+    let cand = L.filter((p) => p.id !== r.cur && (!r.noRep || !(r.seen || []).includes(p.id)));
+    if (!cand.length) cand = L.filter((p) => p.id !== r.cur); // xem hết kho → vòng mới
+    return cand[Math.floor(Math.random() * cand.length)];
+  }
+  async function rotShow(p) {
+    if (!p) return;
+    const c = cfg(), r = rotCfg(), L = poolList();
+    let seen = r.mode === 'rand' ? [...new Set([...(r.seen || []), p.id])] : [];
+    if (seen.length >= L.length) seen = [p.id];
+    await save({
+      bg: { ...BG_DEFAULT, ...(c.bg || {}), path: p.path, kind: p.kind, name: p.name, crop: p.crop || null, area: p.area || (c.bg && c.bg.area) || 'chat', fit: 'crop', focal: p.focal || null },
+      bgRot: { ...r, cur: p.id, last: Date.now(), seen },
+    });
+  }
+  let rotKey = 0;
+  addEventListener('keydown', (e) => { if (e.target && e.target.id === 'input') rotKey = Date.now(); }, true);
+  // đang gõ / Claude đang trả lời chữ → đợi rảnh rồi mới đổi cho khỏi giật mắt
+  const rotBusy = () => { const a = S().active; return Date.now() - rotKey < 5000 || !!(a && a.busy && a.phase === 'talk'); };
+  function rotTick(startup) {
+    const r = rotCfg(), L = poolList(), c = cfg();
+    if (!r.on || !L.length || !S().settings) return;
+    const cur = L.find((p) => p.id === r.cur), showing = !!(cur && c.bg && c.bg.path === cur.path);
+    if (r.mode === 'slot') {
+      const p = slotPick(L, new Date().getHours());
+      if (p && !(p.id === r.cur && showing) && (startup || !r.idle || !rotBusy())) rotShow(p);
+      return;
+    }
+    if (L.length === 1) { if (!showing) rotShow(L[0]); return; }
+    const due = r.every > 0 ? Date.now() - (r.last || 0) >= r.every * 60e3 : startup;
+    if (!due || (!startup && r.idle && rotBusy())) return;
+    rotShow(rotPick(1));
+  }
+  setInterval(() => { if (!document.hidden) rotTick(false); }, 20000);
 
   // =====================================================================
   // Màu nhấn tự chọn
@@ -623,8 +697,9 @@
     else if (c.doneFx === 'bloom') bloom();
   }
 
-  CG.decor = { cfg, save, apply, sync, onSend, onDone, onPermission, resolveTheme, analyzeFocal, layoutBg, openCropper, suggestCrop, osReduced, preview: { confetti, bloom, tone: (k) => { const sd = cfg().sound; if (!sd.on) return; tone(SOUNDS[k]); } }, DEFAULTS, BG_DEFAULT };
+  CG.decor = { cfg, save, apply, sync, onSend, onDone, onPermission, resolveTheme, analyzeFocal, layoutBg, openCropper, suggestCrop, osReduced,
+    rot: { cfg: rotCfg, pick: rotPick, show: rotShow, tick: rotTick, slotPick, DEF: ROT_DEF }, preview: { confetti, bloom, tone: (k) => { const sd = cfg().sound; if (!sd.on) return; tone(SOUNDS[k]); } }, DEFAULTS, BG_DEFAULT };
   // Cài đặt đã có (init của app.js chạy bất đồng bộ) → áp dụng khi sẵn sàng
-  const boot = setInterval(() => { if (S() && S().settings) { clearInterval(boot); apply(); } }, 50);
+  const boot = setInterval(() => { if (S() && S().settings) { clearInterval(boot); apply(); setTimeout(() => rotTick(true), 1500); } }, 50);
   setInterval(() => { if (!document.hidden) sync(); }, 500);
 })();

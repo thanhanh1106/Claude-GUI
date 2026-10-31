@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: inv('settings:get'),
   setSettings: inv('settings:set'),
   pickBackground: inv('bg:pick'),
+  pickBackgrounds: inv('bg:pickMany'),
   importBackground: inv('bg:import'),
   setNativeTheme: inv('theme:native'),
   mediaWatch: inv('media:watch'),

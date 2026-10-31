@@ -233,6 +233,67 @@
         b ? row('Độ nhoè', null, range(b.blur, 0, 24, 1, live('blur'), (v) => v + 'px')) : null,
         b ? row('Kính mờ', 'Thanh bên, ô nhập, thẻ công cụ trong suốt mờ để thấy ảnh phía sau.', toggle(b.glass !== false, (v) => setBg({ glass: v }))) : null,
         b ? row('Làm dịu vùng chữ', 'Phủ một lớp nền nhẹ sau cột hội thoại cho chữ luôn dễ đọc.', toggle(b.calm !== false, (v) => setBg({ calm: v }))) : null);
+      // --- Tự đổi ảnh nền theo giờ: kho ảnh, mỗi ảnh có vùng cắt riêng
+      const R = D.rot, rc = R.cfg(), poolArr = (c.bgPool || []).filter((p) => p && p.path);
+      const svRot = (patch) => sv({ bgRot: { ...rc, ...patch } });
+      const svPool = (list) => sv({ bgPool: list });
+      const fUrl = (p) => 'file:///' + encodeURI(p.replace(/\\/g, '/')).replace(/#/g, '%23').replace(/\?/g, '%3F');
+      const newId = () => 'bp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const addFiles = async () => {
+        const rs = await api.pickBackgrounds();
+        const ok = (rs || []).filter((r) => r && r.path), bad = (rs || []).filter((r) => r && r.error);
+        if (bad.length) toast(bad.map((r) => r.error).join(' · '), true);
+        if (!ok.length) return;
+        const have = new Set(poolArr.map((p) => p.path));
+        const add = ok.filter((r) => !have.has(r.path)).map((r) => ({ id: newId(), path: r.path, kind: r.kind, name: r.name, crop: null, area: (b && b.area) || 'chat', slot: null }));
+        // lần đầu: đưa luôn ảnh đang làm nền vào kho để không mất
+        const first = !poolArr.length && b && !add.some((x) => x.path === b.path) ? [{ id: newId(), path: b.path, kind: b.kind, name: b.name, crop: b.crop || null, area: b.area || 'chat', focal: b.focal || null, slot: null }] : [];
+        await svPool([...poolArr, ...first, ...add]);
+        if (add.length === 1) setTimeout(() => D.openCropper(S().settings.decor.bgPool.find((p) => p.id === add[0].id)).then(() => render()), 300);
+        else toast(`Đã thêm ${add.length} ảnh vào kho — bấm ✂ trên từng ảnh để cắt.`);
+      };
+      const addCurrent = () => svPool([...poolArr, { id: newId(), path: b.path, kind: b.kind, name: b.name, crop: b.crop || null, area: b.area || 'chat', focal: b.focal || null, slot: null }]);
+      const move = (i, d) => { const L = [...poolArr], j = i + d; if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; svPool(L); };
+      const showing = (p) => !!(b && b.path === p.path);
+      const tile = (p, i) => {
+        const cr = p.crop && p.crop.w > 0 ? p.crop : null;
+        const pos = cr ? `${Math.round((cr.x + cr.w / 2) * 100)}% ${Math.round((cr.y + cr.h / 2) * 100)}%` : '50% 50%';
+        const media = p.kind === 'video' ? h('video', { src: fUrl(p.path) + '#t=0.5', muted: true, preload: 'metadata' }) : h('img', { src: fUrl(p.path), loading: 'lazy' });
+        media.style.objectPosition = pos;
+        const hours = h('select', { class: 'bp-slot', title: 'Dùng ảnh này từ mấy giờ (chế độ theo khung giờ)', onchange: (e) => svPool(poolArr.map((x) => (x.id === p.id ? { ...x, slot: e.target.value === '' ? null : +e.target.value } : x))) },
+          h('option', { value: '', text: '— giờ' }), [...Array(24)].map((_, hr) => h('option', { value: hr, text: hr + 'h', selected: p.slot === hr })));
+        return h('div', { class: 'bp-tile' + (showing(p) ? ' on' : ''), title: p.name || '' }, media,
+          h('span', { class: 'bp-n', text: (rc.mode === 'seq' ? i + 1 + ' · ' : '') + (cr ? '✂ đã cắt' : 'tự cắt') }),
+          p.kind === 'video' ? h('span', { class: 'bp-live', text: '▶ live' }) : null,
+          rc.mode === 'slot' ? hours : null,
+          h('div', { class: 'bp-acts' },
+            h('button', { title: 'Dùng ngay', text: '👁', onclick: () => R.show(p).then(() => render()) }),
+            h('button', { title: 'Cắt ảnh này', text: '✂', onclick: () => D.openCropper(p).then(() => render()) }),
+            rc.mode === 'seq' ? h('button', { title: 'Lên trước', text: '◀', onclick: () => move(i, -1) }) : null,
+            rc.mode === 'seq' ? h('button', { title: 'Ra sau', text: '▶', onclick: () => move(i, 1) }) : null,
+            h('button', { title: 'Bỏ khỏi kho (không xoá ảnh nền đang dùng)', text: '✕', onclick: () => svPool(poolArr.filter((x) => x.id !== p.id)) })));
+      };
+      const slotBar = () => {
+        const bar = h('div', { class: 'bp-tl' });
+        for (let hr = 0; hr < 24; hr++) {
+          const p = R.slotPick(poolArr, hr);
+          bar.append(h('div', { class: hr === new Date().getHours() ? 'now' : '', title: `${hr}h → ${p ? p.name || '' : 'chưa gán ảnh'}`, style: !p ? {} : p.kind === 'video' ? { background: `hsl(${(poolArr.indexOf(p) * 67) % 360} 45% 45%)` } : { backgroundImage: `url("${fUrl(p.path)}")` } }));
+        }
+        return h('div', { class: 'pad' }, bar, h('div', { class: 'bp-tlx' }, ['0h', '6h', '12h', '18h', '24h'].map((t) => h('span', { text: t }))));
+      };
+      const nextAt = rc.on && rc.mode !== 'slot' && rc.every > 0 && rc.last ? new Date(rc.last + rc.every * 60e3) : null;
+      const rotGroup = group('Tự đổi ảnh nền theo giờ', 'Gom nhiều ảnh / video vào kho, app tự đổi tuần tự, ngẫu nhiên hoặc theo khung giờ trong ngày. Mỗi ảnh có vùng cắt riêng (bấm ✂). Độ rõ, độ nhoè, kính mờ dùng chung theo mục Ảnh nền ở trên.',
+        row('Bật tự đổi', poolArr.length < 2 && rc.mode !== 'slot' ? 'Cần ít nhất 2 ảnh trong kho.' : nextAt ? `Lần đổi tới: khoảng ${String(nextAt.getHours()).padStart(2, '0')}:${String(nextAt.getMinutes()).padStart(2, '0')}.` : null, toggle(!!rc.on, (v) => svRot({ on: v, last: v ? Date.now() : rc.last }))),
+        row('Cách đổi', rc.mode === 'slot' ? 'Chọn giờ bắt đầu ở góc mỗi ảnh. Ảnh không gán giờ thì không dùng ở chế độ này.' : null, select([['seq', 'Tuần tự (theo thứ tự trong kho)'], ['rand', 'Ngẫu nhiên'], ['slot', 'Theo khung giờ trong ngày']], rc.mode, (v) => svRot({ mode: v, seen: [] }))),
+        rc.mode !== 'slot' ? row('Đổi mỗi', null, select([['5', '5 phút'], ['15', '15 phút'], ['30', '30 phút'], ['60', '1 giờ'], ['120', '2 giờ'], ['240', '4 giờ'], ['0', 'Mỗi lần mở app']], String(rc.every), (v) => svRot({ every: +v, last: Date.now() }))) : null,
+        rc.mode === 'rand' ? row('Không lặp lại', 'Ngẫu nhiên nhưng xem hết kho rồi mới quay lại ảnh cũ.', toggle(rc.noRep !== false, (v) => svRot({ noRep: v, seen: [] }))) : null,
+        row('Hiệu ứng chuyển', null, select([['fade', 'Mờ dần'], ['zoom', 'Mờ dần + phóng nhẹ'], ['none', 'Đổi ngay']], rc.fx, (v) => svRot({ fx: v }))),
+        row('Đợi rảnh mới đổi', 'Không đổi lúc bạn đang gõ hoặc Claude đang trả lời chữ — để không giật mắt.', toggle(rc.idle !== false, (v) => svRot({ idle: v }))),
+        rc.mode === 'slot' && poolArr.length ? slotBar() : null,
+        h('div', { class: 'bp-grid' }, poolArr.map(tile), h('button', { class: 'bp-tile bp-add', onclick: addFiles }, h('span', { text: '＋' }), h('small', { text: 'Thêm ảnh / video' }))),
+        h('div', { class: 'row pad' },
+          b && !poolArr.some((p) => p.path === b.path) ? btn('Thêm ảnh nền đang dùng vào kho', addCurrent) : null,
+          poolArr.length > 1 ? btn('Đổi ngay ▶', () => R.show(R.pick(1)).then(() => render())) : null));
       // --- Màu nhấn
       const SW = ['', '#d97757', '#e5484d', '#f76b15', '#ffc53d', '#30a46c', '#12a594', '#0090ff', '#3e63dd', '#8e4ec6', '#d6409f', '#ff5ca8'];
       const color = h('input', { type: 'color', value: c.accent || '#d97757', title: 'Chọn màu bất kỳ' });
@@ -252,6 +313,7 @@
         group('Chủ đề', 'Màu cho toàn bộ ứng dụng, khối code và terminal.' + (at.on ? ' Đang bật tự đổi chủ đề theo giờ (xem bên dưới).' : ''), h('div', { class: 'pad' }, themePicker(s.theme || 'system'))),
         group('Màu nhấn', 'Màu của nút, link, viền… — dùng chung với mọi chủ đề.', row('Màu', null, accentRow)),
         bgGroup,
+        rotGroup,
         group('Hiệu ứng', null,
           row('Viền cầu vồng khi Claude đang làm', 'Viền ô nhập chạy màu trong lúc Claude làm việc.', toggle(c.busyBorder, (v) => sv({ busyBorder: v }))),
           row('Logo động', 'Logo Claude khi đang chạy.', select([['off', 'Bình thường'], ['rainbow', 'Cầu vồng'], ['glow', 'Phát sáng']], c.logoFx, (v) => sv({ logoFx: v }))),

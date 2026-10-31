@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo — Con trỏ chuột & đổi ảnh nền theo giờ</title>
+<style>
+  :root { --acc: #d97757; --bg: #1e2027; --panel: #262a33; --line: #343946; --tx: #e8eaf0; --mut: #9aa1b2; --led: 63,242,255; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #14161b; color: var(--tx); font: 13.5px/1.5 "Segoe UI", system-ui, sans-serif; }
+  .top { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #14161bee; backdrop-filter: blur(6px); z-index: 50; }
+  .top h1 { font-size: 15px; margin: 0 14px 0 0; }
+  .tab { border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 9px; padding: 6px 14px; cursor: pointer; font: inherit; }
+  .tab.on { background: var(--acc); border-color: var(--acc); color: #fff; }
+  .note { color: var(--mut); font-size: 12.5px; margin-left: auto; }
+  .page { display: none; padding: 18px; gap: 18px; }
+  .page.on { display: flex; align-items: flex-start; }
+  .side { width: 330px; flex: none; display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .card h3 { margin: 0 0 8px; font-size: 13.5px; }
+  .card p { margin: 4px 0; color: var(--mut); font-size: 12.5px; }
+  .opt { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 9px; border: 1px solid transparent; cursor: pointer; }
+  .opt:hover { background: #2d323d; }
+  .opt.on { border-color: var(--acc); background: #3a2c27; }
+  .opt .ic { width: 34px; height: 34px; border-radius: 8px; background: #1b1e25; display: grid; place-items: center; flex: none; }
+  .opt b { display: block; font-size: 13px; } .opt small { color: var(--mut); font-size: 11.5px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+  .row label { color: var(--mut); font-size: 12.5px; min-width: 92px; }
+  select, input[type=number] { background: #1b1e25; color: var(--tx); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; font: inherit; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: #1b1e25; color: var(--mut); border: 0; padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .seg button.on { background: var(--acc); color: #fff; }
+  .btn { background: #2f3542; color: var(--tx); border: 1px solid var(--line); border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .btn.p { background: var(--acc); border-color: var(--acc); color: #fff; }
+  .btn:hover { filter: brightness(1.12); }
+  .sw { position: relative; width: 34px; height: 19px; border-radius: 10px; background: #3a4050; cursor: pointer; flex: none; transition: .2s; }
+  .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: .2s; }
+  .sw.on { background: #4caf6a; } .sw.on::after { left: 17px; }
+
+  /* ---------- khung app giả ---------- */
+  .stage { flex: 1; min-width: 0; }
+  .app { position: relative; height: 620px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); display: flex; background: var(--bg); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+  .app .bgl { position: absolute; inset: 0 0 0 230px; overflow: hidden; }
+  .app .bgl .im { position: absolute; inset: 0; background-repeat: no-repeat; transition: opacity 1.2s ease, transform 1.2s ease; }
+  .app .bgl .veil { position: absolute; inset: 0; background: rgba(20,22,28,.42); }
+  .sb { position: relative; width: 230px; flex: none; background: #1a1c22; border-right: 1px solid var(--line); padding: 12px 10px; z-index: 2; }
+  .sb .nw { display: block; width: 100%; text-align: left; margin-bottom: 10px; }
+  .sb .it { padding: 7px 9px; border-radius: 8px; color: #c9cdd8; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sb .it:hover { background: #262a33; } .sb .it.on { background: #2e3340; color: #fff; }
+  .sb h4 { margin: 12px 4px 4px; font-size: 11px; color: var(--mut); text-transform: uppercase; letter-spacing: .05em; }
+  .main { position: relative; flex: 1; display: flex; flex-direction: column; z-index: 2; min-width: 0; }
+  .tb { height: 42px; display: flex; align-items: center; padding: 0 14px; border-bottom: 1px solid #ffffff14; font-weight: 600; background: #1e202766; backdrop-filter: blur(8px); }
+  .tb .sp { margin-left: auto; display: flex; gap: 8px; }
+  .msgs { flex: 1; overflow: hidden; padding: 18px 26px; display: flex; flex-direction: column; gap: 12px; }
+  .m { max-width: 76%; padding: 9px 13px; border-radius: 12px; background: #262a33dd; backdrop-filter: blur(6px); }
+  .m.u { align-self: flex-end; background: #3a2c27e6; }
+  .m code { background: #0006; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .m a { color: #7ab8ff; }
+  .comp { margin: 0 22px 18px; border: 1px solid #ffffff1f; border-radius: 14px; background: #262a33e6; backdrop-filter: blur(8px); padding: 10px 12px; }
+  .comp textarea { width: 100%; background: transparent; border: 0; color: var(--tx); font: inherit; resize: none; outline: none; height: 38px; }
+  .comp .bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mut); }
+  .comp .send { margin-left: auto; width: 30px; height: 30px; border-radius: 9px; border: 0; background: var(--acc); color: #fff; cursor: pointer; }
+  .busy-dot { display: none; width: 8px; height: 8px; border-radius: 50%; background: var(--acc); animation: bl 1s infinite; } .busy .busy-dot { display: inline-block; }
+  @keyframes bl { 50% { opacity: .3; } }
+  .perm { display: none; border: 1px solid #ffbc46; background: #3a3220e6; border-radius: 12px; padding: 10px 13px; }
+  .perm.on { display: block; } .perm .row { margin-top: 8px; }
+
+  /* ---------- con trỏ tuỳ chỉnh ---------- */
+  .app.cur-custom, .app.cur-custom * { cursor: none !important; }
+  #cur { position: absolute; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
+  #cur canvas { position: absolute; inset: 0; }
+  .c-el { position: absolute; left: 0; top: 0; will-change: transform; }
+  .c-dot { width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 10px var(--acc); }
+  .c-ring { width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 2px solid #ffffffb0; transition: width .18s, height .18s, margin .18s, border-radius .18s, border-color .18s, background .18s; }
+  .c-ring.hov { width: 52px; height: 52px; margin: -26px 0 0 -26px; border-color: var(--acc); background: #d9775722; }
+  .c-ring.txt { width: 4px; height: 26px; margin: -13px 0 0 -2px; border-radius: 2px; border-color: transparent; background: #fff; }
+  .c-ring.down { width: 24px; height: 24px; margin: -12px 0 0 -12px; }
+  .c-ring.busy { border-color: transparent; border-top-color: var(--acc); border-right-color: var(--acc); animation: spin .8s linear infinite; }
+  .c-ring.ask { border-color: #ffbc46; box-shadow: 0 0 0 4px #ffbc4633; }
+  @keyframes spin { to { rotate: 360deg; } }
+  .c-svg { margin: -2px 0 0 -2px; transform-origin: 2px 2px; }
+  .c-spark { margin: -14px 0 0 -14px; }
+  .c-spark svg { transition: transform .25s; } .c-spark.hov svg { transform: scale(1.35) rotate(25deg); } .c-spark.busy svg { animation: spin 1.4s linear infinite; }
+  .pop { position: absolute; pointer-events: none; font-size: 13px; animation: pop .7s ease-out forwards; }
+  @keyframes pop { to { transform: translate(var(--dx), var(--dy)) scale(.4); opacity: 0; } }
+  .ripple { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; border: 2px solid var(--acc); animation: rp .5s ease-out forwards; pointer-events: none; }
+  @keyframes rp { to { transform: scale(5); opacity: 0; } }
+  .c-cross { width: 26px; height: 26px; margin: -13px 0 0 -13px; }
+  .c-cross::before, .c-cross::after { content: ""; position: absolute; background: #7df9ff; box-shadow: 0 0 6px #7df9ff; }
+  .c-cross::before { left: 12px; top: 0; width: 2px; height: 26px; } .c-cross::after { top: 12px; left: 0; height: 2px; width: 26px; }
+  .c-cross.hov { transform-origin: center; } .c-coord { font: 10px Consolas, monospace; color: #7df9ff; margin: 14px 0 0 14px; white-space: nowrap; text-shadow: 0 0 4px #000; }
+
+  /* ---------- đổi ảnh nền ---------- */
+  .pool { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .pi { position: relative; border-radius: 9px; overflow: hidden; border: 2px solid transparent; background: #1b1e25; aspect-ratio: 16/10; cursor: grab; }
+  .pi.cur { border-color: var(--acc); }
+  .pi.dragging { opacity: .4; }
+  .pi .th { position: absolute; inset: 0; background-repeat: no-repeat; }
+  .pi .n { position: absolute; left: 4px; top: 4px; background: #000a; border-radius: 6px; padding: 0 6px; font-size: 11px; }
+  .pi .vd { position: absolute; right: 4px; top: 4px; background: #000a; border-radius: 6px; padding: 0 5px; font-size: 11px; }
+  .pi .acts { position: absolute; inset: auto 0 0 0; display: flex; gap: 4px; padding: 4px; background: linear-gradient(transparent, #000c); opacity: 0; transition: .15s; }
+  .pi:hover .acts { opacity: 1; }
+  .pi .acts button { flex: 1; font-size: 11px; padding: 2px 0; border-radius: 6px; border: 0; background: #ffffff26; color: #fff; cursor: pointer; }
+  .pi .slot { position: absolute; right: 4px; bottom: 4px; font-size: 10.5px; background: #2f7fd6; border-radius: 6px; padding: 0 5px; }
+  .pi:hover .slot { opacity: 0; }
+  .pi.add { display: grid; place-items: center; border: 2px dashed var(--line); cursor: pointer; color: var(--mut); font-size: 12px; text-align: center; }
+  .clock { font: 600 22px Consolas, monospace; letter-spacing: .03em; }
+  .hud { position: absolute; right: 14px; top: 52px; z-index: 5; background: #000a; border-radius: 10px; padding: 6px 10px; font-size: 12px; color: #dfe3ec; backdrop-filter: blur(6px); }
+  .hud b { color: #fff; }
+
+  /* hộp cắt ảnh */
+  .modal { position: fixed; inset: 0; background: #000b; display: none; place-items: center; z-index: 100; }
+  .modal.on { display: grid; }
+  .mbox { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; width: min(980px, 94vw); }
+  .mbox h3 { margin: 0 0 10px; }
+  .cropwrap { display: flex; gap: 14px; }
+  .cropsrc { position: relative; flex: 1.4; background: #111; border-radius: 10px; overflow: hidden; display: grid; place-items: center; height: 440px; }
+  .cropsrc .img { position: relative; }
+  .cropsrc .img > div:first-child { position: absolute; inset: 0; background-size: 100% 100%; }
+  .cbox { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px #000a; cursor: move; }
+  .cbox i { position: absolute; width: 12px; height: 12px; background: #fff; border-radius: 3px; }
+  .cbox i[data-h=nw] { left: -7px; top: -7px; cursor: nwse-resize; } .cbox i[data-h=ne] { right: -7px; top: -7px; cursor: nesw-resize; }
+  .cbox i[data-h=sw] { left: -7px; bottom: -7px; cursor: nesw-resize; } .cbox i[data-h=se] { right: -7px; bottom: -7px; cursor: nwse-resize; }
+  .cbox::before, .cbox::after { content: ""; position: absolute; border: 0 dashed #ffffff55; inset: 0; }
+  .cbox::before { left: 33.3%; right: 33.3%; border-width: 0 1px; } .cbox::after { top: 33.3%; bottom: 33.3%; border-width: 1px 0; }
+  .cropside { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .cprev { position: relative; border-radius: 10px; overflow: hidden; aspect-ratio: 16/10; background: #111; border: 1px solid var(--line); }
+  .cprev .im { position: absolute; inset: 0; background-repeat: no-repeat; }
+  .cprev .fake { position: absolute; left: 8%; right: 8%; bottom: 8%; height: 14%; border-radius: 8px; background: #262a33cc; }
+  .cprev .fake2 { position: absolute; left: 8%; top: 12%; width: 46%; height: 10%; border-radius: 8px; background: #262a33cc; }
+  .tl { display: grid; grid-template-columns: repeat(24, 1fr); height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .tl div { border-right: 1px solid #0003; }
+  .tlx { display: flex; justify-content: space-between; color: var(--mut); font-size: 10.5px; margin-top: 2px; }
+  .kv { color: var(--mut); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Demo · Con trỏ chuột & đổi ảnh nền theo giờ</h1>
+  <button class="tab on" data-p="cur">🖱️ Kiểu con trỏ</button>
+  <button class="tab" data-p="bg">🖼️ Đổi ảnh nền theo giờ</button>
+  <span class="note">Bản demo — chưa đụng vào app. Rê chuột vào khung app bên phải để thử.</span>
+</div>
+
+<!-- ============ TRANG 1: CON TRỎ ============ -->
+<div class="page on" id="p-cur">
+  <div class="side">
+    <div class="card"><h3>Chọn kiểu con trỏ</h3><div id="curList"></div></div>
+    <div class="card">
+      <h3>Thử trạng thái Claude</h3>
+      <p>Một vài kiểu đổi theo việc Claude đang làm.</p>
+      <div class="row"><span class="sw" id="swBusy"></span><span>Claude đang chạy</span></div>
+      <div class="row"><span class="sw" id="swAsk"></span><span>Claude đang xin quyền</span></div>
+      <div class="row"><label>Màu nhấn</label><input type="color" id="accent" value="#d97757"></div>
+    </div>
+    <div class="card"><h3>Khi làm thật</h3>
+      <p>• Cài đặt › Giao diện › <b>Con trỏ chuột</b>: chọn kiểu + màu (mặc định: hệ thống).</p>
+      <p>• Chỉ đổi trong cửa sổ app; ô nhập vẫn hiện con trỏ chữ cho dễ gõ.</p>
+      <p>• Vẽ bằng lớp phủ nhẹ, tự tắt khi bật "Giảm hiệu ứng" hoặc cửa sổ ẩn.</p>
+      <p>• Kiểu "Đuôi sao chổi" thay cho "Vệt sáng theo con trỏ" hiện có.</p>
+    </div>
+  </div>
+  <div class="stage"><div class="app" id="app1"></div></div>
+</div>
+
+<!-- ============ TRANG 2: ĐỔI ẢNH NỀN ============ -->
+<div class="page" id="p-bg">
+  <div class="side">
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Tự đổi ảnh nền</h3><span class="sw on" id="swRot"></span></div>
+      <div class="row"><label>Cách đổi</label><div class="seg" id="segMode"><button data-v="seq" class="on">Tuần tự</button><button data-v="rand">Ngẫu nhiên</button><button data-v="slot">Theo khung giờ</button></div></div>
+      <div class="row" id="rowEvery"><label>Đổi mỗi</label><select id="selEvery"><option value="5">5 phút</option><option value="15">15 phút</option><option value="30" selected>30 phút</option><option value="60">1 giờ</option><option value="120">2 giờ</option><option value="0">Mỗi lần mở app</option></select></div>
+      <div class="row"><label>Hiệu ứng</label><select id="selFx"><option value="fade">Mờ dần</option><option value="zoom">Mờ + phóng nhẹ</option><option value="slide">Trượt ngang</option><option value="none">Không</option></select></div>
+      <div class="row" id="rowNoRep"><span class="sw on" id="swNoRep"></span><span class="kv">Ngẫu nhiên: không lặp lại ảnh cho tới khi xem hết kho</span></div>
+      <div class="row"><span class="sw on" id="swIdle"></span><span class="kv">Không đổi khi bạn đang gõ / Claude đang trả lời (đợi rảnh)</span></div>
+      <div id="slotHelp" class="kv" style="display:none">Theo khung giờ: bấm nút 🕘 trên từng ảnh để gán giờ bắt đầu. Ảnh không gán giờ không dùng ở chế độ này.<div class="tl" id="tl" style="margin-top:8px"></div><div class="tlx"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span></div></div>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Kho ảnh (<span id="poolN"></span>)</h3><span class="kv">kéo để đổi thứ tự</span></div>
+      <div class="pool" id="pool"></div>
+      <input type="file" id="file" accept="image/*,video/*" multiple hidden>
+      <p style="margin-top:8px">Mỗi ảnh / video có <b>vùng cắt riêng</b> (bấm ✂). Ảnh dọc hay ảnh rộng đều cắt vừa khung chat.</p>
+    </div>
+    <div class="card">
+      <h3>Đồng hồ giả lập</h3>
+      <div class="row"><span class="clock" id="clock"></span><span class="kv" id="nextIn"></span></div>
+      <div class="row"><label>Tua nhanh</label><div class="seg" id="segSpeed"><button data-v="1">x1</button><button data-v="60" class="on">x60</button><button data-v="600">x600</button></div></div>
+      <div class="row"><button class="btn" id="btnPrev">◀ Ảnh trước</button><button class="btn p" id="btnNext">Ảnh tiếp ▶</button></div>
+    </div>
+  </div>
+  <div class="stage"><div class="app" id="app2"></div></div>
+</div>
+
+<!-- hộp cắt ảnh -->
+<div class="modal" id="cropM"><div class="mbox">
+  <h3 id="cropT">Cắt ảnh</h3>
+  <div class="cropwrap">
+    <div class="cropsrc" id="cropSrc"></div>
+    <div class="cropside">
+      <div class="kv">Xem trước trong khung chat:</div>
+      <div class="cprev"><div class="im" id="cropPrev"></div><div class="fake2"></div><div class="fake"></div></div>
+      <div class="row"><label>Tỉ lệ</label><div class="seg" id="segRatio"><button data-v="chat" class="on">Khung chat</button><button data-v="win">Cả cửa sổ</button><button data-v="free">Tự do</button></div></div>
+      <div class="row"><button class="btn" id="cropAuto">✨ Tự tìm chủ thể</button><button class="btn" id="cropFull">Toàn bộ ảnh</button></div>
+      <div class="kv" id="cropInfo"></div>
+      <div class="row" style="margin-top:auto;justify-content:flex-end"><button class="btn" id="cropCancel">Huỷ</button><button class="btn p" id="cropOk">Lưu vùng cắt</button></div>
+    </div>
+  </div>
+</div></div>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const h = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k === 'html') e.innerHTML = v; else if (k === 'text') e.textContent = v; else if (k.startsWith('on')) e[k] = v; else if (k === 'style') Object.assign(e.style, v); else e.setAttribute(k, v); } for (const c of kids.flat()) if (c != null) e.append(c); return e; };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+$$('.tab').forEach((t) => t.onclick = () => { $$('.tab').forEach((x) => x.classList.toggle('on', x === t)); $$('.page').forEach((p) => p.classList.toggle('on', p.id === 'p-' + t.dataset.p)); });
+
+// ---------- khung app giả (dùng chung cho 2 trang) ----------
+function buildApp(root) {
+  root.append(
+    h('div', { class: 'bgl' }, h('div', { class: 'im a' }), h('div', { class: 'im b', style: { opacity: 0 } }), h('div', { class: 'veil' })),
+    h('div', { class: 'sb' }, h('button', { class: 'btn nw', text: '＋ Phiên mới' }), h('h4', { text: 'Đã đánh dấu' }),
+      ...['★ Công Thành Chiến', '★ Tìm tài liệu cửa hàng'].map((t) => h('div', { class: 'it', text: t })), h('h4', { text: 'vo-lam-genz' }),
+      ...['Commit các thay đổi', 'Soát đua luồng kết thúc phiên', 'Bot cho Battle Royale', 'Review thay đổi git'].map((t, i) => h('div', { class: 'it' + (i === 0 ? ' on' : ''), text: t }))),
+    h('div', { class: 'main' },
+      h('div', { class: 'tb' }, h('span', { text: 'Commit các thay đổi' }), h('span', { class: 'sp' }, h('span', { class: 'busy-dot' }), h('button', { class: 'btn', text: 'Git' }), h('button', { class: 'btn', text: 'Chi tiết' }))),
+      h('div', { class: 'msgs' },
+        h('div', { class: 'm u', text: 'Commit hết các thay đổi trong repo rồi push lên nhé' }),
+        h('div', { class: 'm', html: 'Mình đã xem <code>git status</code>: có 5 tệp thay đổi trong <code>src/</code>. Mình sẽ gom thành 2 commit theo tính năng. Xem chi tiết ở <a href="#">bảng Git</a>.' }),
+        h('div', { class: 'perm' }, h('b', { text: '⚠ Claude xin chạy lệnh' }), h('div', { html: '<code>git push origin main</code>' }), h('div', { class: 'row' }, h('button', { class: 'btn p', text: 'Cho phép' }), h('button', { class: 'btn', text: 'Từ chối' })))),
+      h('div', { class: 'comp' }, h('textarea', { placeholder: 'Giao việc cho Claude…' }), h('div', { class: 'bar' }, h('span', { text: '📁 vo-lam-genz' }), h('span', { text: 'Sonnet 5.5 · Cao' }), h('button', { class: 'send', text: '↑' })))));
+  return root;
+}
+
+// =====================================================================
+// TRANG 1 — KIỂU CON TRỎ
+// =====================================================================
+const app1 = buildApp($('#app1'));
+const curLayer = h('div', { id: 'cur' }); app1.append(curLayer);
+const CURS = [
+  { id: 'sys', name: 'Hệ thống', desc: 'Con trỏ mặc định của Windows', ic: '🖱️' },
+  { id: 'ring', name: 'Chấm + vòng trễ', desc: 'Vòng đi theo hơi trễ, phồng to trên nút, thành vạch khi vào ô nhập', ic: '◎' },
+  { id: 'spark', name: 'Tia Claude', desc: 'Logo Claude cam; quay khi Claude đang chạy, toé tia khi bấm', ic: '✳️' },
+  { id: 'comet', name: 'Đuôi sao chổi', desc: 'Đầu sáng kéo vệt màu nhấn, nhạt dần', ic: '☄️' },
+  { id: 'pixel', name: 'Pixel 8-bit', desc: 'Mũi tên / bàn tay pixel kiểu game cổ', ic: '👾' },
+  { id: 'robot', name: 'Tay robot', desc: 'Găng tay robot, móng LED cùng màu mắt linh vật', ic: '🤖' },
+  { id: 'cross', name: 'Ống ngắm neon', desc: 'Dấu cộng neon kèm toạ độ — kiểu dev / HUD', ic: '✛' },
+  { id: 'status', name: 'Theo trạng thái', desc: 'Mũi tên thường + vòng nhỏ: quay khi Claude chạy, vàng khi chờ quyền', ic: '⏳' },
+];
+let cur = 'ring', busy = false, ask = false, mx = -100, my = -100, rx = -100, ry = -100, inside = false, hovEl = null, down = false;
+const list = $('#curList');
+for (const c of CURS) list.append(h('div', { class: 'opt' + (c.id === cur ? ' on' : ''), 'data-id': c.id, onclick: () => setCur(c.id) }, h('div', { class: 'ic', text: c.ic }), h('div', {}, h('b', { text: c.name }), h('small', { text: c.desc }))));
+const SPARK = (col) => `<svg width="28" height="28" viewBox="-14 -14 28 28">${[...Array(10)].map((_, i) => `<rect x="-1.6" y="-13" width="3.2" height="${i % 2 ? 9 : 13}" rx="1.6" fill="${col}" transform="rotate(${i * 36})"/>`).join('')}</svg>`;
+const PIX_ARROW = '<svg width="22" height="30" viewBox="0 0 11 15" shape-rendering="crispEdges"><path fill="#000" d="M0 0h1v1H0zM0 1h1v1H0zM0 2h1v1H0zM0 3h1v1H0zM0 4h1v1H0zM0 5h1v1H0zM0 6h1v1H0zM0 7h1v1H0zM0 8h1v1H0zM0 9h1v1H0zM0 10h1v1H0zM0 11h1v1H0zM1 1h1v1H1zM2 2h1v1H2zM3 3h1v1H3zM4 4h1v1H4zM5 5h1v1H5zM6 6h1v1H6zM7 7h1v1H7zM8 8h1v1H8zM9 9h1v1H9zM5 9h4v1H5zM1 11h1v1H1zM2 10h1v1H2zM3 10h1v1H3zM4 10h1v1H4zM3 11h1v2H3zM4 12h1v2H4zM5 12h1v2H5zM6 11h1v2H6zM6 10h1v1H6zM5 13h1v1H5z"/><path fill="#fff" d="M1 2h1v9H1zM2 3h1v7H2zM3 4h1v6H3zM4 5h1v5H4zM5 6h1v3H5zM6 7h1v2H6zM7 8h1v1H7zM4 11h1v1H4zM5 10h1v2H5z"/></svg>';
+const PIX_HAND = '<svg width="26" height="30" viewBox="0 0 13 15" shape-rendering="crispEdges"><path fill="#000" d="M4 0h2v1H4zM3 1h1v6H3zM6 1h1v4H6zM7 4h2v1H7zM9 5h1v1H9zM10 5h1v1h-1zM10 6h1v1h-1zM11 6h1v5h-1zM1 6h2v1H1zM0 7h1v3H0zM1 10h1v1H1zM2 11h1v1H2zM3 12h1v2H3zM4 14h6v1H4zM10 11h1v3h-1z"/><path fill="#fff" d="M4 1h2v6H4zM6 5h3v6H6zM9 6h2v5H9zM1 7h2v3H1zM2 10h1v1H2zM3 7h1v5H3zM2 10h2v1H2zM4 7h2v7H4zM3 12h7v2H3zM6 11h4v1H6z"/></svg>';
+const ROBO = (led, hov) => `<svg width="30" height="34" viewBox="0 0 30 34"><path d="M2 2 L2 24 L8 19 L12 29 L16.5 27 L12.5 17.5 L20 17.5 Z" fill="#2b313c" stroke="#8b929e" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 7 L5 18" stroke="rgb(${led})" stroke-width="2" stroke-linecap="round" opacity="${hov ? 1 : .75}"/><circle cx="5" cy="5" r="1.8" fill="rgb(${led})"/>${hov ? `<circle cx="5" cy="5" r="4" fill="none" stroke="rgb(${led})" stroke-width="1" opacity=".6"/>` : ''}</svg>`;
+let els = {};
+const cv = h('canvas'); const cx = cv.getContext('2d'); let trail = [];
+function setCur(id) {
+  cur = id; $$('#curList .opt').forEach((o) => o.classList.toggle('on', o.dataset.id === id));
+  curLayer.innerHTML = ''; els = {}; trail = [];
+  app1.classList.toggle('cur-custom', id !== 'sys');
+  if (id === 'ring' || id === 'status') { els.ring = h('div', { class: 'c-el c-ring', style: id === 'status' ? { width: '18px', height: '18px', margin: '6px 0 0 6px', borderWidth: '2px' } : {} }); els.dot = id === 'ring' ? h('div', { class: 'c-el c-dot' }) : h('div', { class: 'c-el c-svg', html: '<svg width="18" height="24" viewBox="0 0 18 24"><path d="M1 1 L1 19 L6 15 L9.5 22.5 L13 21 L9.5 13.5 L16 13.5 Z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>' }); curLayer.append(els.ring, els.dot); }
+  if (id === 'spark') { els.sp = h('div', { class: 'c-el c-spark', html: SPARK(getComputedStyle(document.documentElement).getPropertyValue('--acc').trim() || '#d97757') }); curLayer.append(els.sp); }
+  if (id === 'comet') { curLayer.append(cv); els.head = h('div', { class: 'c-el c-dot', style: { width: '10px', height: '10px', margin: '-5px 0 0 -5px', background: '#fff' } }); curLayer.append(els.head); }
+  if (id === 'pixel') { els.px = h('div', { class: 'c-el c-svg', html: PIX_ARROW }); curLayer.append(els.px); }
+  if (id === 'robot') { els.rb = h('div', { class: 'c-el c-svg', html: ROBO(getComputedStyle(document.documentElement).getPropertyValue('--led'), false) }); curLayer.append(els.rb); }
+  if (id === 'cross') { els.cr = h('div', { class: 'c-el c-cross' }); els.co = h('div', { class: 'c-el c-coord' }); curLayer.append(els.cr, els.co); }
+}
+const isHov = (e) => !!(e && e.closest && e.closest('button, a, .it, .opt, .send'));
+const isTxt = (e) => !!(e && e.closest && e.closest('textarea, input'));
+app1.addEventListener('pointermove', (e) => { const r = app1.getBoundingClientRect(); mx = e.clientX - r.left; my = e.clientY - r.top; inside = true; hovEl = e.target; });
+app1.addEventListener('pointerleave', () => { inside = false; });
+app1.addEventListener('pointerdown', (e) => {
+  down = true; if (cur === 'sys') return;
+  const led = getComputedStyle(document.documentElement).getPropertyValue('--led');
+  if (cur === 'spark' || cur === 'robot' || cur === 'pixel') for (let i = 0; i < 7; i++) {
+    const a = Math.random() * 6.28, d = 18 + Math.random() * 22;
+    const e2 = h('div', { class: 'pop', text: cur === 'pixel' ? '▪' : cur === 'robot' ? '•' : '✦', style: { left: mx + 'px', top: my + 'px', color: cur === 'robot' ? `rgb(${led})` : 'var(--acc)' } });
+    e2.style.setProperty('--dx', Math.cos(a) * d + 'px'); e2.style.setProperty('--dy', Math.sin(a) * d + 'px');
+    e2.onanimationend = () => e2.remove(); curLayer.append(e2);
+  } else { const r2 = h('div', { class: 'ripple', style: { left: mx + 'px', top: my + 'px' } }); r2.onanimationend = () => r2.remove(); curLayer.append(r2); }
+});
+addEventListener('pointerup', () => { down = false; });
+$('#swBusy').onclick = function () { busy = !busy; this.classList.toggle('on', busy); app1.classList.toggle('busy', busy); };
+$('#swAsk').onclick = function () { ask = !ask; this.classList.toggle('on', ask); $('.perm', app1).classList.toggle('on', ask); };
+$('#accent').oninput = (e) => { document.documentElement.style.setProperty('--acc', e.target.value); if (cur === 'spark') setCur('spark'); };
+function frame() {
+  requestAnimationFrame(frame);
+  if (cur === 'sys') return;
+  const vis = inside ? '' : 'hidden';
+  rx += (mx - rx) * .2; ry += (my - ry) * .2;
+  const T = (el, x, y, extra = '') => { if (el) { el.style.transform = `translate(${x}px, ${y}px) ${extra}`; el.style.visibility = vis; } };
+  const hov = isHov(hovEl), txt = isTxt(hovEl);
+  if (cur === 'ring') { els.ring.className = 'c-el c-ring' + (txt ? ' txt' : hov ? ' hov' : '') + (down ? ' down' : '') + (busy && !txt && !hov ? ' busy' : '') + (ask && !txt && !hov ? ' ask' : ''); T(els.ring, txt ? mx : rx, txt ? my : ry); T(els.dot, mx, my); els.dot.style.opacity = txt ? 0 : 1; }
+  if (cur === 'status') { els.ring.className = 'c-el c-ring' + (busy ? ' busy' : '') + (ask ? ' ask' : ''); els.ring.style.opacity = busy || ask ? 1 : 0; T(els.ring, mx, my); T(els.dot, mx, my); els.dot.innerHTML = txt ? '<svg width="12" height="24" viewBox="0 0 12 24"><path d="M2 2h8M6 2v20M2 22h8" stroke="#fff" stroke-width="2.2"/><path d="M2 2h8M6 2v20M2 22h8" stroke="#000" stroke-width=".8"/></svg>' : hov ? '<svg width="22" height="24" viewBox="0 0 22 24"><path d="M7 11V3.5a1.8 1.8 0 0 1 3.6 0V10l1-.2a1.8 1.8 0 0 1 3.4.6l.6-.1a1.8 1.8 0 0 1 2.8 1.5V16c0 4-2.6 6.5-6.5 6.5S5 20.5 3.6 18L1.4 13.6a1.7 1.7 0 0 1 2.8-1.9Z" fill="#fff" stroke="#000" stroke-width="1.2"/></svg>' : '<svg width="18" height="24" viewBox="0 0 18 24"><path d="M1 1 L1 19 L6 15 L9.5 22.5 L13 21 L9.5 13.5 L16 13.5 Z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>'; }
+  if (cur === 'spark') { els.sp.className = 'c-el c-spark' + (hov ? ' hov' : '') + (busy ? ' busy' : ''); T(els.sp, mx, my, txt ? 'scale(.6)' : ''); }
+  if (cur === 'pixel') { const want = hov ? 'hand' : 'arrow'; if (els.px.dataset.k !== want) { els.px.dataset.k = want; els.px.innerHTML = hov ? PIX_HAND : PIX_ARROW; } T(els.px, Math.round(mx / 2) * 2 - (hov ? 8 : 0), Math.round(my / 2) * 2); }
+  if (cur === 'robot') { const k = String(hov); if (els.rb.dataset.k !== k) { els.rb.dataset.k = k; els.rb.innerHTML = ROBO(getComputedStyle(document.documentElement).getPropertyValue('--led'), hov); } T(els.rb, mx, my, down ? 'scale(.9)' : ''); }
+  if (cur === 'cross') { T(els.cr, mx, my, hov ? 'rotate(45deg)' : ''); T(els.co, mx, my); els.co.textContent = `${Math.round(mx)}, ${Math.round(my)}${hov ? ' · click' : ''}`; }
+  if (cur === 'comet') {
+    const r = app1.getBoundingClientRect(); if (cv.width !== r.width) { cv.width = r.width; cv.height = r.height; }
+    if (inside) trail.push({ x: mx, y: my, t: performance.now() });
+    const now = performance.now(); trail = trail.filter((p) => now - p.t < 420);
+    cx.clearRect(0, 0, cv.width, cv.height);
+    const acc = getComputedStyle(document.documentElement).getPropertyValue('--acc').trim();
+    for (let i = 1; i < trail.length; i++) { const a = trail[i - 1], b = trail[i], k = 1 - (now - b.t) / 420; cx.strokeStyle = acc; cx.globalAlpha = k * .9; cx.lineWidth = 1 + k * 7; cx.lineCap = 'round'; cx.beginPath(); cx.moveTo(a.x, a.y); cx.lineTo(b.x, b.y); cx.stroke(); }
+    cx.globalAlpha = 1; T(els.head, mx, my, hov ? 'scale(1.8)' : '');
+  }
+}
+setCur('ring'); frame();
+
+// =====================================================================
+// TRANG 2 — ĐỔI ẢNH NỀN THEO GIỜ
+// =====================================================================
+// ảnh mẫu vẽ bằng SVG (có cả ảnh dọc để thấy vì sao cần cắt riêng từng ảnh)
+function svgUrl(w, hh, body) { return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hh}" viewBox="0 0 ${w} ${hh}">${body}</svg>`); }
+const mount = (w, hh, y, col, amp, seed) => { let d = `M0 ${hh}`; for (let x = 0; x <= w; x += w / 24) d += ` L${x} ${y - Math.abs(Math.sin(x / w * 7 + seed)) * amp - Math.sin(x / w * 23 + seed) * amp * .25}`; return `<path d="${d} L${w} ${hh} Z" fill="${col}"/>`; };
+const SAMPLES = [
+  { name: 'Hoàng hôn núi', w: 1600, h: 1000, slot: 17, svg: (w, hh) => `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b1a4f"/><stop offset=".55" stop-color="#e2725b"/><stop offset="1" stop-color="#ffcf7a"/></linearGradient></defs><rect width="${w}" height="${hh}" fill="url(#g)"/><circle cx="${w * .62}" cy="${hh * .6}" r="${hh * .12}" fill="#ffe6a8"/>${mount(w, hh, hh * .78, '#5a2e4f', 160, 1)}${mount(w, hh, hh * .9, '#2e1a33', 120, 4)}` },
+  { name: 'Phố đêm (ảnh dọc)', w: 900, h: 1500, slot: 21, svg: (w, hh) => `<rect width="${w}" height="${hh}" fill="#0d1030"/>${[...Array(60)].map((_, i) => `<circle cx="${(i * 97) % w}" cy="${(i * 53) % (hh * .45)}" r="${1 + (i % 3) * .6}" fill="#fff" opacity=".7"/>`).join('')}<circle cx="${w * .72}" cy="${hh * .16}" r="60" fill="#f4f1c8"/>${[...Array(12)].map((_, i) => { const bw = 60 + (i * 37) % 70, bh = 300 + (i * 131) % 520, x = (i * 83) % w; return `<rect x="${x}" y="${hh - bh}" width="${bw}" height="${bh}" fill="#1b1f4a"/>` + [...Array(18)].map((__, j) => `<rect x="${x + 10 + (j % 3) * 18}" y="${hh - bh + 20 + Math.floor(j / 3) * 40}" width="9" height="14" fill="${(i + j) % 4 ? '#ffd76a' : '#2a2f66'}"/>`).join(''); }).join('')}` },
+  { name: 'Rừng sáng sớm', w: 1600, h: 1000, slot: 6, svg: (w, hh) => `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfe9e4"/><stop offset="1" stop-color="#7fb59a"/></linearGradient></defs><rect width="${w}" height="${hh}" fill="url(#g)"/>${[...Array(26)].map((_, i) => { const x = (i * 71) % w, s = 0.6 + (i % 5) * .2, c = ['#2f5d4a', '#3d7a5c', '#24493a'][i % 3]; return `<path d="M${x} ${hh * .95} l${-60 * s} 0 l${60 * s} ${-260 * s} l${60 * s} ${260 * s} z" fill="${c}" opacity="${.6 + (i % 4) * .1}"/>`; }).join('')}<rect y="${hh * .93}" width="${w}" height="${hh * .07}" fill="#24493a"/>` },
+  { name: 'Biển trưa', w: 1920, h: 1080, slot: 11, svg: (w, hh) => `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5ab0ff"/><stop offset=".55" stop-color="#bfe3ff"/><stop offset=".56" stop-color="#1f7fc4"/><stop offset="1" stop-color="#0c4a7a"/></linearGradient></defs><rect width="${w}" height="${hh}" fill="url(#g)"/><circle cx="${w * .2}" cy="${hh * .2}" r="70" fill="#fff6c9"/>${[...Array(14)].map((_, i) => `<path d="M${(i * 157) % w} ${hh * .6 + (i % 7) * 50} q 40 -14 80 0" stroke="#ffffff88" stroke-width="5" fill="none"/>`).join('')}<path d="M${w * .55} ${hh * .55} l 30 -120 l 70 120 z" fill="#fff"/><rect x="${w * .55 - 10}" y="${hh * .55}" width="130" height="18" rx="6" fill="#7a4a2a"/>` },
+  { name: 'Cực quang (siêu rộng)', w: 2600, h: 900, slot: 0, svg: (w, hh) => `<rect width="${w}" height="${hh}" fill="#06121f"/>${[...Array(5)].map((_, i) => `<path d="M0 ${hh * (.3 + i * .05)} C ${w * .25} ${hh * (.05 + i * .06)}, ${w * .55} ${hh * (.55 - i * .04)}, ${w} ${hh * (.2 + i * .05)}" stroke="${['#3cf2a0', '#5ad1ff', '#a77bff', '#3cf2a0', '#7affd4'][i]}" stroke-width="${60 - i * 8}" fill="none" opacity=".35"/>`).join('')}${mount(w, hh, hh * .9, '#0b1a2a', 90, 2)}` },
+];
+const pool = SAMPLES.map((s, i) => ({ id: 'p' + i, name: s.name, url: svgUrl(s.w, s.h, s.svg(s.w, s.h)), iw: s.w, ih: s.h, kind: 'image', crop: null, slot: s.slot }));
+let curIdx = 0, seen = new Set([0]), mode = 'seq', every = 30, fx = 'fade', noRep = true, idleWait = true, rotOn = true, speed = 60;
+let simT = new Date(); simT.setHours(9, 0, 0, 0); let lastSwitch = simT.getTime(), layerA = true;
+const app2 = buildApp($('#app2'));
+const hud = h('div', { class: 'hud' }); app2.append(hud);
+const CHAT_RATIO = () => { const b = $('.bgl', app2).getBoundingClientRect(); return b.width / b.height || 1.6; };
+
+// gợi ý vùng cắt: giữ giữa ảnh theo tỉ lệ khung (giống suggestCrop của app, bản đơn giản)
+function autoCrop(p, ratio) { const ir = p.iw / p.ih; let w = 1, hh = 1; if (ir > ratio) w = ratio / ir; else hh = ir / ratio; return { x: (1 - w) / 2, y: (1 - hh) / 2 * .8, w, h: hh }; }
+// đặt ảnh vào khung theo vùng cắt: phần trong khung cắt phủ kín khung
+function placeBg(el, p, box) {
+  const c = p.crop || autoCrop(p, box.width / box.height);
+  const sc = Math.max(box.width / (c.w * p.iw), box.height / (c.h * p.ih));
+  el.style.backgroundImage = `url("${p.url}")`;
+  el.style.backgroundSize = `${p.iw * sc}px ${p.ih * sc}px`;
+  el.style.backgroundPosition = `${box.width / 2 - (c.x + c.w / 2) * p.iw * sc}px ${box.height / 2 - (c.y + c.h / 2) * p.ih * sc}px`;
+}
+function showBg(idx, animate = true) {
+  const p = pool[idx]; if (!p) return;
+  const [a, b] = $$('.bgl .im', app2), inc = layerA ? b : a, out = layerA ? a : b; layerA = !layerA;
+  const box = $('.bgl', app2).getBoundingClientRect();
+  placeBg(inc, p, box);
+  inc.style.transition = 'none'; out.style.transition = animate && fx !== 'none' ? '' : 'none';
+  inc.style.opacity = 0; inc.style.transform = fx === 'zoom' ? 'scale(1.08)' : fx === 'slide' ? 'translateX(6%)' : '';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    inc.style.transition = animate && fx !== 'none' ? '' : 'none';
+    inc.style.opacity = 1; inc.style.transform = ''; out.style.opacity = 0; out.style.transform = fx === 'slide' ? 'translateX(-6%)' : '';
+  }));
+  curIdx = idx; seen.add(idx); renderPool();
+}
+function pickNext(dir = 1) {
+  if (!pool.length) return 0;
+  if (mode === 'seq') return (curIdx + dir + pool.length) % pool.length;
+  if (mode === 'slot') return slotIdx(simT.getHours());
+  let cand = pool.map((_, i) => i).filter((i) => i !== curIdx && (!noRep || !seen.has(i)));
+  if (!cand.length) { seen = new Set([curIdx]); cand = pool.map((_, i) => i).filter((i) => i !== curIdx); }
+  return cand[Math.floor(Math.random() * cand.length)] ?? curIdx;
+}
+function slotIdx(hr) { const s = pool.map((p, i) => ({ i, s: p.slot })).filter((x) => x.s != null).sort((a, b) => a.s - b.s); if (!s.length) return curIdx; let best = s[s.length - 1]; for (const x of s) if (x.s <= hr) best = x; return best.i; }
+function renderPool() {
+  const box = $('#pool'); box.innerHTML = ''; $('#poolN').textContent = pool.length;
+  pool.forEach((p, i) => {
+    const th = h('div', { class: 'th' });
+    const it = h('div', { class: 'pi' + (i === curIdx ? ' cur' : ''), draggable: 'true' }, th, h('span', { class: 'n', text: (mode === 'seq' ? i + 1 + ' · ' : '') + (p.crop ? '✂' : 'tự cắt') }), p.kind === 'video' ? h('span', { class: 'vd', text: '▶ live' }) : null,
+      mode === 'slot' && p.slot != null ? h('span', { class: 'slot', text: '🕘 ' + p.slot + 'h' }) : null,
+      h('div', { class: 'acts' }, h('button', { text: '👁', title: 'Dùng ngay', onclick: (e) => { e.stopPropagation(); showBg(i); lastSwitch = simT.getTime(); } }), h('button', { text: '✂', title: 'Cắt ảnh', onclick: (e) => { e.stopPropagation(); openCrop(i); } }),
+        mode === 'slot' ? h('button', { text: '🕘', title: 'Gán giờ bắt đầu', onclick: (e) => { e.stopPropagation(); const v = prompt('Ảnh này dùng từ mấy giờ? (0–23, để trống = bỏ)', p.slot ?? ''); p.slot = v === '' || v == null ? null : clamp(parseInt(v) || 0, 0, 23); renderPool(); renderTl(); } }) : null,
+        h('button', { text: '🗑', title: 'Bỏ khỏi kho', onclick: (e) => { e.stopPropagation(); pool.splice(i, 1); if (curIdx >= pool.length) curIdx = 0; renderPool(); renderTl(); } })));
+    it.title = p.name;
+    requestAnimationFrame(() => placeBg(th, p, th.getBoundingClientRect()));
+    it.ondragstart = (e) => { it.classList.add('dragging'); e.dataTransfer.setData('text', i); };
+    it.ondragend = () => it.classList.remove('dragging');
+    it.ondragover = (e) => e.preventDefault();
+    it.ondrop = (e) => { e.preventDefault(); const from = +e.dataTransfer.getData('text'); if (from === i) return; const curP = pool[curIdx]; const [m] = pool.splice(from, 1); pool.splice(i, 0, m); curIdx = pool.indexOf(curP); renderPool(); };
+    box.append(it);
+  });
+  box.append(h('div', { class: 'pi add', onclick: () => $('#file').click() }, h('div', { html: '＋<br>Thêm ảnh / video' })));
+}
+$('#file').onchange = (e) => {
+  for (const f of e.target.files) {
+    const url = URL.createObjectURL(f), video = f.type.startsWith('video');
+    const add = (iw, ih, thumb) => { pool.push({ id: 'u' + Date.now() + Math.random(), name: f.name, url: thumb || url, iw, ih, kind: video ? 'video' : 'image', crop: null, slot: null }); renderPool(); renderTl(); openCrop(pool.length - 1); };
+    if (video) { const v = h('video', { muted: '', src: url }); v.onloadeddata = () => { v.currentTime = .1; }; v.onseeked = () => { const c = h('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0); add(v.videoWidth, v.videoHeight, c.toDataURL('image/jpeg', .8)); }; }
+    else { const im = new Image(); im.onload = () => add(im.naturalWidth, im.naturalHeight); im.src = url; }
+  }
+  e.target.value = '';
+};
+function renderTl() {
+  const tl = $('#tl'); tl.innerHTML = '';
+  for (let hr = 0; hr < 24; hr++) { const i = slotIdx(hr), p = pool[i]; const d = h('div', { title: `${hr}h → ${p ? p.name : '—'}` }); if (p) placeBg(d, p, { width: 20, height: 26 }); d.style.backgroundSize = 'cover'; d.style.backgroundImage = p ? `url("${p.url}")` : ''; d.style.backgroundPosition = 'center'; tl.append(d); }
+}
+// cài đặt
+const seg = (id, fn) => $$(`#${id} button`).forEach((b) => b.onclick = () => { $$(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); fn(b.dataset.v); });
+seg('segMode', (v) => { mode = v; $('#rowEvery').style.display = v === 'slot' ? 'none' : ''; $('#rowNoRep').style.display = v === 'rand' ? '' : 'none'; $('#slotHelp').style.display = v === 'slot' ? '' : 'none'; renderPool(); renderTl(); if (v === 'slot') showBg(slotIdx(simT.getHours())); });
+seg('segSpeed', (v) => { speed = +v; });
+$('#selEvery').onchange = (e) => { every = +e.target.value; lastSwitch = simT.getTime(); };
+$('#selFx').onchange = (e) => { fx = e.target.value; };
+const sw = (id, fn) => { $('#' + id).onclick = function () { this.classList.toggle('on'); fn(this.classList.contains('on')); }; };
+sw('swRot', (v) => { rotOn = v; }); sw('swNoRep', (v) => { noRep = v; }); sw('swIdle', (v) => { idleWait = v; });
+$('#btnNext').onclick = () => { showBg(pickNext(1)); lastSwitch = simT.getTime(); };
+$('#btnPrev').onclick = () => { showBg(mode === 'seq' ? pickNext(-1) : (curIdx - 1 + pool.length) % pool.length); lastSwitch = simT.getTime(); };
+$('#rowNoRep').style.display = 'none';
+let typing = 0; $('textarea', app2).addEventListener('input', () => { typing = Date.now(); });
+let lastReal = performance.now();
+function tick() {
+  const now = performance.now(), dt = now - lastReal; lastReal = now;
+  simT = new Date(simT.getTime() + dt * speed);
+  $('#clock').textContent = simT.toTimeString().slice(0, 8);
+  if (rotOn && pool.length > 1) {
+    if (mode === 'slot') { const want = slotIdx(simT.getHours()); if (want !== curIdx) showBg(want); $('#nextIn').textContent = 'đổi theo khung giờ'; hud.innerHTML = `🕘 <b>${pool[curIdx].name}</b> · khung ${pool[curIdx].slot ?? '?'}h`; }
+    else if (every > 0) {
+      const left = every * 60e3 - (simT.getTime() - lastSwitch), wait = idleWait && Date.now() - typing < 3000;
+      if (left <= 0 && !wait) { showBg(pickNext(1)); lastSwitch = simT.getTime(); }
+      const s = Math.max(0, Math.ceil(left / 1000));
+      $('#nextIn').textContent = wait && left <= 0 ? 'đợi bạn gõ xong…' : `đổi sau ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      hud.innerHTML = `${mode === 'seq' ? '🔁 Tuần tự' : '🎲 Ngẫu nhiên'} · <b>${pool[curIdx].name}</b> · ${curIdx + 1}/${pool.length}`;
+    } else { $('#nextIn').textContent = 'đổi khi mở lại app'; hud.innerHTML = `<b>${pool[curIdx].name}</b>`; }
+  } else { $('#nextIn').textContent = rotOn ? '' : 'đang tắt'; hud.innerHTML = `<b>${pool[curIdx] ? pool[curIdx].name : '—'}</b>`; }
+  requestAnimationFrame(tick);
+}
+
+// ---------- hộp cắt ảnh ----------
+let cropI = -1, crop = null, ratioMode = 'chat', disp = null;
+function ratioNow() { return ratioMode === 'chat' ? CHAT_RATIO() : ratioMode === 'win' ? (() => { const r = app2.getBoundingClientRect(); return r.width / r.height; })() : null; }
+function openCrop(i) {
+  cropI = i; const p = pool[i];
+  $('#cropM').classList.add('on');
+  $('#cropT').textContent = 'Cắt ảnh — ' + p.name;
+  const src = $('#cropSrc'); src.innerHTML = '';
+  const maxW = src.clientWidth || 560, maxH = 440, ds = Math.min(maxW / p.iw, maxH / p.ih);
+  disp = { w: p.iw * ds, h: p.ih * ds };
+  const img = h('div', { class: 'img', style: { width: disp.w + 'px', height: disp.h + 'px' } }, h('div', { style: { backgroundImage: `url("${p.url}")` } }));
+  const cb = h('div', { class: 'cbox' }, ...['nw', 'ne', 'sw', 'se'].map((k) => h('i', { 'data-h': k })));
+  img.append(cb); src.append(img);
+  crop = p.crop ? { ...p.crop } : autoCrop(p, ratioNow() || CHAT_RATIO());
+  drawCrop();
+  let drag = null;
+  img.onpointerdown = (e) => { const r = img.getBoundingClientRect(); drag = { hd: e.target.dataset.h || null, px: (e.clientX - r.left) / disp.w, py: (e.clientY - r.top) / disp.h, c0: { ...crop } }; img.setPointerCapture(e.pointerId); if (!drag.hd && !e.target.closest('.cbox')) { crop.x = drag.px - crop.w / 2; crop.y = drag.py - crop.h / 2; fix(); drag.c0 = { ...crop }; drawCrop(); } };
+  img.onpointermove = (e) => {
+    if (!drag) return; const r = img.getBoundingClientRect(), px = (e.clientX - r.left) / disp.w, py = (e.clientY - r.top) / disp.h, c0 = drag.c0;
+    if (!drag.hd) { crop.x = c0.x + px - drag.px; crop.y = c0.y + py - drag.py; }
+    else {
+      const ax = drag.hd.includes('w') ? c0.x + c0.w : c0.x, ay = drag.hd.includes('n') ? c0.y + c0.h : c0.y;
+      let w = Math.abs(px - ax), hh = Math.abs(py - ay); const R = ratioNow();
+      if (R) { const ar = R * p.ih / p.iw; if (w / hh > ar) hh = w / ar; else w = hh * ar; }
+      w = clamp(w, .05, 1); hh = clamp(hh, .05, 1);
+      crop = { x: drag.hd.includes('w') ? ax - w : ax, y: drag.hd.includes('n') ? ay - hh : ay, w, h: hh };
+    }
+    fix(); drawCrop();
+  };
+  img.onpointerup = () => { drag = null; };
+}
+function fix() { crop.w = clamp(crop.w, .05, 1); crop.h = clamp(crop.h, .05, 1); crop.x = clamp(crop.x, 0, 1 - crop.w); crop.y = clamp(crop.y, 0, 1 - crop.h); }
+function drawCrop() {
+  const p = pool[cropI], cb = $('#cropSrc .cbox');
+  Object.assign(cb.style, { left: crop.x * disp.w + 'px', top: crop.y * disp.h + 'px', width: crop.w * disp.w + 'px', height: crop.h * disp.h + 'px' });
+  const pv = $('#cropPrev'); placeBg(pv, { ...p, crop }, pv.getBoundingClientRect());
+  $('#cropInfo').textContent = `${Math.round(crop.w * p.iw)} × ${Math.round(crop.h * p.ih)} px trong ảnh ${p.iw} × ${p.ih} · vùng cắt lưu riêng cho ảnh này`;
+}
+seg('segRatio', (v) => { ratioMode = v; const R = ratioNow(), p = pool[cropI]; if (R) { const cxm = crop.x + crop.w / 2, cym = crop.y + crop.h / 2, ar = R * p.ih / p.iw; let w = crop.w, hh = w / ar; if (hh > 1) { hh = 1; w = ar; } crop = { x: cxm - w / 2, y: cym - hh / 2, w, h: hh }; fix(); } drawCrop(); });
+$('#cropAuto').onclick = () => { crop = autoCrop(pool[cropI], ratioNow() || CHAT_RATIO()); drawCrop(); };
+$('#cropFull').onclick = () => { crop = { x: 0, y: 0, w: 1, h: 1 }; drawCrop(); };
+$('#cropCancel').onclick = () => $('#cropM').classList.remove('on');
+$('#cropOk').onclick = () => { pool[cropI].crop = { ...crop }; $('#cropM').classList.remove('on'); renderPool(); if (cropI === curIdx) showBg(curIdx, false); };
+
+renderPool(); renderTl();
+requestAnimationFrame(() => { showBg(0, false); tick(); });
+</script>
+</body>
+</html>

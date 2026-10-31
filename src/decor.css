@@ -3,6 +3,12 @@
 #bg-layer { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
 #bg-media { position: absolute; inset: 0; opacity: 0; transition: opacity .5s ease; }
 #bg-media.in { opacity: 1; }
+/* tự đổi ảnh nền: ảnh cũ nằm lại phía sau, ảnh mới mờ dần lên (hoặc mờ + phóng nhẹ) */
+#bg-layer .bg-old { position: absolute; inset: 0; }
+#bg-layer .bg-old .bg-el { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; filter: blur(var(--bg-blur, 0px)); }
+#bg-layer .bg-old .bg-fill { position: absolute; inset: 0; width: 100%; height: 100%; filter: blur(26px) saturate(1.15); transform: scale(1.12); }
+#bg-media.swap { transition: opacity 1.4s ease, transform 1.8s ease; }
+#bg-media.swap.zoom:not(.in) { transform: scale(1.06); }
 #bg-media .bg-el { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; filter: blur(var(--bg-blur, 0px)); transition: transform .35s ease, width .35s ease, height .35s ease; }
 #bg-veil { position: absolute; inset: 0; background: var(--bg); opacity: var(--bg-veil, .6); transition: opacity .2s; }
 body.has-bg { background: var(--bg); }
@@ -206,3 +212,23 @@ body.m-at-comp .mslot-comp { width: 46px; height: 30px; }
 .mp-stage .pl-rig { pointer-events: none; }
 /* robot chính đang ở ngoài desktop / bị che → các thứ đi kèm trong app ẩn theo */
 body.pl-away .pl-mini, body.pl-away .pl-shadow, body.pl-away .pl-think, body.pl-away .pl-item, body.pl-away .pl-heart, body.pl-away .pl-pop, body.pl-away .pl-drop, body.pl-away .mfx { visibility: hidden; }
+
+/* Cài đặt › Tự đổi ảnh nền: kho ảnh */
+.bp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 12px 16px; }
+.bp-tile { position: relative; aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden; border: 2px solid var(--border); background: var(--surface-2); padding: 0; }
+.bp-tile.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.bp-tile img, .bp-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bp-n, .bp-live { position: absolute; top: 5px; background: rgba(0, 0, 0, .6); color: #fff; border-radius: 6px; padding: 0 6px; font-size: 11px; line-height: 18px; }
+.bp-n { left: 5px; } .bp-live { right: 5px; }
+.bp-slot { position: absolute; right: 5px; bottom: 5px; font-size: 11px; padding: 1px 3px; border-radius: 6px; border: 0; background: #2f7fd6; color: #fff; z-index: 2; }
+.bp-acts { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 4px; padding: 5px; background: linear-gradient(transparent, rgba(0, 0, 0, .75)); opacity: 0; transition: opacity .15s; }
+.bp-tile:hover .bp-acts, .bp-tile:focus-within .bp-acts { opacity: 1; }
+.bp-tile:hover .bp-slot { opacity: 0; pointer-events: none; }
+.bp-acts button { flex: 1; border: 0; border-radius: 6px; background: rgba(255, 255, 255, .2); color: #fff; font-size: 12px; padding: 2px 0; cursor: pointer; }
+.bp-acts button:hover { background: rgba(255, 255, 255, .35); }
+.bp-add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-style: dashed; color: var(--muted); cursor: pointer; font: inherit; }
+.bp-add span { font-size: 22px; line-height: 1; } .bp-add:hover { border-color: var(--accent); color: var(--text); }
+.bp-tl { display: grid; grid-template-columns: repeat(24, 1fr); height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+.bp-tl div { background: var(--surface-2) center / cover; border-right: 1px solid rgba(0, 0, 0, .2); }
+.bp-tl div.now { box-shadow: inset 0 0 0 2px var(--accent); }
+.bp-tlx { display: flex; justify-content: space-between; color: var(--faint); font-size: 10.5px; margin-top: 2px; }
