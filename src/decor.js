@@ -57,7 +57,8 @@
     window.addEventListener('resize', () => layoutBg());
     document.addEventListener('visibilitychange', () => {
       const v = BG.media.querySelector('video');
-      if (v) { if (document.hidden || reduced()) v.pause(); else v.play().catch(() => {}); }
+      if (v && BG.guard && BG.guard.v === v && document.hidden) BG.guard.snap();
+      if (v) { if (document.hidden || reduced()) v.pause(); else v.play().then(() => BG.guard && BG.guard.unsnap()).catch(() => {}); }
       // Ảnh động không chạy khi khung bị ẩn → không tốn CPU
       BG.media.style.visibility = document.hidden ? 'hidden' : '';
     });
@@ -69,7 +70,7 @@
       if (v.paused || v.ended) { v.play().catch(() => {}); BG.vt = null; return; }
       if (BG.vt != null && v.currentTime === BG.vt) {
         // giải mã bị kẹt: tua nhẹ để trình phát nạp lại khung hình (không load() lại — sẽ chèn video thêm lần nữa)
-        if (++BG.stuck >= 2) { BG.stuck = 0; try { v.currentTime = (v.currentTime + 0.05) % (v.duration || 1e9); } catch {} v.play().catch(() => {}); }
+        if (++BG.stuck >= 2) { BG.stuck = 0; if (BG.guard && BG.guard.v === v) BG.guard.snap(); try { v.currentTime = (v.currentTime + 0.05) % (v.duration || 1e9); } catch {} v.play().catch(() => {}); }
       } else BG.stuck = 0;
       BG.vt = v.currentTime;
     };
@@ -120,12 +121,14 @@
       }
       el.classList.add('bg-el');
       BG.media.innerHTML = '';
+      BG.guard = el.tagName === 'VIDEO' ? videoGuard(el) : null;
       // Lớp lấp phía sau (dùng khi đặt trọn ảnh): bản thu nhỏ của khung đầu, kéo giãn + làm nhoè
       const fill = h('canvas', { class: 'bg-fill hidden', width: 48, height: Math.max(8, Math.round(48 * ih / iw)) });
       try { fill.getContext('2d').drawImage(el, 0, 0, fill.width, fill.height); } catch {}
       BG.fill = fill;
       BG.el = el;
       BG.media.append(fill, el);
+      if (BG.guard) BG.media.append(BG.guard.cv);
       if (!BG.focal) {
         BG.focal = analyzeFocal(el, iw, ih);
         if (BG.focal) save({ bg: { ...c.bg, focal: BG.focal } });
@@ -149,6 +152,49 @@
       img.onerror = () => CG.toast('Không mở được ảnh nền: ' + b.path, true);
       img.src = url;
     }
+  }
+
+  // Video nền (nhất là 4K) hay nháy đen một khung: lúc vòng lặp quay về đầu, lúc tua, lúc chờ giải mã, lúc cửa sổ hiện lại —
+  // Chromium xoá bộ giải mã nên tạm thời không có khung hình nào. Chụp khung đang hiện vào canvas phủ lên trên,
+  // chờ tới khi video thật sự vẽ được khung mới (requestVideoFrameCallback) rồi mới bỏ lớp phủ.
+  function videoGuard(v) {
+    const cv = h('canvas', { class: 'bg-el bg-guard' });
+    const g = { v, cv, on: false };
+    g.t = 0;
+    const draw = () => {
+      if (v.readyState < 2 || !v.videoWidth || v.seeking) return false;
+      try {
+        const k = Math.min(1, 1920 / v.videoWidth); // đủ nét cho một khoảnh khắc, đỡ tốn bộ nhớ
+        const w = Math.round(v.videoWidth * k), hh = Math.round(v.videoHeight * k);
+        if (cv.width !== w || cv.height !== hh) { cv.width = w; cv.height = hh; }
+        cv.getContext('2d').drawImage(v, 0, 0, w, hh);
+        g.t = Date.now();
+        return true;
+      } catch { return false; }
+    };
+    // tua bằng code thì readyState tụt ngay, lúc "seeking" chạy đã không chụp được → luôn giữ sẵn một khung mới (≤ 1 giây)
+    const snap = () => {
+      if (g.on) return;
+      if (draw() || Date.now() - g.t < 2500) { g.on = true; cv.classList.add('on'); }
+    };
+    let tok = 0;
+    const unsnap = () => {
+      if (!g.on) return;
+      const my = ++tok;
+      const off = () => { if (my === tok) { g.on = false; cv.classList.remove('on'); } };
+      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => requestAnimationFrame(off)); else setTimeout(off, 150);
+      setTimeout(off, 4000); // phòng khi không có khung mới (video dừng hẳn) — không giữ ảnh tĩnh mãi
+    };
+    // gần hết video → chụp sẵn trước khi vòng lặp tua về đầu
+    v.addEventListener('timeupdate', () => {
+      if (v.duration && v.duration - v.currentTime < 0.35) snap();
+      else if (!g.on && Date.now() - g.t > 1000) draw();
+    });
+    for (const ev of ['seeking', 'waiting', 'stalled', 'emptied']) v.addEventListener(ev, snap);
+    for (const ev of ['seeked', 'playing']) v.addEventListener(ev, unsnap);
+    v.addEventListener('timeupdate', () => { if (g.on && !v.seeking && v.currentTime > 0.05 && !(v.duration - v.currentTime < 0.35)) unsnap(); });
+    g.snap = snap; g.unsnap = unsnap;
+    return g;
   }
 
   // Tìm chủ thể của ảnh: so màu với nền (lấy từ viền ảnh) + độ tương phản cạnh, rồi chọn ô có "điểm" cao nhất.
@@ -284,6 +330,7 @@
     el.style.width = iw * s + 'px';
     el.style.height = ih * s + 'px';
     el.style.transform = `translate(${Math.round(ox)}px, ${Math.round(oy)}px)`;
+    if (BG.guard && BG.guard.v === el) { const g = BG.guard.cv.style; g.width = el.style.width; g.height = el.style.height; g.transform = el.style.transform; }
     if (BG.fill) BG.fill.classList.toggle('hidden', !fill);
     BG.last = { s, ox, oy, fill };
   }
