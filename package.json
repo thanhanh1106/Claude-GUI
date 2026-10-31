@@ -1,0 +1,90 @@
+{
+  "name": "claude-gui",
+  "productName": "Claude GUI",
+  "version": "1.17.3",
+  "description": "Giao diện desktop thân thiện cho Claude Code — mọi thao tác đều đi qua Claude CLI",
+  "main": "main.js",
+  "author": "sabodev001",
+  "license": "UNLICENSED",
+  "defaultUpdateSource": "http://ADMIN:8765",
+  "defaultUpdateSources": [
+    "http://ADMIN:8765",
+    "http://192.168.1.18:8765",
+    "http://192.168.1.66:8765",
+    "http://192.168.1.35:8765"
+  ],
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable",
+    "dist:setup": "electron-builder --win nsis",
+    "release": "electron-builder --win portable && node scripts/release.js"
+  },
+  "build": {
+    "appId": "local.claude.gui",
+    "productName": "Claude GUI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "pet-preload.js",
+      "src/**/*",
+      "assets/**/*",
+      "assets/gui-plugin/.claude-plugin/**",
+      "node_modules/marked/lib/marked.umd.js",
+      "node_modules/dompurify/dist/purify.min.js",
+      "node_modules/@highlightjs/cdn-assets/highlight.min.js",
+      "node_modules/@highlightjs/cdn-assets/styles/github.min.css",
+      "node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css",
+      "node_modules/@xterm/xterm/lib/xterm.js",
+      "node_modules/@xterm/xterm/css/xterm.css",
+      "node_modules/@xterm/addon-fit/lib/addon-fit.js",
+      "node_modules/node-pty/package.json",
+      "node_modules/node-pty/lib/**/*",
+      "node_modules/node-pty/prebuilds/win32-x64/**/*",
+      "package.json",
+      "!node_modules/node-pty/{deps,src,scripts,third_party,typings}/**",
+      "!node_modules/node-pty/prebuilds/{darwin-*,linux-*,win32-arm64}/**",
+      "!node_modules/node-pty/**/*.{pdb,test.js,map}",
+      "!node_modules/node-addon-api/**",
+      "!node_modules/@highlightjs/cdn-assets/{es,languages}/**",
+      "!node_modules/@xterm/xterm/{src,typings}/**",
+      "!node_modules/dompurify/src/**",
+      "!node_modules/marked/{bin,man,src}/**"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "ClaudeGUI-${version}-portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "ClaudeGUI-${version}-setup.exe"
+    },
+    "asarUnpack": [
+      "node_modules/node-pty/**/*",
+      "assets/icon.ico"
+    ],
+    "npmRebuild": false
+  },
+  "dependencies": {
+    "@highlightjs/cdn-assets": "^11.12.0",
+    "@larksuiteoapi/node-sdk": "^1.76.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.1",
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "electron": "^44.9.1",
+    "electron-builder": "^26.15.3"
+  }
+}

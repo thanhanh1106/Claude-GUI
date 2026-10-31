@@ -1,0 +1,6 @@
+{
+  "name": "claude-gui",
+  "version": "1.0.0",
+  "description": "Bộ skill đi kèm Claude GUI: lên kế hoạch và tự lập lịch nhiều task (mỗi task một model/effort), làm task trong hàng đợi có bàn giao ngữ cảnh, và xin đổi lịch khi kế hoạch sai.",
+  "author": { "name": "Claude GUI" }
+}

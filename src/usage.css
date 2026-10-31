@@ -1,0 +1,33 @@
+/* Bảng chi phí & token (usage.js) */
+.us-modal { width: min(860px, 92vw); max-width: 92vw; }
+.us { display: flex; flex-direction: column; gap: 10px; font-size: 13px; max-height: 72vh; overflow: auto; padding-right: 4px; }
+.us-tabs { display: flex; gap: 6px; }
+.us-tab { border: 1px solid var(--border); background: transparent; color: var(--fg); border-radius: 999px; padding: 3px 12px; font-size: 12.5px; cursor: pointer; }
+.us-tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.us-view { display: flex; flex-direction: column; gap: 8px; }
+.us-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.us-tile { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.us-tl { color: var(--muted); font-size: 12px; }
+.us-tv { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.us-ts { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.us-note { color: var(--muted); font-size: 11.5px; }
+.us-sec { font-weight: 600; margin-top: 6px; }
+.us-empty { color: var(--muted); font-size: 12.5px; }
+.us-chartbox { position: relative; }
+.us-chart { width: 100%; height: auto; display: block; }
+.us-col { fill: color-mix(in srgb, var(--accent) 70%, transparent); transition: fill .12s; }
+.us-col.now, .us-col.hov { fill: var(--accent); }
+.us-ax { fill: var(--muted); font-size: 10px; text-anchor: middle; }
+.us-base { stroke: var(--border-strong, var(--border)); stroke-width: 1; }
+.us-tip { position: absolute; top: -4px; transform: translateX(-50%); background: var(--bg-elev, var(--bg)); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; font-size: 12px; pointer-events: none; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+.us-tab-t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.us-tab-t th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11.5px; padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.us-tab-t td { padding: 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); font-variant-numeric: tabular-nums; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.us-tab-t td.num { text-align: right; }
+.us-tab-t td.muted { color: var(--muted); }
+.us-tab-t td.us-bc { width: 18%; }
+.us-click { cursor: pointer; }
+.us-click:hover td { background: var(--accent-soft); }
+.us-bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
+.us-bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+@media (max-width: 640px) { .us-tiles { grid-template-columns: 1fr; } }

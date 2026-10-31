@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo: Tự lên kế hoạch → lập lịch → nhiều agent — Claude GUI</title>
+<style>
+  :root {
+    --bg:#f6f8f1; --sidebar:#ecf0e2; --surface:#fff; --surface-2:#eef2e6; --hover:rgba(47,58,40,.06);
+    --text:#2f3a28; --text-2:#43503a; --muted:#6c7a61; --faint:#9fac93; --border:#dde5cf; --border-strong:#c9d4b6;
+    --accent:#5b8a3a; --accent-soft:rgba(91,138,58,.12); --user-bg:#e5ecd6; --code-bg:#eef2e6;
+    --add-bg:rgba(76,138,46,.13); --add-fg:#3f7a24; --del-bg:rgba(196,69,60,.1); --del-fg:#c4453c; --warn:#b07d1a; --blue:#3f7f8f;
+    --haiku:#3f9f8f; --sonnet:#6a7fdb; --opus:#c96442; --fable:#a05cc8;
+    --mono:"Cascadia Code",Consolas,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#e3e8d8; color:var(--text); font:13.5px/1.5 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; }
+  header { max-width:1320px; margin:0 auto; padding:16px 8px 6px; }
+  h1 { margin:0; font-size:20px; } header p { margin:4px 0 0; color:var(--muted); max-width:1100px; }
+  .steps { max-width:1320px; margin:10px auto 0; display:flex; gap:6px; flex-wrap:wrap; padding:0 8px; }
+  .steps button { border:1px solid var(--border-strong); background:var(--surface); color:var(--text-2); border-radius:10px; padding:7px 13px; cursor:pointer; font:inherit; display:flex; gap:7px; align-items:center; }
+  .steps button b { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--surface-2); font-size:12px; }
+  .steps button.on { background:var(--accent); border-color:var(--accent); color:#fff; } .steps button.on b { background:rgba(255,255,255,.25); }
+  .cap { max-width:1320px; margin:8px auto 0; padding:9px 14px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:10px; color:var(--text-2); }
+  .win { max-width:1320px; height:740px; margin:10px auto 28px; background:var(--bg); border:1px solid var(--border-strong); border-radius:14px; overflow:hidden; display:grid; grid-template-columns:220px 1fr; box-shadow:0 18px 50px rgba(47,58,40,.18); }
+  .sb { background:var(--sidebar); border-right:1px solid var(--border); padding:12px 8px; font-size:13px; }
+  .sb .logo { font-weight:700; padding:2px 8px 12px; display:flex; gap:7px; align-items:center; } .sb .logo i { color:#6f9e4a; font-style:normal; font-size:18px; }
+  .sb .it { padding:6px 9px; border-radius:8px; color:var(--text-2); display:flex; gap:7px; align-items:center; }
+  .sb .it.on { background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,.05); }
+  .sb .bd { margin-left:auto; background:var(--accent); color:#fff; border-radius:9px; font-size:11px; padding:0 6px; }
+  .sb h5 { margin:12px 9px 3px; color:var(--faint); font-weight:500; font-size:11.5px; }
+  .sb .s { padding:4px 9px; color:var(--muted); font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-radius:7px; }
+  .sb .s.run::before { content:'●'; color:var(--accent); margin-right:5px; animation:bl 1.2s infinite; } @keyframes bl { 50% { opacity:.3; } }
+  .sb .s.done::before { content:'✓'; color:var(--add-fg); margin-right:5px; } .sb .s.wait::before { content:'○'; color:var(--faint); margin-right:5px; }
+  .sb .s.ask::before { content:'?'; color:#fff; background:var(--warn); border-radius:50%; display:inline-grid; place-items:center; width:14px; height:14px; font-size:10px; margin-right:5px; }
+  .main { overflow:hidden; display:flex; flex-direction:column; min-width:0; }
+  .top { padding:11px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; background:var(--bg); }
+  .top b { font-size:14.5px; } .top .sp { flex:1; }
+  .pill { font-size:11.5px; border-radius:9px; padding:1px 8px; border:1px solid var(--border-strong); color:var(--text-2); background:var(--surface); white-space:nowrap; }
+  .m-haiku { color:var(--haiku); border-color:color-mix(in srgb,var(--haiku) 45%,transparent); background:color-mix(in srgb,var(--haiku) 9%,#fff); }
+  .m-sonnet { color:var(--sonnet); border-color:color-mix(in srgb,var(--sonnet) 45%,transparent); background:color-mix(in srgb,var(--sonnet) 9%,#fff); }
+  .m-opus { color:var(--opus); border-color:color-mix(in srgb,var(--opus) 45%,transparent); background:color-mix(in srgb,var(--opus) 9%,#fff); }
+  .body { flex:1; overflow:auto; }
+  .btn { border:1px solid var(--border-strong); background:var(--surface); color:var(--text); border-radius:8px; padding:6px 12px; cursor:pointer; font:inherit; font-size:13px; }
+  .btn:hover { border-color:var(--accent); } .btn.pri { background:var(--accent); color:#fff; border-color:var(--accent); } .btn.sm { padding:3px 9px; font-size:12px; }
+  .btn.warn { color:var(--del-fg); }
+  select, textarea, input[type=text] { font:inherit; color:var(--text); background:var(--surface); border:1px solid var(--border-strong); border-radius:7px; padding:3px 6px; }
+  /* chat */
+  .chat { max-width:860px; margin:0 auto; padding:18px 22px 30px; display:flex; flex-direction:column; gap:10px; }
+  .u { align-self:flex-end; background:var(--user-bg); border-radius:14px; padding:9px 13px; max-width:78%; }
+  .u .att { display:flex; gap:6px; margin-bottom:6px; } .u .att span { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:2px 8px; font-size:12px; }
+  .a { color:var(--text); } .a p { margin:4px 0; }
+  .tl { border:1px solid var(--border); background:var(--surface); border-radius:9px; padding:5px 10px; font-size:12.5px; color:var(--muted); display:flex; gap:8px; align-items:center; animation:pop .35s ease both; }
+  .tl b { color:var(--text); font-weight:600; } .tl .ok { margin-left:auto; color:var(--add-fg); }
+  .tl.skill { border-color:color-mix(in srgb,var(--accent) 40%,transparent); background:var(--accent-soft); color:var(--text-2); }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } }
+  .q { border:1px solid var(--border-strong); background:var(--surface); border-radius:12px; padding:12px 14px; box-shadow:0 4px 16px rgba(47,58,40,.08); animation:pop .35s ease both; }
+  .q h4 { margin:0 0 8px; font-size:14px; display:flex; gap:7px; align-items:center; }
+  .q .op { border:1px solid var(--border); border-radius:9px; padding:8px 11px; margin-top:6px; cursor:pointer; display:flex; gap:10px; }
+  .q .op:hover { border-color:var(--accent); background:var(--accent-soft); } .q .op b { display:block; } .q .op small { color:var(--muted); }
+  .q .op .k { flex:none; width:20px; height:20px; border-radius:6px; background:var(--surface-2); display:grid; place-items:center; font-size:11.5px; color:var(--muted); }
+  .plancard { border:1px solid color-mix(in srgb,var(--accent) 50%,transparent); background:linear-gradient(180deg,var(--accent-soft),var(--surface)); border-radius:12px; padding:12px 14px; display:flex; gap:12px; align-items:center; animation:pop .35s ease both; }
+  .plancard .ic { font-size:26px; } .plancard b { display:block; } .plancard small { color:var(--muted); }
+  .md { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 14px; font-size:13px; animation:pop .35s ease both; }
+  .md h3 { margin:2px 0 6px; font-size:14px; } .md ol { margin:4px 0; padding-left:20px; } .md li { margin:1px 0; }
+  /* duyệt */
+  .rv { display:grid; grid-template-columns:330px 1fr; height:100%; }
+  .rv-l { border-right:1px solid var(--border); padding:14px; overflow:auto; background:var(--surface-2); }
+  .rv-r { padding:14px 18px; overflow:auto; }
+  .box { background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:11px 12px; margin-bottom:10px; }
+  .box h4 { margin:0 0 6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+  .cost { display:flex; flex-direction:column; gap:6px; } .cost .row { display:flex; justify-content:space-between; font-size:12.5px; }
+  .cbar { height:10px; border-radius:5px; background:var(--surface-2); overflow:hidden; display:flex; } .cbar i { display:block; height:100%; transition:width .4s; }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); } .legend span::before { content:''; display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:4px; background:var(--c); }
+  .phase { margin:6px 0 14px; } .phase > .ph { font-weight:650; font-size:13px; color:var(--text-2); margin:0 0 6px; display:flex; gap:8px; align-items:center; }
+  .phase > .ph small { color:var(--faint); font-weight:400; }
+  .task { border:1px solid var(--border); border-radius:11px; background:var(--surface); margin-bottom:7px; }
+  .task .th { display:flex; gap:9px; align-items:center; padding:8px 11px; cursor:pointer; }
+  .task .n { flex:none; width:22px; height:22px; border-radius:7px; background:var(--surface-2); display:grid; place-items:center; font-size:12px; color:var(--muted); font-weight:600; }
+  .task .tt { flex:1; min-width:0; } .task .tt b { display:block; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .task .tt small { color:var(--muted); font-size:12px; }
+  .task .why { color:var(--muted); font-size:12px; font-style:italic; }
+  .task .td { display:none; padding:0 11px 11px 42px; } .task.open .td { display:block; }
+  .task textarea { width:100%; min-height:110px; font:12.5px/1.45 var(--mono); background:var(--code-bg); }
+  .task .kv { display:grid; grid-template-columns:110px 1fr; gap:4px 10px; font-size:12.5px; margin:6px 0; } .task .kv span:nth-child(odd) { color:var(--muted); }
+  .task.chg { border-color:var(--warn); } .task.new { border-color:var(--add-fg); background:color-mix(in srgb,var(--add-bg) 60%,#fff); } .task.del { opacity:.55; text-decoration:line-through; }
+  .ck { display:inline-flex; gap:4px; align-items:center; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .dep { font-size:11.5px; color:var(--faint); white-space:nowrap; }
+  .bar2 { position:sticky; bottom:0; background:linear-gradient(180deg,transparent,var(--bg) 30%); padding:14px 0 4px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  /* chạy */
+  .runv { display:grid; grid-template-columns:1fr 400px; height:100%; }
+  .flow { padding:14px 18px; overflow:auto; }
+  .st { display:grid; grid-template-columns:28px 1fr auto; gap:8px; align-items:center; padding:7px 10px; border-radius:10px; border:1px solid transparent; }
+  .st .dot { width:22px; height:22px; border-radius:50%; display:grid; place-items:center; font-size:12px; border:2px solid var(--border-strong); background:var(--surface); color:var(--muted); }
+  .st.done .dot { background:var(--add-fg); border-color:var(--add-fg); color:#fff; }
+  .st.run { background:var(--surface); border-color:var(--accent); } .st.run .dot { border-color:var(--accent); border-top-color:transparent; animation:sp 1s linear infinite; } @keyframes sp { to { transform:rotate(360deg); } }
+  .st.ask { background:#fff8e8; border-color:var(--warn); } .st.ask .dot { background:var(--warn); border-color:var(--warn); color:#fff; }
+  .st.cp .dot { border-style:dashed; }
+  .st small { color:var(--muted); font-size:12px; } .st .r { display:flex; gap:6px; align-items:center; }
+  .ctx { border-left:1px solid var(--border); background:var(--surface-2); padding:12px; overflow:auto; }
+  .ctx pre { white-space:pre-wrap; font:12px/1.5 var(--mono); background:var(--surface); border:1px solid var(--border); border-radius:9px; padding:9px 10px; margin:6px 0 10px; }
+  .ho { border:1px solid var(--border); background:var(--surface); border-radius:9px; padding:7px 10px; margin-bottom:6px; font-size:12.5px; } .ho b { font-size:12.5px; } .ho div { color:var(--muted); }
+  .tabs2 { display:flex; gap:4px; margin-bottom:8px; } .tabs2 span { padding:3px 10px; border-radius:8px; cursor:pointer; font-size:12.5px; color:var(--muted); } .tabs2 span.on { background:var(--surface); color:var(--text); box-shadow:0 1px 2px rgba(0,0,0,.06); }
+  /* đổi lịch */
+  .alert { border:1.5px solid var(--warn); background:#fffaf0; border-radius:13px; padding:13px 15px; margin-bottom:12px; }
+  .alert h3 { margin:0 0 4px; font-size:15px; display:flex; gap:8px; align-items:center; }
+  .alert .who { color:var(--muted); font-size:12.5px; }
+  .alert blockquote { margin:8px 0; padding:7px 11px; border-left:3px solid var(--warn); background:var(--surface); border-radius:0 8px 8px 0; }
+  .df { font:12.5px/1.6 var(--mono); }
+  .df div { padding:1px 8px; border-radius:5px; } .df .p { background:var(--add-bg); color:var(--add-fg); } .df .m { background:var(--del-bg); color:var(--del-fg); } .df .c { background:#fbf1d9; color:#8a6210; }
+  .pol { display:flex; gap:6px; flex-wrap:wrap; } .pol label { border:1px solid var(--border); border-radius:9px; padding:6px 10px; cursor:pointer; background:var(--surface); font-size:12.5px; } .pol label.on { border-color:var(--accent); background:var(--accent-soft); }
+  .pol small { display:block; color:var(--muted); font-size:11.5px; }
+  /* skill */
+  .sk { max-width:880px; margin:0 auto; padding:18px 22px; }
+  .skl { display:grid; gap:8px; }
+  .skr { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:10px 13px; }
+  .skr code { font:12px var(--mono); background:var(--surface-2); border-radius:5px; padding:1px 6px; }
+  .skr .ic { font-size:22px; } .skr small { color:var(--muted); display:block; }
+  .tg { width:34px; height:19px; border-radius:10px; background:var(--accent); position:relative; } .tg::after { content:''; position:absolute; right:2px; top:2px; width:15px; height:15px; border-radius:50%; background:#fff; }
+  .skc pre { white-space:pre-wrap; font:12px/1.5 var(--mono); background:var(--code-bg); border:1px solid var(--border); border-radius:10px; padding:10px 12px; max-height:300px; overflow:auto; }
+  .note { color:var(--muted); font-size:12.5px; }
+  .tlw .tl { display:block; } .tlw .tl .ok { float:right; }
+  .toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%); background:#2f3a28; color:#fff; padding:8px 16px; border-radius:10px; font-size:13px; opacity:0; transition:opacity .25s; pointer-events:none; }
+  .toast.on { opacity:1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Demo: đưa design → Claude tự lên kế hoạch → bạn duyệt → nhiều agent chạy theo hàng đợi</h1>
+  <p>Bấm lần lượt các bước. Mọi thứ trong demo là dữ liệu giả lập; các nút đều bấm được để xem luồng.</p>
+</header>
+<div class="steps" id="steps"></div>
+<div class="cap" id="cap"></div>
+<div class="win">
+  <aside class="sb" id="sb"></aside>
+  <section class="main"><div class="top" id="top"></div><div class="body" id="body"></div></section>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const toast = (t) => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove('on'), 2200); };
+
+// ---- trọng số chi phí tương đối (chỉnh được trong cài đặt; chỉ để so sánh) ----
+const W = { haiku: 1, sonnet: 3, opus: 5 }, EW = { low: .6, medium: 1, high: 1.6, max: 2.4 };
+const MN = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' }, EN = { low: 'thấp', medium: 'vừa', high: 'cao', max: 'tối đa' };
+
+const TASKS = [
+  { id: 't1', ph: 1, title: 'Đọc design, chốt mô hình dữ liệu Shop (Item, Offer, Bundle) + luồng mua', model: 'opus', eff: 'high', size: 3, why: 'Quyết định kiến trúc — mọi task sau dựa vào đây', acc: 'Có docs/shop-model.md; context.md ghi rõ các quyết định', deps: [] },
+  { id: 't2', ph: 1, title: 'Dựng khung UI rỗng theo layout design (tab, lưới, header tiền tệ)', model: 'sonnet', eff: 'medium', size: 3, why: 'Bám layout nhiều chi tiết nhưng không khó', acc: 'Prefab ShopScreen mở được, đúng bố cục ảnh design', deps: ['t1'] },
+  { id: 't3', ph: 1, title: 'Sinh enum/const + khoá localization cho mọi chuỗi trên màn Shop', model: 'haiku', eff: 'low', size: 1, why: 'Việc lặp, có khuôn sẵn', acc: 'Không còn chuỗi cứng trong ShopScreen', deps: ['t1'] },
+  { id: 't4', ph: 2, title: 'Server: GET /shop, POST /shop/buy (trừ tiền, chống mua trùng)', model: 'sonnet', eff: 'high', size: 4, why: 'Logic tiền tệ — cần cẩn thận', acc: 'Có test thủ công bằng curl; trả lỗi rõ ràng khi thiếu tiền', deps: ['t1'] },
+  { id: 't5', ph: 2, title: 'Client: ShopController gọi API, đổ dữ liệu vào lưới, trạng thái tải/lỗi', model: 'sonnet', eff: 'medium', size: 3, why: 'Nối UI với API theo mẫu có sẵn trong dự án', acc: 'Mở Shop thấy dữ liệu thật từ server dev', deps: ['t2', 't4'] },
+  { id: 't6', ph: 2, title: 'Đồng hồ đếm ngược ưu đãi theo giờ (theo giờ server)', model: 'haiku', eff: 'medium', size: 1, why: 'Nhỏ, tách biệt, có ví dụ trong code', acc: 'Đếm đúng khi đổi giờ máy', deps: ['t5'] },
+  { id: 't7', ph: 2, title: 'Popup xác nhận mua + hiệu ứng nhận vật phẩm', model: 'sonnet', eff: 'low', size: 2, why: 'UI theo design, ít logic', acc: 'Đúng design; huỷ không trừ tiền', deps: ['t5'] },
+  { id: 't8', ph: 3, title: 'Viết test API mua (thiếu tiền, mua trùng, hết hạn ưu đãi)', model: 'haiku', eff: 'medium', size: 2, why: 'Test theo danh sách case rõ ràng', acc: 'npm test xanh', deps: ['t4'] },
+  { id: 't9', ph: 3, title: 'Rà soát tổng: chạy test, đọc diff, so với design, liệt kê việc còn thiếu', model: 'opus', eff: 'medium', size: 2, why: 'Cần cái nhìn toàn cục để bắt lỗi chéo', acc: 'Báo cáo review; sửa ngay lỗi nhỏ', deps: ['t5', 't6', 't7', 't8'], cp: true },
+];
+const PH = { 1: ['Giai đoạn 1 — Nền móng', 'dừng chờ duyệt sau giai đoạn này'], 2: ['Giai đoạn 2 — Triển khai', ''], 3: ['Giai đoạn 3 — Kiểm tra', ''] };
+TASKS.forEach((t) => { t.prompt = `Mục tiêu task: ${t.title}.\nTiêu chí xong: ${t.acc}.\nPhạm vi: chỉ sửa phần liên quan; không đổi API/mô hình đã chốt trong context.md — nếu thấy cần đổi, dùng skill xin đổi lịch.`; });
+
+const cost = (ts) => ts.reduce((s, t) => s + W[t.model] * EW[t.eff] * t.size, 0);
+const allOpus = (ts) => ts.reduce((s, t) => s + W.opus * EW.high * t.size, 0);
+
+let step = 0, chatStage = 0, replan = 'ask', policy = 'ask';
+
+const STEPS = [
+  ['Bộ skill đi kèm', 'Cài GUI là có sẵn 3 skill. GUI nạp chúng cho mọi phiên mình mở bằng cờ <code>--plugin-dir</code> (chỉ phiên chạy từ GUI thấy, không đụng <code>~/.claude/skills</code> của bạn), tự cập nhật theo phiên bản app.'],
+  ['Lên kế hoạch', 'Bạn đưa design và bảo "lên kế hoạch". Skill <b>lập kế hoạch</b> tự kích hoạt: Claude (model mạnh) đọc design + code, viết kế hoạch chi tiết rồi hỏi <b>"Bạn có muốn tôi tự động lập lịch trình chạy?"</b>.'],
+  ['Duyệt hàng đợi', 'Claude chia thành nhiều task, <b>tự đề xuất model + effort</b> (kèm lý do) cho từng task. Bạn sửa prompt / model / effort / điểm dừng chờ duyệt, xem chi phí ước tính so với chạy hết bằng Opus, rồi duyệt.'],
+  ['Đang chạy + ngữ cảnh', 'Mỗi task là một phiên mới (ngữ cảnh gọn → rẻ). GUI tự ghép vào prompt: <b>context.md</b> (bức tranh tổng) + <b>bàn giao</b> của các task nó phụ thuộc. Xong task, agent ghi bàn giao cho task sau.'],
+  ['Xin đổi lịch', 'Task đang chạy phát hiện vấn đề làm kế hoạch sai → dừng, ghi yêu cầu đổi lịch. Hàng đợi tạm dừng, robot + thông báo Windows gọi bạn. Phiên điều phối (model mạnh) soạn bản sửa lịch; bạn duyệt rồi chạy tiếp.'],
+  ['Design đổi giữa chừng', 'Designer / UI-UX đổi design khi dự án đang chạy: <b>không nhét vào phiên đang chạy</b>. Bấm <b>“Cập nhật yêu cầu / design”</b> của dự án → phiên điều phối (model mạnh) so design cũ–mới, ghi <b>context.md</b> lên phiên bản mới, rồi đề xuất: task nào đã xong phải làm lại, task chưa chạy sửa prompt ra sao, task đang chạy thì cho chạy xong hay dừng. Haiku chỉ nhận prompt đã viết lại hoàn chỉnh, không bao giờ phải tự hiểu “design đổi gì”.<br>Design nằm trong Figma / trang design có MCP thì <b>chỉ cần gõ một câu</b> — phiên điều phối tự lấy bản mới qua MCP, không cần đính kèm.'],
+  ['Tự phát hiện design đổi', 'Trước mỗi giai đoạn, hàng đợi chạy một <b>kiểm tra rẻ (Haiku · thấp)</b> so design hiện tại với bản đã ghi lúc lập kế hoạch: trang design nội bộ dùng <code>get_changes(since_sha)</code> (biết chính xác trang nào đổi); Figma so <b>cấu trúc frame</b> (tên, vị trí, kích thước) với ảnh chụp cấu trúc đã lưu. Không đổi → chạy tiếp. Có đổi → dừng hỏi bạn.'],
+];
+
+function steps() {
+  $('#steps').innerHTML = STEPS.map((s, i) => `<button class="${i === step ? 'on' : ''}" data-s="${i}"><b>${i + 1}</b>${s[0]}</button>`).join('');
+  $('#steps').querySelectorAll('button').forEach((b) => b.onclick = () => go(+b.dataset.s));
+  $('#cap').innerHTML = STEPS[step][1];
+}
+function sidebar() {
+  const q = step >= 3;
+  if (step === 5 || step === 6) return sidebar6(step === 6);
+  const st = (i) => step === 4 ? (i < 3 ? 'done' : i === 3 ? 'ask' : 'wait') : step === 3 ? (i < 4 ? 'done' : i === 4 ? 'run' : 'wait') : 'wait';
+  $('#sb').innerHTML = `<div class="logo"><i>✳</i>Claude Code</div>
+    <div class="it">＋ Phiên mới</div>
+    <div class="it ${step >= 2 ? 'on' : ''}">🗓 Lịch &amp; hàng đợi ${step >= 2 ? '<span class="bd">1</span>' : ''}</div>
+    <h5>game-client</h5>
+    <div class="s ${step === 1 ? '' : ''}" style="${step === 1 ? 'background:var(--surface);color:var(--text)' : ''}">📐 Lên kế hoạch màn Shop</div>
+    ${q ? `<h5>🤖 Dự án: Màn Shop</h5>` + TASKS.slice(0, 7).map((t, i) => `<div class="s ${st(i)}">${i + 1}. ${esc(t.title)}</div>`).join('') : ''}
+    <div class="s">Sửa lỗi đăng nhập Google</div><div class="s">Tối ưu draw call màn chính</div>`;
+}
+function go(n) { step = n; if (n === 1) chatStage = 0; steps(); sidebar(); render(); }
+
+function render() {
+  const top = $('#top'), body = $('#body');
+  if (step === 0) {
+    top.innerHTML = `<b>Cài đặt · Bộ skill của Claude GUI</b><span class="sp"></span><span class="pill">v1.10.0 · 3 skill</span>`;
+    const SK = [
+      ['📐', 'claude-gui:lap-ke-hoach', 'Khi bạn bảo "lên kế hoạch" (kèm design, tài liệu, yêu cầu lớn): đọc kỹ, viết kế hoạch chi tiết, rồi hỏi có muốn tự lập lịch không. Đồng ý → chia task, đề xuất model/effort, ghi plan.json để GUI mở màn duyệt.'],
+      ['🧩', 'claude-gui:lam-task', 'Tự nạp cho mọi task trong hàng đợi: đọc context.md + bàn giao, làm đúng phạm vi, kiểm tra tiêu chí xong, ghi bàn giao cho task sau.'],
+      ['🔁', 'claude-gui:xin-doi-lich', 'Khi task phát hiện kế hoạch sai (thiết kế mâu thuẫn code, thiếu bước, sai giả định): dừng đúng lúc, ghi lý do + đề xuất đổi lịch thay vì tự ý làm lệch kế hoạch.'],
+    ];
+    body.innerHTML = `<div class="sk">
+      <div class="skl">${SK.map((s) => `<div class="skr"><span class="ic">${s[0]}</span><div><b><code>${s[1]}</code></b><small>${s[2]}</small></div><span class="tg" title="Bật"></span></div>`).join('')}</div>
+      <p class="note" style="margin:12px 2px">Gọi tay được bằng <code>/claude-gui:lap-ke-hoach</code>, nhưng thường không cần: mô tả của skill đủ để Claude tự dùng khi bạn nói "lên kế hoạch", "chia việc", "lập lịch chạy".</p>
+      <div class="box skc"><h4>Xem nội dung skill: lap-ke-hoach (rút gọn)</h4><pre>---
+name: lap-ke-hoach
+description: Dùng khi người dùng đưa design / tài liệu / yêu cầu lớn và bảo lên kế hoạch, chia việc, lập lịch chạy.
+---
+1. Đọc hết design và phần code liên quan. Hỏi lại nếu design mơ hồ (AskUserQuestion).
+2. Viết kế hoạch chi tiết vào .claude-gui/runs/&lt;id&gt;/plan.md và tóm tắt trong chat.
+3. Hỏi: "Bạn có muốn tôi tự động lập lịch trình chạy?" (AskUserQuestion).
+4. Nếu có: chia thành task nhỏ, mỗi task tự đứng được với prompt riêng, tiêu chí xong,
+   phụ thuộc, và đề xuất model + effort + lý do theo bảng:
+     haiku/low–medium : việc lặp, có khuôn, sinh code theo mẫu, test theo danh sách case
+     sonnet/medium–high: triển khai tính năng, nối API, UI theo design
+     opus/high        : kiến trúc, mô hình dữ liệu, lỗi khó, rà soát tổng
+   Chọn model rẻ nhất làm đúng được. Đánh dấu điểm dừng chờ duyệt sau mỗi giai đoạn rủi ro.
+5. Ghi context.md (mục tiêu, tóm tắt design, quyết định, quy ước) và plan.json theo schema.
+   Không tự bắt đầu làm task — GUI sẽ mở màn duyệt.</pre></div>
+      <div class="box"><h4>Giao thức giữa agent và GUI (thư mục .claude-gui/ trong dự án, GUI tự thêm vào .git/info/exclude)</h4>
+      <pre style="white-space:pre-wrap;font:12px/1.5 var(--mono);margin:0">.claude-gui/runs/shop-2610/
+  plan.md          kế hoạch đọc được (cho người)
+  plan.json        danh sách task: title, prompt, model, effort, deps, acc, checkpoint, why
+  context.md       bức tranh tổng — task nào cũng đọc; planner cập nhật khi đổi lịch
+  handoff/t4.md    bàn giao của từng task (đã làm gì, tệp nào, lưu ý cho task sau)
+  replan/t4.json   yêu cầu đổi lịch (lý do, mức độ, đề xuất)</pre></div>
+    </div>`;
+  }
+  if (step === 1) {
+    top.innerHTML = `<b>📐 Lên kế hoạch màn Shop</b><span class="sp"></span><span class="pill m-opus">Opus · cao</span><span class="pill">game-client</span>`;
+    let h = `<div class="chat">
+      <div class="u"><div class="att"><span>🖼 shop-design.fig (Figma)</span><span>📄 shop-spec.md</span></div>Đây là design màn Shop mới. Lên kế hoạch làm cho cả client lẫn server nhé.</div>
+      <div class="tl skill">🧩 Dùng skill <b>claude-gui:lap-ke-hoach</b></div>
+      <div class="tl">🔍 <b>Figma</b> get_design_context · 3 frame (Shop/Items, Shop/Offers, Popup/Buy) <span class="ok">✓</span></div>
+      <div class="tl">📚 <b>gdd</b> read_page · “Hệ thống Shop”, “Tiền tệ” · bản a1b2c3d <span class="ok">✓</span></div>
+      <div class="tl">📖 <b>Read</b> shop-spec.md, Assets/Scripts/UI/*, server/routes/* (24 tệp) <span class="ok">✓</span></div>
+      <div class="tl">✏️ <b>Write</b> .claude-gui/runs/shop-2610/plan.md <span class="ok">✓</span></div>
+      <div class="a md"><h3>Kế hoạch: màn Shop (client Unity + server Node)</h3>
+        <p>Design có 3 tab (Vật phẩm / Gói nạp / Ưu đãi giờ vàng), popup mua, đồng hồ đếm ngược. Hiện code chưa có module Shop; server có sẵn auth + inventory.</p>
+        <ol><li><b>Nền móng</b>: chốt mô hình dữ liệu và luồng mua; dựng khung UI; khoá localization.</li>
+        <li><b>Triển khai</b>: API /shop, controller client, đếm ngược, popup mua.</li>
+        <li><b>Kiểm tra</b>: test API mua, rà soát tổng so với design.</li></ol>
+        <p>Rủi ro: luồng trừ tiền — cần chạy ở server, không tin client.</p></div>`;
+    if (chatStage === 0) h += `<div class="q"><h4>❓ Bạn có muốn tôi tự động lập lịch trình chạy?</h4>
+      <div class="op" data-c="1"><span class="k">1</span><div><b>Có — chia task và đưa vào hàng đợi để tôi duyệt</b><small>Mỗi task một phiên, tự đề xuất model + effort cho tiết kiệm</small></div></div>
+      <div class="op" data-c="1"><span class="k">2</span><div><b>Có, và dừng chờ tôi duyệt sau mỗi giai đoạn</b><small>An toàn hơn cho việc lớn</small></div></div>
+      <div class="op" data-c="0"><span class="k">3</span><div><b>Không — chỉ cần bản kế hoạch</b><small>Tôi tự giao việc</small></div></div></div>`;
+    else h += `<div class="u">Có — chia task và đưa vào hàng đợi để tôi duyệt</div>
+      <div class="tl">✏️ <b>Write</b> .claude-gui/runs/shop-2610/context.md <span class="ok">✓</span></div>
+      <div class="tl">✏️ <b>Write</b> .claude-gui/runs/shop-2610/design/sources.json · Figma 3 frame + cấu trúc, gdd bản a1b2c3d <span class="ok">✓</span></div>
+      <div class="tl">✏️ <b>Write</b> .claude-gui/runs/shop-2610/plan.json · 9 task <span class="ok">✓</span></div>
+      <div class="a">Đã chia thành <b>9 task / 3 giai đoạn</b>. Opus chỉ dùng cho 2 task (chốt kiến trúc, rà soát tổng); phần lớn là Sonnet, việc lặp giao Haiku.</div>
+      <div class="plancard"><span class="ic">🗓</span><div style="flex:1"><b>Kế hoạch đề xuất: Màn Shop · 9 task</b><small>GUI nhận ra plan.json — mở màn duyệt để sửa prompt / model / effort trước khi chạy</small></div><button class="btn pri" id="open-rv">Mở để duyệt</button></div>`;
+    body.innerHTML = h + '</div>';
+    body.querySelectorAll('.op').forEach((o) => o.onclick = () => { if (o.dataset.c === '0') return toast('Chỉ giữ bản kế hoạch, không lập lịch'); chatStage = 1; render(); body.scrollTop = 1e5; });
+    const ob = $('#open-rv'); if (ob) ob.onclick = () => go(2);
+    if (chatStage) body.scrollTop = 1e5;
+  }
+  if (step === 2) {
+    top.innerHTML = `<b>🗓 Duyệt kế hoạch: Màn Shop</b><span class="pill">từ phiên “📐 Lên kế hoạch màn Shop”</span><span class="sp"></span><button class="btn sm" id="fb">💬 Góp ý cho Claude sửa kế hoạch</button>`;
+    body.innerHTML = `<div class="rv"><div class="rv-l" id="rvl"></div><div class="rv-r" id="rvr"></div></div>`;
+    drawReview();
+    $('#fb').onclick = () => toast('Gửi góp ý về phiên lập kế hoạch → Claude ghi lại plan.json, màn duyệt tự cập nhật');
+  }
+  if (step === 3 || step === 4) drawRun();
+  if (step === 5) drawChange();
+  if (step === 6) drawDetect();
+}
+
+function drawReview(list = TASKS, diff) {
+  const c = cost(list.filter((t) => !t.del)), o = allOpus(list.filter((t) => !t.del));
+  const by = { haiku: 0, sonnet: 0, opus: 0 }; list.filter((t) => !t.del).forEach((t) => by[t.model] += W[t.model] * EW[t.eff] * t.size);
+  const cnt = (m) => list.filter((t) => !t.del && t.model === m).length;
+  $('#rvl').innerHTML = `
+    <div class="box"><h4>Mục tiêu</h4>Làm màn Shop theo design (3 tab, popup mua, ưu đãi giờ vàng) cho client Unity + server Node.<div class="note" style="margin-top:6px">📁 game-client, game-server · 📄 context.md</div></div>
+    <div class="box"><h4>Chi phí ước tính (tương đối)</h4><div class="cost">
+      <div class="row"><span>Theo đề xuất</span><b>${c.toFixed(0)} đơn vị</b></div>
+      <div class="cbar">${['haiku', 'sonnet', 'opus'].map((m) => `<i style="width:${(by[m] / o * 100).toFixed(1)}%;background:var(--${m})"></i>`).join('')}</div>
+      <div class="row"><span>Nếu chạy hết bằng Opus · cao</span><b>${o.toFixed(0)} đơn vị</b></div>
+      <div class="cbar"><i style="width:100%;background:var(--opus);opacity:.35"></i></div>
+      <div class="row" style="color:var(--add-fg)"><span>Tiết kiệm khoảng</span><b>${Math.round((1 - c / o) * 100)}%</b></div>
+      <div class="legend"><span style="--c:var(--haiku)">Haiku ×${cnt('haiku')}</span><span style="--c:var(--sonnet)">Sonnet ×${cnt('sonnet')}</span><span style="--c:var(--opus)">Opus ×${cnt('opus')}</span></div>
+      <div class="note">= giá tương đối của model × hệ số effort × độ lớn task Claude ước lượng. Chỉ để so sánh, không phải số token thật.</div></div></div>
+    <div class="box"><h4>Khi nào chạy</h4>
+      <label class="ck"><input type="radio" name="w" checked> Ngay khi duyệt</label><br>
+      <label class="ck"><input type="radio" name="w"> Khi giới hạn 5 giờ hồi</label><br>
+      <label class="ck"><input type="radio" name="w"> Vào lúc <input type="text" value="22:00" style="width:60px"></label>
+      <div class="note" style="margin-top:6px">Hết giới hạn giữa chừng → tự tạm dừng, chạy tiếp khi hồi (như lịch hiện có).</div></div>
+    <div class="box"><h4>Khi task muốn đổi lịch</h4><div class="pol" id="pol">
+      <label data-p="ask" class="${policy === 'ask' ? 'on' : ''}">Luôn hỏi tôi<small>dừng hàng đợi chờ duyệt</small></label>
+      <label data-p="minor" class="${policy === 'minor' ? 'on' : ''}">Tự sửa việc nhỏ<small>sửa prompt, thêm task Haiku — rồi báo</small></label>
+      <label data-p="auto" class="${policy === 'auto' ? 'on' : ''}">Để planner tự quyết<small>chỉ báo kết quả</small></label></div></div>
+    <div class="box"><h4>Nguồn design (ghi lúc lập kế hoạch)</h4>
+      <div style="font-size:12.5px;display:grid;gap:4px">
+        <div>🎨 <b>Figma</b> shop-design · 3 frame <span class="note">— đã lưu cấu trúc 26/10 14:05</span></div>
+        <div>📚 <b>gdd</b> “Hệ thống Shop”, “Tiền tệ” <span class="note">— bản a1b2c3d</span></div></div>
+      <label class="ck" style="margin-top:8px;white-space:normal"><input type="checkbox" checked> Tự kiểm tra design trước mỗi giai đoạn <span class="pill m-haiku">Haiku · thấp</span></label>
+      <div class="note" style="margin-top:4px">Design đổi → tạm dừng và hỏi bạn. Không đổi → chạy tiếp, tốn khoảng một lượt Haiku.</div></div>
+    <div class="box"><h4>MCP được dùng khi chạy</h4>
+      <div style="font-size:12.5px;display:grid;gap:3px">
+        <label class="ck" style="white-space:normal"><input type="checkbox" checked> figma · get_design_context, get_metadata, get_screenshot <span class="pill">chỉ đọc</span></label>
+        <label class="ck" style="white-space:normal"><input type="checkbox" checked> gdd · read_page, search, get_changes… <span class="pill">chỉ đọc</span></label>
+        <label class="ck" style="color:var(--faint);white-space:normal"><input type="checkbox" disabled> figma · use_figma, generate_figma_design <span class="pill">ghi — không cho</span></label></div>
+      <div class="note" style="margin-top:4px">Tự cho phép trước để hàng đợi không đứng chờ bạn bấm; công cụ ghi vào design bị chặn.</div></div>
+    <div class="box"><h4>Quyền khi chạy</h4><select style="width:100%"><option>Tự chấp nhận sửa tệp (acceptEdits)</option><option>Hỏi trước</option></select>
+      <div class="note" style="margin-top:6px">Lệnh ngoài danh sách cho phép vẫn hỏi → robot gọi bạn.</div></div>`;
+  $('#pol').querySelectorAll('label').forEach((l) => l.onclick = () => { policy = l.dataset.p; drawReview(list, diff); });
+  const r = $('#rvr');
+  let h = '';
+  for (const ph of [1, 2, 3]) {
+    const ts = list.filter((t) => t.ph === ph);
+    h += `<div class="phase"><div class="ph">${PH[ph][0]} <small>${ts.length} task${PH[ph][1] ? ' · ⏸ ' + PH[ph][1] : ''}</small></div>`;
+    for (const t of ts) {
+      const i = list.indexOf(t) + 1, num = (d) => '#' + (list.findIndex((x) => x.id === d) + 1);
+      h += `<div class="task ${t.cls || ''}" data-id="${t.id}">
+        <div class="th"><span class="n" ${t.done ? 'style="background:var(--add-fg);color:#fff"' : ''}>${t.done ? '✓' : i}</span><div class="tt"><b>${esc(t.title)}</b><span class="why">${esc(t.why)}</span></div>
+          <span class="dep">${t.deps.length ? 'sau ' + t.deps.map(num).join(', ') : 'bắt đầu ngay'}</span>
+          <select data-k="model" class="pill m-${t.model}">${Object.keys(MN).map((m) => `<option value="${m}" ${m === t.model ? 'selected' : ''}>${MN[m]}</option>`).join('')}</select>
+          <select data-k="eff" class="pill">${Object.keys(EN).map((m) => `<option value="${m}" ${m === t.eff ? 'selected' : ''}>effort ${EN[m]}</option>`).join('')}</select>
+          ${t.cp ? '<span class="pill" title="Dừng chờ duyệt sau task này">⏸</span>' : ''}</div>
+        <div class="td"><div class="kv"><span>Tiêu chí xong</span><span>${esc(t.acc)}</span><span>Lý do chọn model</span><span>${esc(t.why)}</span><span>Phiên</span><span>Phiên mới · đọc context.md + bàn giao của ${t.deps.length ? t.deps.map(num).join(', ') : '(không có)'}</span></div>
+          <textarea>${esc(t.prompt)}</textarea>
+          <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap"><label class="ck"><input type="checkbox" ${t.cp ? 'checked' : ''}> Dừng chờ duyệt sau task này</label><label class="ck"><input type="checkbox"> Nối tiếp phiên của task trước (thay vì phiên mới)</label><span style="flex:1"></span><button class="btn sm warn">Bỏ task</button></div></div></div>`;
+    }
+    h += '</div>';
+  }
+  h += diff ? '' : `<div class="bar2"><button class="btn pri" id="ok">✓ Duyệt &amp; chạy</button><button class="btn">Lưu nháp</button><span class="note">Có thể sửa tiếp khi đang chạy — task chưa chạy đều sửa được.</span></div>`;
+  r.innerHTML = h;
+  r.querySelectorAll('.task .th').forEach((x) => x.onclick = (e) => { if (e.target.tagName !== 'SELECT') x.parentNode.classList.toggle('open'); });
+  r.querySelectorAll('select').forEach((s) => s.onchange = () => { const t = list.find((x) => x.id === s.closest('.task').dataset.id); t[s.dataset.k] = s.value; drawReview(list, diff); });
+  const ok = $('#ok'); if (ok) ok.onclick = () => { toast('Đã duyệt — hàng đợi bắt đầu chạy task 1'); go(3); };
+}
+
+function drawRun() {
+  const ask = step === 4;
+  const top = $('#top');
+  top.innerHTML = `<b>🤖 Dự án: Màn Shop</b><span class="pill">${ask ? '⏸ tạm dừng — chờ bạn duyệt đổi lịch' : '▶ đang chạy task 5/9'}</span><span class="sp"></span><button class="btn sm">⏸ Tạm dừng</button><button class="btn sm">Sửa kế hoạch</button>`;
+  const stOf = (i) => ask ? (i < 3 ? 'done' : i === 3 ? 'ask' : '') : (i < 4 ? 'done' : i === 4 ? 'run' : '');
+  const flow = TASKS.map((t, i) => {
+    const s = stOf(i);
+    return `<div class="st ${s} ${t.cp ? 'cp' : ''}"><span class="dot">${s === 'done' ? '✓' : s === 'ask' ? '?' : i + 1}</span>
+      <div><b>${esc(t.title)}</b><br><small>${s === 'done' ? `xong · ${[6, 9, 3, 14][i] || 5} phút · đã ghi bàn giao` : s === 'run' ? 'đang chạy · 3 phút' : s === 'ask' ? 'xin đổi lịch — xem bên dưới' : 'chờ' + (t.cp ? ' · ⏸ dừng chờ duyệt sau task này' : '')}</small></div>
+      <div class="r"><span class="pill m-${t.model}">${MN[t.model]} · ${EN[t.eff]}</span>${s === 'done' || s === 'run' || s === 'ask' ? '<button class="btn sm">Mở phiên</button>' : ''}</div></div>`;
+  });
+  if (ask) flow.splice(3, 0, '');
+  const alert = ask ? `<div class="alert"><h3>🔁 Task 4 xin đổi lịch</h3><div class="who">Sonnet · cao — “Server: GET /shop, POST /shop/buy” — dừng ở phút 7, chưa sửa tệp nào</div>
+      <blockquote>Số dư vàng/kim cương hiện <b>lưu ở client</b> (PlayerPrefs, đồng bộ lên server chỉ để hiển thị). Nếu làm /shop/buy trừ tiền ở server như kế hoạch, server không có số dư thật để kiểm tra → mua được khi hết tiền, và client ghi đè lại số dư. Cần chuyển ví sang server trước.</blockquote>
+      <div class="note" style="margin-bottom:6px">Phiên điều phối (📐 Lên kế hoạch — Opus) đã đọc yêu cầu này và soạn bản sửa lịch:</div>
+      <div class="df">
+        <div class="p">+ Task mới trước #4: “Chuyển ví (vàng, kim cương) sang server: bảng wallet, API /wallet, client chỉ đọc” — Opus · cao</div>
+        <div class="p">+ Task mới: “Script chuyển số dư cũ từ client lên server lần đầu đăng nhập” — Sonnet · vừa</div>
+        <div class="c">~ #4 sửa prompt: trừ tiền trong cùng giao dịch với bảng wallet</div>
+        <div class="c">~ #5 sửa prompt: đọc số dư từ /wallet, bỏ PlayerPrefs</div>
+        <div class="c">~ #8 thêm case: client gửi số dư giả</div>
+        <div class="c">~ context.md: thêm quyết định “ví là nguồn sự thật ở server”</div>
+      </div>
+      <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap"><button class="btn pri" id="acc">✓ Chấp nhận &amp; chạy tiếp</button><button class="btn" id="edit">Sửa rồi chấp nhận</button><button class="btn">Bỏ qua, làm theo kế hoạch cũ</button><button class="btn">Mở phiên task 4</button><button class="btn warn">Dừng cả dự án</button></div></div>` : '';
+  const ctx = `<div class="tabs2"><span class="on">context.md</span><span>Bàn giao (${ask ? 3 : 4})</span><span>plan.md</span></div>
+    <pre># Màn Shop — bức tranh tổng
+Mục tiêu: màn Shop theo design (3 tab, popup mua,
+ưu đãi giờ vàng). Client Unity + server Node.
+
+## Quyết định đã chốt (task 1)
+- ShopItem {id, price, currency, limit, tags}
+- Offer {itemIds, discount, startAt, endAt} — giờ server
+- Mua: client gọi POST /shop/buy, server trừ tiền
+${ask ? '- ★ Ví là nguồn sự thật ở server (đổi lịch #4)\n' : ''}
+## Quy ước
+- UI: prefab trong Assets/UI/Shop, MVC như Inventory
+- Chuỗi: khoá loc "shop.*" (task 3)</pre>
+    <div class="ho"><b>✓ #1 bàn giao</b><div>Chốt model ở docs/shop-model.md. Lưu ý: inventory server có sẵn addItem().</div></div>
+    <div class="ho"><b>✓ #2 bàn giao</b><div>Prefab ShopScreen + 3 tab, lưới dùng GridLayout. Chưa gắn dữ liệu.</div></div>
+    <div class="ho"><b>✓ #3 bàn giao</b><div>42 khoá shop.*; enum ShopTab, Currency.</div></div>
+    ${ask ? '' : '<div class="ho"><b>✓ #4 bàn giao</b><div>/shop, /shop/buy xong; lỗi trả {code}. Task sau dùng ShopApi.cs mẫu.</div></div>'}
+    <div class="note" style="margin-top:10px"><b>Prompt GUI gửi cho task ${ask ? 4 : 5}</b> = skill <code>lam-task</code> + context.md + bàn giao của ${ask ? '#1' : '#2, #4'} + prompt task + tiêu chí xong.</div>`;
+  $('#body').innerHTML = `<div class="runv"><div class="flow">${alert}${flow.join('')}</div><div class="ctx">${ctx}</div></div>`;
+  const acc = $('#acc'); if (acc) acc.onclick = () => {
+    const L = TASKS.map((t) => ({ ...t })), i4 = 3;
+    L.splice(i4, 0, { id: 'w1', ph: 2, title: 'Chuyển ví (vàng, kim cương) sang server: bảng wallet, API /wallet, client chỉ đọc', model: 'opus', eff: 'high', size: 3, why: 'Thay đổi kiến trúc tiền tệ', acc: 'Client không còn ghi số dư', deps: ['t1'], cls: 'new', prompt: '' },
+      { id: 'w2', ph: 2, title: 'Script chuyển số dư cũ từ client lên server lần đầu đăng nhập', model: 'sonnet', eff: 'medium', size: 2, why: 'Một lần, cần cẩn thận', acc: 'Người chơi cũ giữ nguyên số dư', deps: ['w1'], cls: 'new', prompt: '' });
+    L.forEach((t) => { if (['t4', 't5', 't8'].includes(t.id)) t.cls = 'chg'; if (t.id === 't4') t.deps = ['w2']; if (['t1', 't2', 't3'].includes(t.id)) t.done = true; });
+    $('#top').innerHTML = `<b>🗓 Kế hoạch sau khi đổi lịch</b><span class="sp"></span><button class="btn pri sm" id="go2">Chạy tiếp từ task mới</button>`;
+    $('#body').innerHTML = `<div class="rv"><div class="rv-l" id="rvl"></div><div class="rv-r" id="rvr"></div></div>`;
+    drawReview(L, true);
+    $('#go2').onclick = () => toast('Hàng đợi chạy tiếp: “Chuyển ví sang server” (Opus · cao)');
+    toast('Đã áp dụng: +2 task, sửa 3 task, cập nhật context.md');
+  };
+  const ed = $('#edit'); if (ed) ed.onclick = () => toast('Mở bản sửa lịch dạng màn duyệt để chỉnh trước khi áp dụng');
+}
+function sidebar6(det) {
+  const st = det ? ['done', 'done', 'done', 'done', 'done', 'done', 'done'] : ['done', 'done', 'done', 'done', 'done', 'run', 'wait'];
+  $('#sb').innerHTML = `<div class="logo"><i>✳</i>Claude Code</div><div class="it">＋ Phiên mới</div><div class="it on">🗓 Lịch &amp; hàng đợi <span class="bd">1</span></div>
+    <h5>game-client</h5><div class="s">📐 Lên kế hoạch màn Shop</div><h5>🤖 Dự án: Màn Shop</h5>` + TASKS.slice(0, 7).map((t, i) => `<div class="s ${st[i]}">${i + 1}. ${esc(t.title)}</div>`).join('');
+}
+let chg = 0, runPol = 'finish';
+function drawChange() {
+  $('#top').innerHTML = `<b>🤖 Dự án: Màn Shop</b><span class="pill">▶ đang chạy task 6/9 · Haiku</span><span class="sp"></span><button class="btn sm pri" id="upd">📝 Cập nhật yêu cầu / design</button><button class="btn sm">⏸ Tạm dừng</button>`;
+  const body = $('#body');
+  const T = (i, s, extra) => `<div class="st ${s}"><span class="dot">${s === 'done' ? '✓' : i + 1}</span><div><b>${esc(TASKS[i].title)}</b><br><small>${extra}</small></div><div class="r"><span class="pill m-${TASKS[i].model}">${MN[TASKS[i].model]} · ${EN[TASKS[i].eff]}</span></div></div>`;
+  let h = '<div class="flow" style="max-width:1000px">';
+  if (chg === 0) {
+    h += `<div class="note" style="margin-bottom:8px">Đang chạy bình thường. Designer gửi design v2 → bấm <b>📝 Cập nhật yêu cầu / design</b> ở góc trên.</div>`;
+    h += [0, 1, 2, 3, 4].map((i) => T(i, 'done', 'xong')).join('') + T(5, 'run', 'đang chạy · 2 phút') + [6, 7, 8].map((i) => T(i, '', 'chờ')).join('');
+  }
+  if (chg === 1) {
+    h += `<div class="box" style="border-color:var(--accent)"><h4>Cập nhật yêu cầu / design cho dự án “Màn Shop”</h4>
+      <div style="display:flex;gap:6px;margin:4px 0 8px;flex-wrap:wrap"><span class="pill">🔗 Nguồn: Figma shop-design + gdd “Hệ thống Shop” (qua MCP) — không cần đính kèm</span><span class="pill">＋ Thêm ảnh / tệp / link</span></div>
+      <textarea style="width:100%;min-height:52px">Design màn Shop trên Figma vừa cập nhật, xem lại giúp.</textarea>
+      <div class="note">Chỉ cần một câu. Phiên điều phối tự gọi MCP lấy bản mới, so với bản đã ghi trong design/sources.json — chỉ đọc lại phần đã đổi.</div>
+      <div class="box" style="margin:10px 0 0;background:var(--surface-2)"><h4>Task đang chạy (#6 Đồng hồ đếm ngược · Haiku)</h4><div class="pol" id="rp">
+        <label data-p="finish" class="${runPol === 'finish' ? 'on' : ''}">Cho chạy xong rồi mới áp dụng<small>mặc định — phần làm dở sẽ được đánh giá lại</small></label>
+        <label data-p="stop" class="${runPol === 'stop' ? 'on' : ''}">Dừng ngay ở điểm an toàn<small>agent ghi bàn giao phần đã làm rồi dừng</small></label>
+        <label data-p="pause" class="${runPol === 'pause' ? 'on' : ''}">Chỉ tạm hoãn các task sau<small>task đang chạy không bị đụng tới</small></label></div>
+        <div class="note" style="margin-top:6px">Không gửi thay đổi design vào phiên đang chạy — nhất là phiên Haiku: nó không được giao việc tự so design cũ/mới.</div></div>
+      <div style="display:flex;gap:8px;margin-top:10px"><button class="btn pri" id="ana">Gửi cho phiên điều phối phân tích</button><span class="note" style="align-self:center">Opus · cao — lấy design mới qua MCP, so với bản đã ghi, đọc context.md + bàn giao #1–#5</span></div></div>`;
+  }
+  if (chg === 2) {
+    h += `<div class="alert" style="border-color:var(--accent);background:#f7fbf2"><h3>📐 Phân tích thay đổi design v1 → v2</h3><div class="who">Phiên điều phối · Opus · cao — đã cập nhật context.md (design v2, lý do đổi)</div>
+      <blockquote style="border-left-color:var(--accent)">3 thay đổi: bỏ tab Gói nạp (gộp vào Ưu đãi), popup có ô số lượng, đồng hồ lên header. Mô hình dữ liệu và API không đổi, chỉ thêm <code>qty</code> vào /shop/buy.</blockquote>
+      <div class="note" style="margin:6px 0 4px"><b>Task đã xong bị ảnh hưởng</b> → thêm task sửa lại (không mở lại phiên cũ):</div>
+      <div class="df"><div class="p">+ “Sửa ShopScreen theo design v2: bỏ tab Gói nạp, chuyển gói sang tab Ưu đãi” — Sonnet · vừa (thay cho phần của #2)</div>
+        <div class="p">+ “Thêm qty vào POST /shop/buy + test” — Haiku · vừa (prompt viết sẵn đủ chi tiết)</div>
+        <div class="c">= #3 khoá localization: chỉ xoá 6 khoá tab Gói nạp → gộp vào task trên, không cần task riêng</div></div>
+      <div class="note" style="margin:8px 0 4px"><b>Task đang chạy #6 (Haiku)</b>: cho chạy xong — đồng hồ vẫn dùng được, chỉ đổi chỗ đặt:</div>
+      <div class="df"><div class="p">+ “Chuyển đồng hồ đếm ngược lên header theo design v2” — Haiku · thấp, chạy ngay sau #6</div></div>
+      <div class="note" style="margin:8px 0 4px"><b>Task chưa chạy</b> → viết lại prompt hoàn chỉnh:</div>
+      <div class="df"><div class="c">~ #7 Popup mua: thêm ô chọn số lượng (1–99), tổng tiền cập nhật theo qty — design v2 frame “Popup/Buy”</div>
+        <div class="c">~ #8 Test: thêm case qty = 0, qty vượt giới hạn mua</div>
+        <div class="c">~ #9 Rà soát: so với design v2 (không phải v1)</div></div>
+      <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap"><button class="btn pri" id="ap">✓ Áp dụng vào lịch</button><button class="btn">Sửa rồi áp dụng</button><button class="btn">Xem context.md mới</button><button class="btn warn">Huỷ</button></div></div>`;
+    h += [0, 1, 2, 3, 4].map((i) => T(i, 'done', i === 1 ? 'xong · ⚠ một phần theo design v1 — có task sửa lại' : 'xong')).join('') + T(5, 'run', 'đang chạy — sẽ không bị ngắt') + [6, 7, 8].map((i) => T(i, '', 'chờ · prompt sẽ được viết lại')).join('');
+  }
+  h += '</div>';
+  const ctx = `<div class="tabs2"><span class="on">context.md</span><span>Bàn giao</span><span>Lịch sử design</span></div>
+    <pre># Màn Shop — bức tranh tổng
+Design hiện hành: ${chg === 2 ? '<b>v2</b> (đổi lúc 15:40, task #6 đang chạy)' : 'v1'}
+${chg === 2 ? `
+## Thay đổi design v2
+- Bỏ tab "Gói nạp" → gộp vào "Ưu đãi"
+- Popup mua: ô số lượng, tổng tiền theo qty
+- Đồng hồ đếm ngược: lên header
+- API: POST /shop/buy thêm qty
+` : ''}
+## Quyết định đã chốt
+- ShopItem {id, price, currency, limit, tags}
+- Ví là nguồn sự thật ở server
+...</pre>
+    <div class="note">Mọi task chạy sau đó đều đọc context.md này, nên tự biết đang làm theo design nào — kể cả task Haiku.</div>
+    ${chg === 2 ? '<div class="ho"><b>Lịch sử design</b><div>v1 · 26/10 — kế hoạch gốc<br>v2 · hôm nay 15:40 — 3 thay đổi, +3 task, sửa 3 task</div></div>' : ''}`;
+  body.innerHTML = `<div class="runv"><div>${h}</div><div class="ctx">${ctx}</div></div>`;
+  $('#upd').onclick = () => { chg = 1; drawChange(); };
+  const rp = $('#rp'); if (rp) rp.querySelectorAll('label').forEach((l) => l.onclick = () => { runPol = l.dataset.p; drawChange(); });
+  const an = $('#ana'); if (an) an.onclick = () => { chg = 2; drawChange(); };
+  const ap = $('#ap'); if (ap) ap.onclick = () => toast('Đã áp dụng design v2: +3 task, sửa 3 task — #6 vẫn chạy tiếp');
+}
+let det = 0;
+function drawDetect() {
+  $('#top').innerHTML = `<b>🤖 Dự án: Màn Shop</b><span class="pill">${det ? '⏸ tạm dừng — design đã đổi' : '🔎 kiểm tra design trước giai đoạn 3'}</span><span class="sp"></span><button class="btn sm">⏸ Tạm dừng</button>`;
+  const T = (i, s) => `<div class="st ${s}"><span class="dot">${s === 'done' ? '✓' : i + 1}</span><div><b>${esc(TASKS[i].title)}</b><br><small>${s === 'done' ? 'xong' : 'chờ'}</small></div><div class="r"><span class="pill m-${TASKS[i].model}">${MN[TASKS[i].model]} · ${EN[TASKS[i].eff]}</span></div></div>`;
+  let h = '<div class="flow" style="max-width:1000px">' + [0, 1, 2, 3, 4, 5, 6].map((i) => T(i, 'done')).join('');
+  h += `<div class="phase" style="margin:12px 0 6px"><div class="ph">Trước Giai đoạn 3 — Kiểm tra <small>kiểm tra design tự động</small></div></div>
+    <div class="st ${det ? 'done' : 'run'}"><span class="dot">${det ? '✓' : ''}</span><div><b>🔎 Kiểm tra design có đổi không</b><br><small>${det ? 'xong · 40 giây' : 'đang chạy'}</small></div><div class="r"><span class="pill m-haiku">Haiku · thấp</span></div></div>
+    <div class="tlw" style="margin:6px 0 10px 36px;display:grid;gap:5px">
+      <div class="tl">📚 <b>gdd</b> get_changes(since a1b2c3d) → bản e4f5a6b · <b>2 trang sửa nội dung</b>: “Hệ thống Shop”, “Tiền tệ” <span class="ok">✓</span></div>
+      <div class="tl">🎨 <b>Figma</b> get_metadata · 3 frame → <b>Popup/Buy</b> thêm 4 lớp (ô số lượng, nút +/−), Shop/Offers đổi kích thước <span class="ok">✓</span></div>
+      <div class="tl">🧮 GUI so với design/sources.json → <b>có thay đổi</b></div></div>`;
+  if (det) h += `<div class="alert"><h3>🎨 Design đã đổi từ lúc lập kế hoạch</h3><div class="who">Phát hiện tự động trước giai đoạn 3 · các task sau chưa chạy</div>
+      <div class="df" style="margin-top:8px">
+        <div class="c">~ gdd “Hệ thống Shop” — sửa mục “Mua nhiều”, “Giới hạn mua/ngày” (a1b2c3d → e4f5a6b)</div>
+        <div class="c">~ gdd “Tiền tệ” — sửa bảng quy đổi kim cương</div>
+        <div class="c">~ Figma Popup/Buy — thêm ô số lượng, nút +/−</div>
+        <div class="c">~ Figma Shop/Offers — đổi kích thước lưới</div></div>
+      <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap"><button class="btn pri" id="an2">Phân tích &amp; đề xuất sửa lịch</button><button class="btn">Xem chi tiết thay đổi</button><button class="btn">Bỏ qua, chạy tiếp</button><button class="btn">Ghi nhận bản mới, không sửa lịch</button></div>
+      <div class="note" style="margin-top:6px">“Phân tích” gửi danh sách thay đổi này cho phiên điều phối (Opus) — đi tiếp như bước 6. Nó chỉ đọc lại 2 trang + 2 frame đã đổi.</div></div>`;
+  else h += `<div class="note">Nếu không có gì đổi: ghi “design không đổi” vào context.md rồi chạy tiếp task 8 ngay.</div>`;
+  h += [7, 8].map((i) => T(i, '')).join('') + '</div>';
+  const ctx = `<div class="tabs2"><span class="on">design/sources.json</span><span>context.md</span></div>
+    <pre>{
+  "figma": {
+    "file": "shop-design",
+    "frames": {
+      "Shop/Items":  { "node": "12:40", "hash": "9c1e…" },
+      "Shop/Offers": { "node": "12:88", "hash": "${det ? '<b>51aa…</b>' : '3f07…'}" },
+      "Popup/Buy":   { "node": "14:02", "hash": "${det ? '<b>e2c9…</b>' : '77b0…'}" }
+    },
+    "savedAt": "26/10 14:05"
+  },
+  "gdd": {
+    "project": "game-shop",
+    "pages": ["he-thong-shop", "tien-te"],
+    "sha": "${det ? 'a1b2c3d → <b>e4f5a6b</b>' : 'a1b2c3d'}"
+  }
+}</pre>
+    <div class="note"><b>Figma</b>: MCP không trả “phiên bản file”, nên GUI so <b>cấu trúc</b> frame (get_metadata: tên lớp, vị trí, kích thước). Đổi chỉ màu / chữ thì có thể không bắt được → khi đó bạn gõ một câu báo như bước 6.</div>
+    <div class="note" style="margin-top:6px"><b>gdd</b>: có sẵn mã phiên bản + get_changes nên biết chính xác trang nào đổi.</div>`;
+  $('#body').innerHTML = `<div class="runv"><div>${h}</div><div class="ctx">${ctx}</div></div>`;
+  if (!det) setTimeout(() => { if (step === 6 && !det) { det = 1; drawDetect(); } }, 1600);
+  const a = $('#an2'); if (a) a.onclick = () => { chg = 2; go(5); chg = 2; drawChange(); };
+}
+const _go = go; go = (n) => { if (n === 5) chg = 0; if (n === 6) det = 0; _go(n); };
+go(0);
+</script>
+</body>
+</html>

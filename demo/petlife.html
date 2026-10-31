@@ -1,0 +1,1377 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo đầy đủ · Nuôi robot — trong app & ngoài desktop — Claude GUI</title>
+<link rel="stylesheet" href="../src/bot.css">
+<style>
+  :root { --fg:#e8eaf0; --muted:#9aa1b2; --card:rgba(22,25,33,.95); --line:#2f3443; --acc:#d97757; --eye:#3ff2ff; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; font:13px/1.45 "Segoe UI", system-ui, sans-serif; color:var(--fg); user-select:none; }
+  button { font:inherit; }
+  #desk { position:fixed; inset:0; background:
+      radial-gradient(900px 500px at 75% 15%, rgba(255,170,120,.35), transparent 60%),
+      radial-gradient(800px 600px at 10% 90%, rgba(80,120,255,.35), transparent 60%),
+      linear-gradient(160deg, #2b3a67 0%, #3d2f5c 45%, #1c2238 100%); }
+  /* cửa sổ giả */
+  .win { position:absolute; z-index:1; background:#1e1f24; border:1px solid #3a3d46; border-radius:8px; box-shadow:0 12px 40px rgba(0,0,0,.45); overflow:hidden; }
+  .win .tb { height:30px; background:#2a2c33; display:flex; align-items:center; gap:8px; padding:0 10px; cursor:grab; font-size:12px; color:#c9ccd4; flex:none; }
+  .win .tb i { width:10px; height:10px; border-radius:50%; background:#555; display:inline-block; }
+  .win .body { padding:10px 12px; font:12px/1.6 Consolas, monospace; color:#9fb3c8; white-space:pre; }
+  /* taskbar + nhà của robot */
+  #taskbar { position:fixed; left:0; right:0; bottom:0; height:44px; background:rgba(20,22,30,.82); backdrop-filter:blur(12px); border-top:1px solid rgba(255,255,255,.08); display:flex; align-items:center; justify-content:center; gap:10px; z-index:2; }
+  #taskbar span { width:30px; height:30px; border-radius:7px; background:rgba(255,255,255,.08); display:grid; place-items:center; font-size:15px; position:relative; }
+  #taskbar #tbApp { cursor:pointer; } #taskbar #tbApp.on::after { content:''; position:absolute; bottom:-4px; left:9px; right:9px; height:3px; border-radius:2px; background:var(--acc); }
+  #taskbar .clock { position:absolute; right:14px; width:auto; background:none; font-size:12px; color:#cfd3dc; }
+  #home { position:fixed; left:360px; bottom:44px; width:250px; height:70px; z-index:0; pointer-events:none; }
+  .homeset .it { position:absolute; bottom:0; font-size:26px; filter:drop-shadow(0 3px 3px rgba(0,0,0,.4)); transition:opacity .3s, transform .3s; }
+  .homeset .it.off { opacity:0; transform:translateY(10px); }
+  .homeset .rug { position:absolute; left:0; right:0; bottom:-3px; height:10px; border-radius:50%; background:rgba(255,200,140,.18); }
+  .homeset .bed { left:4px; width:74px; height:26px; background:#7a4b2a; border-radius:8px 8px 3px 3px; font-size:0; }
+  .homeset .bed::before { content:''; position:absolute; left:4px; right:4px; top:-6px; height:12px; border-radius:6px; background:#e9e4f5; }
+  .homeset .bed::after { content:''; position:absolute; right:6px; top:-10px; width:22px; height:12px; border-radius:6px; background:#fff; }
+  /* pet: đầu (bot.js) + thân / tay / chân (rig) */
+  #pet { position:absolute; left:0; top:0; z-index:20; cursor:grab; touch-action:none; }
+  #pet.held { cursor:grabbing; }
+  #pet .host, #pvBot .host { position:relative; z-index:1; }
+  .rig { position:absolute; left:0; overflow:visible; z-index:0; }
+  #pvBot .rig { pointer-events:none; }
+  .rig .led { fill:#3ff2ff; filter:drop-shadow(0 0 2px #3ff2ff); }
+  #pet .dirt { position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .6s; z-index:6; }
+  #pet .dirt i { position:absolute; border-radius:50%; background:rgba(120,85,50,.75); }
+  .fly { position:absolute; width:3px; height:3px; background:#111; border-radius:50%; pointer-events:none; z-index:21; }
+  #shadow { position:absolute; z-index:19; height:8px; border-radius:50%; background:rgba(0,0,0,.35); filter:blur(2px); pointer-events:none; }
+  .mcs .prop-spin { transform-box:fill-box; transform-origin:50% 50%; animation:pspin .25s linear infinite; } @keyframes pspin { 50% { transform:scaleX(.15); } }
+  .mcs .cape-wave { transform-box:fill-box; transform-origin:50% 0; animation:cape 2.2s ease-in-out infinite; } @keyframes cape { 50% { transform:skewX(4deg) scaleY(1.03); } }
+  .mini { position:absolute; left:0; top:0; z-index:19; pointer-events:none; }
+  .mhost { position:relative; }
+  /* bóng nói */
+  #say { position:absolute; z-index:30; max-width:270px; background:#fff; color:#1b1d22; border-radius:12px; padding:7px 11px; font-size:12.5px; box-shadow:0 6px 18px rgba(0,0,0,.35); opacity:0; transform:translateY(4px); transition:opacity .2s, transform .2s; pointer-events:none; }
+  #say.on { opacity:1; transform:none; }
+  #say.act { pointer-events:auto; }
+  #say::after { content:''; position:absolute; left:var(--tail, 50%); bottom:-6px; width:12px; height:12px; background:#fff; transform:translateX(-50%) rotate(45deg); border-radius:2px; }
+  #say .acts { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
+  #say .acts button { border:1px solid #d5d8e0; background:#f3f4f7; border-radius:7px; padding:2px 9px; cursor:pointer; font-size:12px; }
+  #say .acts button.p { background:#d97757; border-color:#d97757; color:#fff; }
+  #think { position:absolute; z-index:29; font-size:20px; pointer-events:none; opacity:0; transition:opacity .3s; filter:drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+  #think.on { opacity:1; animation:th 1.6s ease-in-out infinite; } @keyframes th { 50% { transform:translateY(-4px); } }
+  /* đồ vật */
+  .item { position:absolute; z-index:15; font-size:22px; pointer-events:none; filter:drop-shadow(0 3px 3px rgba(0,0,0,.35)); }
+  .item.click { pointer-events:auto; cursor:pointer; }
+  .drop { position:absolute; z-index:25; width:3px; height:9px; border-radius:2px; background:#8fd3ff; pointer-events:none; }
+  .bubble { position:absolute; z-index:26; border:1.5px solid rgba(255,255,255,.8); border-radius:50%; pointer-events:none; }
+  .heart { position:absolute; z-index:26; pointer-events:none; font-size:14px; animation:hz 1.2s ease-out forwards; }
+  @keyframes hz { to { transform:translateY(-40px); opacity:0; } }
+  .pop { position:absolute; z-index:27; pointer-events:none; font-weight:700; color:#ffd43b; text-shadow:0 1px 3px #000; animation:hz 900ms ease-out forwards; }
+  canvas#fx { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:28; }
+  /* túi đồ (bấm đúp robot) */
+  #bag { position:absolute; z-index:35; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:8px; display:none; grid-template-columns:repeat(5, 46px); gap:5px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  #bag.on { display:grid; }
+  #bag .t { grid-column:1/-1; font-size:11.5px; color:var(--muted); padding:0 2px 2px; }
+  #bag button { width:46px; height:46px; border-radius:10px; border:1px solid var(--line); background:#262a36; color:var(--fg); font-size:21px; cursor:pointer; position:relative; }
+  #bag button:hover:not(:disabled) { border-color:var(--eye); }
+  #bag button:disabled { opacity:.35; cursor:not-allowed; }
+  #bag button small { position:absolute; right:2px; bottom:0; font-size:9px; color:var(--muted); }
+  #game { position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:45; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:6px 14px; display:none; font-size:14px; }
+  #game.on { display:block; }
+  #full { position:fixed; inset:0 0 44px 0; z-index:10; background:#101218; display:none; place-items:center; color:#8a92a6; font-size:15px; }
+  #full.on { display:grid; }
+
+  /* ============ app Claude GUI giả ============ */
+  #app { display:flex; flex-direction:column; z-index:5; transition:transform .32s cubic-bezier(.4,0,.2,1), opacity .32s; transform-origin:50% 135%; }
+  #app.min { transform:scale(.06); opacity:0; pointer-events:none; }
+  #app .tb .tbb { margin-left:auto; display:flex; gap:2px; }
+  #app .tb .tbb button { background:none; border:none; color:#c9ccd4; width:30px; height:24px; border-radius:5px; cursor:pointer; }
+  #app .tb .tbb button:hover { background:rgba(255,255,255,.1); }
+  .abody { flex:1; display:flex; min-height:0; }
+  .side { width:200px; flex:none; background:#18191e; border-right:1px solid #2c2f37; display:flex; flex-direction:column; padding:6px 6px 8px; gap:2px; }
+  .side .sh { font-size:10.5px; color:#7d8496; text-transform:uppercase; letter-spacing:.05em; padding:8px 8px 3px; }
+  .ses { padding:6px 9px; border-radius:7px; cursor:pointer; font-size:12.5px; color:#d5d8e0; position:relative; }
+  .ses:hover { background:#23262d; } .ses.act { background:#2b2f3a; }
+  .ses b { font-weight:500; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:12px; }
+  .ses small { display:block; color:#7d8496; font-size:11px; }
+  .ses.star b::before { content:'★ '; color:#ffd43b; }
+  .ses .dot { position:absolute; right:9px; top:12px; width:7px; height:7px; border-radius:50%; background:#5ac8fa; display:none; }
+  .ses.run .dot { display:block; animation:blink 1s steps(2) infinite; }
+  .ses.ping { animation:ping 1s ease-in-out infinite; } @keyframes ping { 50% { background:rgba(255,212,59,.16); box-shadow:inset 0 0 0 1px #ffd43b; } }
+  .side .sfoot { margin-top:auto; }
+  .side .sfoot button { width:100%; background:#23262d; border:1px solid #2f333d; color:#cfd3dc; border-radius:8px; padding:6px; cursor:pointer; font-size:12px; }
+  .main { flex:1; display:flex; flex-direction:column; position:relative; min-width:0; background:#1e1f24; }
+  #apBar { display:none; padding:6px 16px 4px; border-bottom:1px solid #2c2f37; font-size:12px; color:#cfd3dc; flex:none; }
+  #apBar.on { display:block; }
+  #apBar .track { position:relative; height:34px; }
+  #apBar .rail { position:absolute; left:0; right:0; bottom:3px; height:4px; border-radius:2px; background:rgba(255,255,255,.1); overflow:hidden; }
+  #apBar .fill { display:block; height:100%; width:0; background:var(--acc); transition:width .9s; }
+  #apBar .train { position:absolute; bottom:7px; left:0; display:flex; align-items:flex-end; gap:1px; transition:left .9s; }
+  #apBar .cart { font-size:18px; position:relative; line-height:1; }
+  #apBar .cart sup { position:absolute; right:-5px; top:-7px; font-size:9.5px; background:var(--acc); color:#fff; border-radius:7px; padding:0 4px; }
+  #chat { flex:1; overflow:auto; padding:14px 22px 74px; }
+  .cv { display:none; } .cv.on { display:block; }
+  .msg { margin:0 0 12px; font-size:13px; line-height:1.55; white-space:pre-wrap; user-select:text; }
+  .msg.user { background:#2b2f3a; border-radius:10px; padding:7px 12px; margin-left:auto; max-width:75%; width:fit-content; }
+  .msg.asst { color:#dfe2e8; max-width:640px; }
+  .tool { font:12px/1.5 Consolas, monospace; color:#8fa3bf; margin:0 0 6px; } .tool::before { content:'● '; color:#5ac8fa; }
+  .caret { display:inline-block; width:7px; height:14px; background:var(--eye); vertical-align:-2px; margin-left:1px; animation:blink .8s steps(2) infinite; }
+  @keyframes blink { 50% { opacity:.15; } }
+  .card { border:1px solid #3a3f4c; border-radius:10px; padding:10px 12px; margin:0 0 12px; background:#23262e; font-size:12.5px; max-width:520px; }
+  .card .opts { display:flex; flex-direction:column; gap:5px; margin-top:8px; } .card .opts.row { flex-direction:row; }
+  .card button { text-align:left; background:#2c303b; border:1px solid #3a3f4c; color:var(--fg); border-radius:7px; padding:5px 10px; cursor:pointer; font-size:12.5px; }
+  .card button:hover { border-color:var(--eye); } .card button.p { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .card code { background:#15171c; padding:1px 5px; border-radius:4px; }
+  .qcard { border-color:#5ab0ff; margin-top:58px; } .perm { border-color:#ffb21a; } .recap { border-color:#b28cff; } .qdone { color:#9aa1b2; }
+  .recap .rg { display:flex; gap:16px; margin:7px 0; color:#cfd3dc; } .recap .rd { color:#cbbcff; font-style:italic; }
+  #inrow { display:flex; gap:8px; padding:10px 14px; border-top:1px solid #2c2f37; background:#1b1c21; flex:none; }
+  #inp { flex:1; resize:none; height:42px; background:#26282f; color:var(--fg); border:1px solid #3a3d46; border-radius:9px; padding:10px 12px; font:13px "Segoe UI", system-ui; outline:none; user-select:text; }
+  #inp:focus { border-color:var(--acc); }
+  #send { width:42px; border-radius:9px; border:none; background:var(--acc); color:#fff; font-size:16px; cursor:pointer; }
+  .status { display:flex; gap:14px; padding:3px 14px 6px; font-size:11px; color:#7d8496; background:#1b1c21; flex:none; } .status .warn { color:#ffb21a; font-weight:600; }
+  #lark { position:absolute; right:14px; bottom:98px; width:250px; background:#22252d; border:1px solid #3a3f4c; border-radius:12px; box-shadow:0 10px 26px rgba(0,0,0,.45); z-index:4; opacity:0; transform:translateY(10px); pointer-events:none; transition:opacity .25s, transform .25s; }
+  #lark.on { opacity:1; transform:none; pointer-events:auto; }
+  #lark .lh { display:flex; align-items:center; padding:7px 10px; border-bottom:1px solid #3a3f4c; font-size:12px; font-weight:600; }
+  #lark .lh button { margin-left:auto; background:none; border:none; color:var(--muted); cursor:pointer; }
+  #larkMsgs { padding:8px 10px; display:flex; flex-direction:column; gap:6px; max-height:150px; overflow:auto; }
+  .lm { background:#2e323d; border-radius:9px; padding:5px 9px; font-size:12px; max-width:85%; } .lm.me { background:#3b2a24; margin-left:auto; }
+  .lm small { display:block; color:var(--muted); font-size:10px; }
+  #room { position:absolute; inset:0; z-index:6; background:#17181d; display:none; flex-direction:column; }
+  #room.on { display:flex; }
+  #room .rh { display:flex; align-items:center; gap:6px; padding:10px 16px; font-weight:600; border-bottom:1px solid #2c2f37; }
+  #room .rh span { color:var(--muted); font-weight:400; font-size:12px; }
+  #room .rh button { margin-left:auto; background:#2a2f3d; border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:3px 10px; cursor:pointer; }
+  #room .rcards { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:12px 16px; overflow:auto; }
+  #room .sec { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; margin:0 0 6px; }
+  .rforms { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+  .rforms button { background:#23262e; border:1px solid var(--line); color:var(--fg); border-radius:9px; padding:6px 4px; cursor:pointer; font-size:11.5px; }
+  .rforms button.on { border-color:var(--eye); } .rforms button span { display:block; font-size:20px; }
+  #room .scene { position:relative; height:150px; flex:none; background:linear-gradient(#2a2440, #3a3150 70%); border-top:1px solid #2c2f37; overflow:hidden; }
+  #room .scene::before { content:'🪟'; position:absolute; right:60px; top:16px; font-size:40px; opacity:.85; }
+  #room .homeset { position:absolute; left:40px; bottom:22px; width:250px; height:70px; }
+  #room .rfloor { position:absolute; left:0; right:0; bottom:0; height:22px; background:linear-gradient(#5a4232, #43302a); }
+
+  /* bảng demo */
+  #panel { position:fixed; top:12px; left:12px; width:330px; max-height:calc(100vh - 70px); display:flex; flex-direction:column; background:var(--card); border:1px solid var(--line); border-radius:14px; z-index:40; box-shadow:0 10px 30px rgba(0,0,0,.4); }
+  #panel .hd { padding:11px 14px 6px; }
+  #panel h1 { margin:0; font-size:14px; } #panel .sub { color:var(--muted); font-size:11.5px; margin-top:2px; }
+  .lv { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; }
+  .lv .bar { flex:1; height:6px; border-radius:3px; background:rgba(255,255,255,.1); overflow:hidden; } .lv .bar i { display:block; height:100%; background:var(--eye); border-radius:3px; transition:width .4s; }
+  .stat { display:grid; grid-template-columns:22px 74px 1fr 30px; align-items:center; gap:6px; margin:3px 0; }
+  .stat .bar { height:8px; border-radius:4px; background:rgba(255,255,255,.1); overflow:hidden; }
+  .stat .bar i { display:block; height:100%; border-radius:4px; transition:width .4s, background .4s; }
+  .stat .v { text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; font-size:11.5px; }
+  .mood { margin:4px 0 2px; font-size:12px; color:#cfd3dc; min-height:18px; }
+  .tabs { display:flex; gap:2px; padding:0 10px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .tabs button { background:none; border:none; color:var(--muted); padding:5px 5px; cursor:pointer; font-size:11.5px; border-bottom:2px solid transparent; }
+  .tabs button.on { color:var(--fg); border-bottom-color:var(--acc); }
+  .pane { display:none; padding:8px 14px 12px; overflow:auto; }
+  .pane.on { display:block; }
+  .sec { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; margin:8px 0 5px; }
+  .sec:first-child { margin-top:2px; }
+  .btns { display:flex; flex-wrap:wrap; gap:5px; }
+  .btns button { background:#2a2f3d; border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:4px 9px; cursor:pointer; font-size:12px; }
+  .btns button:hover { border-color:#5a6275; }
+  .btns button.on { border-color:var(--eye); color:var(--eye); }
+  .hint { color:var(--muted); font-size:11px; margin-top:6px; line-height:1.45; }
+  .hint b { color:#cfd3dc; font-weight:500; }
+  .log { font-size:11.5px; color:var(--muted); }
+  .log div b { color:#cfd3dc; font-weight:500; }
+  .form { display:grid; grid-template-columns:34px 1fr auto; gap:8px; align-items:center; border:1px solid var(--line); border-radius:10px; padding:7px 9px; margin-bottom:6px; }
+  .form.on { border-color:var(--eye); }
+  .form .ic { font-size:22px; text-align:center; }
+  .form b { font-size:12.5px; font-weight:600; } .form small { display:block; color:var(--muted); font-size:11px; }
+  .form .pb { height:4px; border-radius:2px; background:rgba(255,255,255,.1); margin-top:4px; overflow:hidden; } .form .pb i { display:block; height:100%; background:var(--acc); }
+  .form button { background:#2a2f3d; border:1px solid var(--line); color:var(--fg); border-radius:7px; padding:3px 8px; cursor:pointer; font-size:11.5px; }
+  .deco { display:grid; grid-template-columns:repeat(3, 1fr); gap:5px; }
+  .deco button { background:#262a36; border:1px solid var(--line); color:var(--fg); border-radius:9px; padding:6px 4px; cursor:pointer; font-size:12px; }
+  .deco button.on { border-color:var(--eye); }
+  .deco button:disabled { opacity:.4; cursor:not-allowed; }
+  .deco button span { display:block; font-size:20px; }
+  .diary div { border-left:2px solid var(--line); padding:2px 0 6px 9px; font-size:12px; }
+  .diary div small { display:block; color:var(--muted); font-size:10.5px; }
+  #minbtn { position:absolute; right:10px; top:9px; background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; }
+  #panel.min .tabs, #panel.min .pane { display:none; }
+  .pvbox { display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:12px; padding:8px 10px; background:radial-gradient(160px 90px at 30% 60%, rgba(63,242,255,.08), transparent), #1a1d25; }
+  .pvstage { width:110px; height:160px; position:relative; flex:none; }
+  #pvBot { position:absolute; left:20px; bottom:8px; }
+  .pvstage::after { content:''; position:absolute; left:12px; right:12px; bottom:4px; height:6px; border-radius:50%; background:rgba(0,0,0,.45); }
+  .pvtxt { font-size:12px; color:#cfd3dc; } .pvtxt small { display:block; color:var(--muted); font-size:11px; margin-top:3px; }
+</style>
+</head>
+<body>
+<div id="desk">
+  <div id="home" class="homeset"><div class="rug"></div><div class="it bed" data-d="bed"></div><div class="it" data-d="lamp" style="left:84px">🪔</div><div class="it" data-d="kb" style="left:118px; font-size:22px">⌨️</div><div class="it" data-d="plant" style="left:160px">🪴</div><div class="it" data-d="cat" style="left:198px; font-size:20px">🐈</div><div class="it" data-d="tv" style="left:120px; bottom:30px; font-size:22px">🖼️</div></div>
+  <div class="win" id="w1" style="left:400px; top:150px; width:430px; height:200px">
+    <div class="tb"><i></i><i></i><i></i> VS Code — DomainRankCell.cs</div>
+    <div class="body">private void RequestNext()
+{
+    if (_waiting || Page &lt;= 0) return;
+    _waiting = true;
+    _requestPage?.Invoke(Page + 1);
+}</div>
+  </div>
+  <div class="win" id="w2" style="left:900px; top:300px; width:360px; height:160px">
+    <div class="tb"><i></i><i></i><i></i> Chrome — docs.unity3d.com</div>
+    <div class="body">Animation Events
+Use events to call functions
+at points in the timeline…</div>
+  </div>
+  <div class="win" id="app">
+    <div class="tb"><i></i><i></i><i></i> <span id="appTitle">Claude GUI — Sửa combat Võ Lâm</span><span class="tbb"><button id="appMin" title="Thu nhỏ">—</button><button title="(demo)">☐</button></span></div>
+    <div class="abody">
+      <div class="side">
+        <div class="sh">★ Đã đánh dấu</div>
+        <div class="ses star act" data-s="vl"><b>Sửa combat Võ Lâm</b><small>đang mở</small><i class="dot"></i></div>
+        <div class="ses star" data-s="ui"><b>UI bảng xếp hạng</b><small>2 giờ trước</small><i class="dot"></i></div>
+        <div class="sh">Hôm nay</div>
+        <div class="ses run" data-s="tax"><b>Thuế chợ</b><small>đang chạy…</small><i class="dot"></i></div>
+        <div class="ses" data-s="bug"><b>Fix crash đăng nhập</b><small>10:20</small><i class="dot"></i></div>
+        <div class="ses" data-s="doc"><b>Viết README</b><small>09:05</small><i class="dot"></i></div>
+        <div class="sfoot"><button id="roomBtn">🤖 Phòng robot</button></div>
+      </div>
+      <div class="main">
+        <div id="apBar"><div>🚂 Dự án tự động “Refactor combat” · <b id="apN">0/5 task</b></div><div class="track"><div class="rail"><i class="fill"></i></div><div class="train"><span class="cart">🛒<sup>0</sup></span><div class="mh"></div></div></div></div>
+        <div id="chat">
+          <div class="cv on" data-s="vl"><div class="msg user">Skill Thiết Sa Chưởng thỉnh thoảng trúng 2 lần, xem giúp mình</div><div class="tool">Read  src/combat/SkillHit.cs</div><div class="msg asst">Mình thấy rồi: OnHit bị gọi lại khi animation event bắn 2 lần trong cùng một combo. Sửa bằng cờ _hitConsumed được không?
+
+Gõ “ok sửa đi” rồi Enter để mình làm (hoặc bấm ✍ Gửi prompt ở bảng bên trái).</div></div>
+          <div class="cv" data-s="ui"><div class="msg user">Bảng xếp hạng thêm phân trang</div><div class="msg asst">Xong: 20 dòng/trang, kéo tới cuối tự tải trang sau ✓</div></div>
+          <div class="cv" data-s="tax"><div class="msg user">Tính thuế chợ theo ngày rồi chia cho bang hội</div><div class="tool">Read  src/market/MarketTax.cs</div><div class="tool">Edit  MarketTax.cs</div></div>
+          <div class="cv" data-s="bug"><div class="msg user">App crash khi token hết hạn</div><div class="msg asst">Đã sửa: làm mới token trước khi gọi API ✓</div></div>
+          <div class="cv" data-s="doc"><div class="msg user">Cập nhật README phần cài đặt</div><div class="msg asst">README đã cập nhật ✓</div></div>
+        </div>
+        <div id="lark"><div class="lh">✉ Lark · Ngọc (GD)<button id="larkX">✕</button></div><div id="larkMsgs"><div class="lm me">Ngọc ơi thuế chợ tính thế nào?<small>hôm qua</small></div></div></div>
+        <div id="inrow"><textarea id="inp" placeholder="Nhắn cho Claude… (gõ thử xem robot · Enter để gửi)"></textarea><button id="send">➤</button></div>
+        <div class="status"><span>Opus 5.5 · effort cao</span><span id="cost"></span><span style="margin-left:auto">⌨ Ctrl+Shift+P gọi robot</span></div>
+        <div id="room">
+          <div class="rh">🤖 Phòng của robot <span id="roomLv"></span><button id="roomX">✕ Đóng phòng</button></div>
+          <div class="rcards"><div><div class="sec">Tiến hoá · bấm để mặc</div><div id="rForms" class="rforms"></div></div><div><div class="sec">Nhật ký robot</div><div id="rDiary" class="diary"></div></div></div>
+          <div class="scene"><div class="homeset"><div class="rug"></div><div class="it bed" data-d="bed"></div><div class="it" data-d="lamp" style="left:84px">🪔</div><div class="it" data-d="kb" style="left:118px; font-size:22px">⌨️</div><div class="it" data-d="plant" style="left:160px">🪴</div><div class="it" data-d="cat" style="left:198px; font-size:20px">🐈</div><div class="it" data-d="tv" style="left:120px; bottom:30px; font-size:22px">🖼️</div></div><div class="rfloor"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="full">🎮 Unity — Play mode (toàn màn hình) · robot tự nấp vào mép phải, không làm phiền</div>
+<div id="taskbar"><span>🪟</span><span>📁</span><span>🧭</span><span>💻</span><span id="tbApp" class="on" title="Claude GUI">🤖</span><span class="clock" id="clock">--:--</span></div>
+<div id="shadow"></div>
+<div id="pet"><svg class="rig"></svg><div class="host"><div class="dirt"></div></div></div>
+<div id="say"></div>
+<div id="think"></div>
+<div id="bag"></div>
+<div id="game"></div>
+<canvas id="fx"></canvas>
+
+<div id="panel">
+  <button id="minbtn" title="Thu gọn">—</button>
+  <div class="hd">
+    <h1>🤖 Nuôi robot — demo đầy đủ</h1>
+    <div class="sub">Bên phải là <b>app Claude GUI giả</b> nằm trên desktop. Thu nhỏ app / bấm sang cửa sổ khác → robot ra desktop. Kéo thả, ném robot · <b>bấm đúp mở túi đồ</b>.</div>
+    <div class="lv"><b id="lvT">Cấp 1</b><div class="bar"><i id="lvB"></i></div><span id="lvX" class="v" style="color:var(--muted);font-size:11px"></span></div>
+    <div id="stats" style="margin-top:5px"></div>
+    <div class="mood" id="mood"></div>
+  </div>
+  <div class="tabs">
+    <button data-t="app" class="on">Trong app</button><button data-t="body">Thân hình</button><button data-t="care">Chăm sóc</button><button data-t="ev">Từ Claude</button><button data-t="play">Chơi</button><button data-t="evo">Tiến hoá</button><button data-t="home">Nhà</button><button data-t="diary">Nhật ký</button>
+  </div>
+  <div class="pane on" data-p="app">
+    <div class="sec">Ra / vào app</div>
+    <div class="btns"><button data-a="appMin">🗕 Thu nhỏ app</button><button data-a="appOpen">🗗 Mở lại app</button><button data-a="appSwitch">🪟 Bấm sang VS Code</button><button data-a="room">🏠 Phòng robot</button></div>
+    <div class="hint">Thu nhỏ app (nút — trên app / icon 🤖 dưới taskbar), bấm sang cửa sổ khác hay bấm ra desktop → robot <b>nhảy ra ngoài, bung thân</b>. Mở lại app → robot <b>nhảy vào, thu gọn</b>. Kéo robot ra khỏi app cũng được (lát nó tự về).</div>
+    <div class="sec">Phiên đang mở</div>
+    <div class="btns"><button data-a="send">✍ Gửi prompt</button><button data-a="agentTurn">🤖 Lượt có subagent</button><button data-a="long">📜 Trả lời dài</button><button data-a="askq">❓ Claude hỏi bạn</button></div>
+    <div class="hint"><b>Gõ thử vào ô nhập</b> → robot đứng yên nhìn. <b>Enter</b> → robot ném prompt đi, rồi cầm đồ nghề theo công cụ: kính (Read), kính lúp (Grep), bút (Edit), bàn phím (Bash), gọi robot mini (Agent). Lúc trả lời, robot <b>đi theo chữ cuối</b>; cuộn lên đọc thì nó ngồi chờ với ⬇, bấm vào nó để về cuối. Xong lượt rơi ⚡ hạt năng lượng.</div>
+    <div class="sec">Phiên khác & tin nhắn</div>
+    <div class="btns"><button data-a="oDone">🏁 “Thuế chợ” xong</button><button data-a="oPerm">🔐 “Thuế chợ” xin quyền</button><button data-a="lark">✉ Tin Lark</button></div>
+    <div class="sec">Khác</div>
+    <div class="btns"><button data-a="auto">🚂 Dự án tự động</button><button data-a="cost">💸 Chi phí vượt $20</button><button data-a="recap">🌙 Tổng kết ngày</button><button data-a="summon">⌨ Gọi robot · Ctrl+Shift+P</button><button data-a="idle">⚽ Bạn rảnh 5 phút</button></div>
+    <div class="hint">Lúc bạn gõ / cuộn đọc: robot không đi lại, không bật bóng nói; đói / bẩn chỉ hiện icon nhỏ trên đầu. Robot thỉnh thoảng tự lên ngồi trên phiên ★ (nhà của nó trong thanh bên).</div>
+    <div class="sec">Nhật ký sự kiện</div>
+    <div id="log2" class="log"></div>
+  </div>
+  <div class="pane" data-p="body">
+    <div class="pvbox"><div class="pvstage"><div id="pvBot"><svg id="pvRig" class="rig"></svg><div id="pvHost" class="host"></div></div></div><div class="pvtxt"><b id="pvName"></b><small>Xem thử: đi bộ rồi vẫy tay. Robot thật ngoài desktop đổi theo ngay.</small></div></div>
+    <div class="sec">Bộ phối sẵn</div><div class="btns" id="kitPre"></div>
+    <div class="sec">Đầu</div><div class="btns" id="kitHead"></div>
+    <div class="sec">Thân + tay</div><div class="btns" id="kitBody"></div>
+    <div class="sec">Chân</div><div class="btns" id="kitLegs"></div>
+    <div class="btns" style="margin-top:8px"><button data-a="toDesk">🖥 Ra desktop xem</button><button data-a="bodyApp" id="bodyAppBtn">Thân cả khi ở trong app: tắt</button></div>
+    <div class="hint">Trong app robot <b>gọn</b> (đầu + chân nhỏ) cho đỡ vướng; ra desktop thì <b>bung thân, tay, chân</b>. Tay vung khi đi, giơ lên khi bị nhấc / ăn mừng, gõ gõ khi Claude đang làm, gõ cửa khi mang thư Lark. Đầu, thân và trang phục tiến hoá mặc chồng lên nhau được.</div>
+  </div>
+  <div class="pane" data-p="care">
+    <div class="sec">Chăm sóc</div>
+    <div class="btns">
+      <button data-a="feed">🍙 Cho ăn</button><button data-a="cake">🍰 Bánh to</button><button data-a="pet">🤚 Vuốt ve</button><button data-a="bath">🚿 Tắm</button><button data-a="sleep">💤 Đi ngủ</button>
+    </div>
+    <div class="sec">Chế độ</div>
+    <div class="btns">
+      <button data-a="dnd">🔕 Đừng làm phiền</button><button data-a="full">🎮 Giả lập app toàn màn hình</button>
+      <button data-a="speed" id="speedBtn">⏩ Thời gian ×120</button><button data-a="xp">⭐ +300 XP</button><button data-a="reset">↺ Đặt lại</button>
+    </div>
+    <div class="hint"><b>4 chỉ số</b> tụt dần theo giờ thật (×120 để thấy nhanh). <b>Không chết, không phạt</b> — đói / buồn chỉ ỉu xìu, đi chậm, nghĩ ra 🍙 / 🛁 / 🤚 trên đầu.<br>Lượt Claude xong → ⚡ hạt năng lượng rơi xuống; commit → thêm hạt; test pass / được chơi → vui; bọ (test fail) chưa bắt → bẩn nhanh.</div>
+    <div class="sec">Nhật ký sự kiện</div>
+    <div id="log" class="log"></div>
+  </div>
+  <div class="pane" data-p="ev">
+    <div class="sec">Giả lập việc của Claude</div>
+    <div class="btns">
+      <button data-a="turn">✓ Xong lượt</button><button data-a="longdone">🏁 Xong việc dài</button><button data-a="ask">🔐 Claude xin quyền</button><button data-a="lark">✉ Tin Lark</button>
+      <button data-a="pass">🎉 Test pass</button><button data-a="fail">🐞 Test fail</button><button data-a="commit">🎆 Commit</button><button data-a="push">🚀 Push</button><button data-a="limit">🔋 Hết giới hạn 5h</button>
+    </div>
+    <div class="hint">Khi robot <b>ngoài desktop</b>: xong việc dài / xin quyền / tin Lark → chạy tới gần con trỏ báo, trả lời ngay trong bóng nói. Khi robot <b>trong app</b>: các nút này chuyển thành hành vi trong app (nhảy lên phiên ở thanh bên, mang thư tới khung Lark…).</div>
+  </div>
+  <div class="pane" data-p="play">
+    <div class="sec">Mini game</div>
+    <div class="btns"><button data-a="game">🎮 Bắt bọ 30 giây</button></div>
+    <div class="hint">Bọ rơi xuống — bấm vào bọ để bắt, robot cũng chạy bắt con nào rơi gần.</div>
+    <div class="sec">Đồ chơi</div>
+    <div class="btns"><button data-a="ball">⚽ Ném bóng</button><button data-a="chase">🐭 Chơi đuổi con trỏ</button><button data-a="climb">🧗 Leo lên cửa sổ</button></div>
+    <div class="hint">Bấm vào bóng để sút. Ngoài desktop robot tự leo lên thanh tiêu đề cửa sổ; cửa sổ dời đi thì trượt theo. Lắc chuột nhanh gần robot khi nó đang vui → nó đuổi theo con trỏ.</div>
+  </div>
+  <div class="pane" data-p="evo">
+    <div class="sec">Dạng tiến hoá — theo thói quen của bạn</div>
+    <div id="forms"></div>
+    <div class="hint">Dạng cao nhất đạt được sẽ tự mặc (vẫn đổi tay được). Ngày lễ thì đồ lễ đè lên như hiện nay.</div>
+  </div>
+  <div class="pane" data-p="home">
+    <div class="sec">Nhà của robot (desktop + phòng trong app)</div>
+    <div class="deco" id="deco"></div>
+    <div class="hint">Đồ trang trí mở theo cấp. Ngoài desktop nhà nằm cạnh taskbar; trong app là "Phòng robot" (nút ở cuối thanh bên). Robot về giường để ngủ, tối hay đọc sách dưới đèn.</div>
+  </div>
+  <div class="pane" data-p="diary">
+    <div class="sec">Nhật ký robot</div>
+    <div class="diary" id="diary"></div>
+  </div>
+</div>
+
+<script src="../src/seasons.js"></script>
+<script src="../src/bot.js"></script>
+<script>
+(() => {
+  const BK = window.BotKit;
+  const $ = (s) => document.querySelector(s);
+  const W = () => innerWidth, H = () => innerHeight;
+  const GROUND = () => H() - 44;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const hm = () => new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const DESK_W = 84, APP_W = 62;
+
+  // =================== thân / tay / chân (toạ độ rig: rộng 100 đơn vị = bề ngang đầu) ===================
+  const BODY = {
+    none: { name: 'Không thân', h: 0 },
+    box: { name: 'Thân hộp', h: 40, hips: [40, 60], sh: [[26, 10], [74, 10]],
+      svg: '<rect x="44" y="0" width="12" height="7" fill="#2b313c"/><rect x="26" y="5" width="48" height="34" rx="9" fill="#161b23" stroke="#343b48" stroke-width="1.6"/><rect x="35" y="12" width="30" height="15" rx="4" fill="#0a0e14"/><circle class="led" cx="42" cy="19.5" r="3"/><rect class="led" x="49" y="16" width="12" height="2.2" rx="1" opacity=".55"/><rect class="led" x="49" y="21" width="8" height="2.2" rx="1" opacity=".55"/>',
+      arm: (x) => `<rect x="${x - 4}" y="9" width="8" height="22" rx="4" fill="#2b313c" stroke="#454d5c" stroke-width="1.3"/><circle cx="${x}" cy="32" r="4.6" fill="#2b313c" stroke="#454d5c" stroke-width="1.3"/>` },
+    round: { name: 'Thân tròn', h: 40, hips: [42, 58], sh: [[29, 13], [71, 13]],
+      svg: '<rect x="45" y="0" width="10" height="6" fill="#2b313c"/><ellipse cx="50" cy="22" rx="24" ry="17.5" fill="#1b2029" stroke="#343b48" stroke-width="1.6"/><ellipse cx="50" cy="25" rx="13" ry="9" fill="#262d3a"/><path class="led" d="M50 29.5 l-4.6 -4.6 a2.7 2.7 0 0 1 4.6 -2.7 a2.7 2.7 0 0 1 4.6 2.7 z"/>',
+      arm: (x) => `<ellipse cx="${x}" cy="21" rx="4.6" ry="9.5" fill="#2b313c" stroke="#454d5c" stroke-width="1.3"/>` },
+    hoodie: { name: 'Áo hoodie', h: 42, hips: [40, 60], sh: [[27, 10], [73, 10]],
+      svg: '<path d="M30 3 Q50 15 70 3 L70 9 Q50 20 30 9 Z" fill="#b45f42"/><path d="M27 8 Q50 1 73 8 L76 40 Q50 45 24 40 Z" fill="#d97757" stroke="#b45f42" stroke-width="1.6"/><path d="M46 10 V21 M54 10 V21" stroke="#f3e1d6" stroke-width="1.4"/><circle cx="46" cy="22" r="1.4" fill="#f3e1d6"/><circle cx="54" cy="22" r="1.4" fill="#f3e1d6"/><rect x="37" y="27" width="26" height="9" rx="3" fill="#c4664a"/>',
+      arm: (x) => `<rect x="${x - 4.5}" y="9" width="9" height="23" rx="4.5" fill="#d97757" stroke="#b45f42" stroke-width="1.3"/><circle cx="${x}" cy="33.5" r="4.4" fill="#2b313c" stroke="#454d5c" stroke-width="1.3"/>` },
+  };
+  const LEGS = {
+    feet: { name: 'Bàn chân nhỏ', h: 8, leg: (x, y) => `<rect x="${x - 8}" y="${y}" width="16" height="8" rx="4" fill="#11151c" stroke="#343b48" stroke-width="1.5"/>` },
+    stick: { name: 'Chân khớp', h: 26, leg: (x, y) => `<path d="M${x} ${y} V${y + 19}" stroke="#454d5c" stroke-width="4.5" stroke-linecap="round"/><circle cx="${x}" cy="${y + 10}" r="2.6" fill="#2b313c" stroke="#5a6275" stroke-width="1"/><rect x="${x - 6}" y="${y + 18.5}" width="14" height="7" rx="3.5" fill="#11151c" stroke="#343b48" stroke-width="1.4"/>` },
+    spring: { name: 'Lò xo', h: 25, leg: (x, y) => `<path d="M${x} ${y} l4 2.5 l-8 3 l8 3 l-8 3 l8 3 l-8 3 l4 2.5" fill="none" stroke="#9aa1b2" stroke-width="2.2" stroke-linejoin="round"/><ellipse cx="${x}" cy="${y + 21}" rx="7.5" ry="3.6" fill="#11151c" stroke="#343b48" stroke-width="1.4"/>` },
+    wheel: { name: 'Bánh xe', h: 25, single: 1, leg: (x, y) => `<rect x="46" y="${y}" width="8" height="8" fill="#2b313c"/><circle cx="50" cy="${y + 14}" r="10" fill="#11151c" stroke="#5a6275" stroke-width="2.6"/><g class="spokes"><path d="M50 ${y + 6} V${y + 22} M42 ${y + 14} H58" stroke="#5a6275" stroke-width="2"/></g><circle cx="50" cy="${y + 14}" r="2.4" fill="#9aa1b2"/>` },
+  };
+  // đầu: vẽ ở lớp sau mặt, toạ độ mặt robot 240×182
+  const HEADS = {
+    plain: { name: 'Màn hình', back: '' },
+    antenna: { name: 'Ăng-ten', back: '<path d="M120 4 V-46" stroke="#8b929e" stroke-width="7"/><circle class="mcs-blink" cx="120" cy="-54" r="13" fill="#ff5a5f"/><circle cx="-6" cy="91" r="16" fill="#2b313c" stroke="#454d5c" stroke-width="4"/><circle cx="246" cy="91" r="16" fill="#2b313c" stroke="#454d5c" stroke-width="4"/>' },
+    ears: { name: 'Tai nghe', back: '<path d="M-9 56 C -9 -62, 249 -62, 249 56" fill="none" stroke="#454d5c" stroke-width="10"/><rect x="-26" y="46" width="32" height="90" rx="15" fill="#2b313c" stroke="#454d5c" stroke-width="5"/><rect x="234" y="46" width="32" height="90" rx="15" fill="#2b313c" stroke="#454d5c" stroke-width="5"/><rect x="-18" y="70" width="16" height="42" rx="7" fill="#d97757"/><rect x="242" y="70" width="16" height="42" rx="7" fill="#d97757"/>' },
+    crt: { name: 'Tivi cổ', back: '<path d="M86 -10 L44 -80 M154 -10 L196 -80" stroke="#9aa1b2" stroke-width="6" stroke-linecap="round"/><circle cx="44" cy="-82" r="7" fill="#9aa1b2"/><circle cx="196" cy="-82" r="7" fill="#9aa1b2"/><rect x="-20" y="-18" width="280" height="216" rx="34" fill="#8a6a4a" stroke="#5c4530" stroke-width="6"/><circle cx="204" cy="190" r="6" fill="#2b2b2b"/><circle cx="224" cy="190" r="6" fill="#2b2b2b"/>' },
+    helmet: { name: 'Mũ phi hành', back: '<path d="M-16 96 C -16 -66, 256 -66, 256 96 L256 150 C 256 216, -16 216, -16 150 Z" fill="#e8e9ee" stroke="#9aa1b2" stroke-width="6"/><rect x="102" y="-48" width="36" height="16" rx="6" fill="#d97757"/><circle cx="-16" cy="120" r="10" fill="#9aa1b2"/><circle cx="256" cy="120" r="10" fill="#9aa1b2"/>' },
+  };
+  const PRESETS = [
+    { ic: '🧑‍💻', name: 'Robot văn phòng', head: 'antenna', body: 'box', legs: 'stick' },
+    { ic: '🧡', name: 'Hoodie Claude', head: 'ears', body: 'hoodie', legs: 'stick' },
+    { ic: '🫧', name: 'Bé tròn', head: 'plain', body: 'round', legs: 'feet' },
+    { ic: '📺', name: 'Tivi lăn bánh', head: 'crt', body: 'box', legs: 'wheel' },
+    { ic: '🌀', name: 'Phi hành gia lò xo', head: 'helmet', body: 'round', legs: 'spring' },
+    { ic: '🙂', name: 'Gọn như cũ', head: 'plain', body: 'none', legs: 'feet' },
+  ];
+  let KIT = { head: 'antenna', body: 'box', legs: 'stick' }, bodyInApp = false;
+  function makeRig(svg) {
+    const R = { legs: [], arms: [], spokes: null, kind: 'feet', single: false, hpx: 0 };
+    R.build = (kit, w, compact) => {
+      const B = BODY[compact ? 'none' : kit.body], L = LEGS[compact ? 'feet' : kit.legs];
+      const hy = B.h ? B.h - 1 : 0, hips = L.single ? [50] : B.h ? B.hips : [36, 64], Hh = (B.h ? B.h - 1 : 0) + L.h;
+      let s = hips.map((x) => `<g class="lg">${L.leg(x, hy)}</g>`).join('');
+      if (B.svg) s += B.svg + B.sh.map((p, i) => `<g class="am">${B.arm(p[0] + (i ? 4 : -4))}</g>`).join('');
+      svg.setAttribute('viewBox', `0 0 100 ${Hh}`); svg.style.width = w + 'px'; svg.style.height = Hh * w / 100 + 'px'; svg.innerHTML = s;
+      R.legs = [...svg.querySelectorAll('.lg')].map((el, i) => ({ el, x: hips[i], y: hy }));
+      R.arms = [...svg.querySelectorAll('.am')].map((el, i) => ({ el, x: B.sh[i][0], y: B.sh[i][1], side: i ? 1 : -1 }));
+      R.spokes = svg.querySelector('.spokes'); R.wy = hy + 14; R.single = !!L.single; R.kind = compact ? 'feet' : kit.legs;
+      R.hpx = Hh * w / 100; return R.hpx;
+    };
+    // o: { ph, t, walking, arms: idle|swing|up|wave|out|knock|type|rest, dangle, roll }
+    R.pose = (o) => {
+      for (const l of R.legs) {
+        const sg = l.x < 50 ? 1 : -1; let a = 0, dy = 0;
+        if (R.kind === 'feet') dy = o.walking ? Math.max(0, Math.sin(o.ph) * sg) * -3 : 0;
+        else if (!R.single) a = o.walking ? Math.sin(o.ph) * (R.kind === 'spring' ? 12 : 22) * sg : o.dangle ? Math.sin(o.t * 7 + sg) * 16 : 0;
+        l.el.setAttribute('transform', `translate(0 ${dy.toFixed(2)}) rotate(${a.toFixed(1)} ${l.x} ${l.y})`);
+      }
+      if (R.spokes) R.spokes.setAttribute('transform', `rotate(${(o.roll || 0).toFixed(1)} 50 ${R.wy})`);
+      for (const m of R.arms) {
+        const s = m.side; let A;
+        switch (o.arms) {
+          case 'up': A = 150 + Math.sin(o.t * 9 + s) * 8; break;
+          case 'wave': A = s > 0 ? 145 + Math.sin(o.t * 13) * 25 : 20; break;
+          case 'cheer': A = 140 + Math.sin(o.t * 12 + s) * 22; break;
+          case 'out': A = 45; break;
+          case 'knock': A = s > 0 ? 95 + Math.sin(o.t * 22) * 22 : 8; break;
+          case 'type': A = 28 + Math.sin(o.t * 26 + s * 2) * 7; break;
+          case 'swing': A = 10 + Math.sin(o.ph + (s > 0 ? Math.PI : 0)) * 16; break;
+          case 'rest': A = 2; break;
+          default: A = 6 + Math.sin(o.t * 2 + s) * 3;
+        }
+        m.el.setAttribute('transform', `rotate(${(-s * A).toFixed(1)} ${m.x} ${m.y})`);
+      }
+    };
+    return R;
+  }
+
+  // =================== robot (bộ vẽ thật của app) ===================
+  const petEl = $('#pet'), host = petEl.querySelector('.host'), rigEl = petEl.querySelector('.rig');
+  const bot = new BK.Bot(host);
+  const rig = makeRig(rigEl);
+  let PW = DESK_W, PH = Math.round(PW * .76), TH = PH + 7;
+  const st = { x: 300, y: 40, vx: 0, vy: 0, ground: null, mode: 'fall', until: 0, target: null, dir: 1, held: false, walkPh: 0, roll: 0, onWin: null, sleepWant: false, fallFrom: null };
+  const bottom = () => st.y + TH;
+  let inApp = false;
+  function applyKit() {
+    const b = bottom();
+    const rh = rig.build(KIT, PW, inApp && !bodyInApp);
+    rigEl.style.top = (PH - 3) + 'px'; TH = PH - 3 + rh; st.y = b - TH;
+    dress(); drawPreview();
+  }
+  function setSize(w) {
+    const b = bottom();
+    PW = w; PH = Math.round(w * .76); Object.assign(host.style, { width: PW + 'px', height: PH + 'px' }); bot.scale = PW / BK.BW;
+    TH = PH + 7; st.y = b - TH; applyKit();
+  }
+  const fx = new BK.Fx($('#fx'));
+  const fitFx = () => { const c = $('#fx'); c.width = innerWidth; c.height = innerHeight; };
+  fitFx(); addEventListener('resize', fitFx);
+  const dirt = petEl.querySelector('.dirt');
+  for (let i = 0; i < 7; i++) { const d = document.createElement('i'); const s = rnd(5, 11); Object.assign(d.style, { width: s + 'px', height: s * .8 + 'px', left: rnd(8, 80) + '%', top: rnd(15, 85) + '%' }); dirt.append(d); }
+  const flies = [0, 1].map(() => { const f = document.createElement('div'); f.className = 'fly'; f.style.display = 'none'; document.body.append(f); return f; });
+
+  // =================== tiến hoá: lớp trang phục vẽ theo toạ độ mặt 240×182 ===================
+  const FORMS = [
+    { id: 'base', ic: '🤖', name: 'Robot cơ bản', cond: 'Mặc định', p: 1, back: '', front: '' },
+    { id: 'owl', ic: '🦉', name: 'Cú đêm', cond: '5 đêm làm sau 23 giờ', p: .8,
+      back: '<path d="M44 14 L18 -58 L92 2 Z M196 14 L222 -58 L148 2 Z" fill="#8a5a2b"/><path d="M48 4 L32 -36 L76 2 Z M192 4 L208 -36 L164 2 Z" fill="#c08a52"/>',
+      front: '<path d="M104 170 L136 170 L120 198 Z" fill="#ffb21a" stroke="#c9840a" stroke-width="3"/>' },
+    { id: 'tool', ic: '🧰', name: 'Thợ commit', cond: '50 commit', p: .64,
+      back: '<g transform="translate(-44 46)"><rect width="56" height="112" rx="14" fill="#3a6fd8" stroke="#2a54a8" stroke-width="4"/><rect x="8" y="58" width="40" height="34" rx="6" fill="#2a54a8"/><path d="M28 -6 v-26 m-10 0 h20" stroke="#aab4c3" stroke-width="8" stroke-linecap="round"/></g>',
+      front: '<path d="M22 18 C 22 -52, 218 -52, 218 18 Z" fill="#ffc21a"/><rect x="2" y="8" width="236" height="20" rx="10" fill="#e0a800"/><rect x="110" y="-42" width="20" height="54" rx="6" fill="#e0a800"/>' },
+    { id: 'light', ic: '🪶', name: 'Gọn nhẹ', cond: '70% lượt dùng Sonnet / Haiku trong tuần', p: .55,
+      back: '',
+      front: '<path d="M52 16 C 52 -40, 188 -40, 188 16 Z" fill="#4a7bd6"/><rect x="40" y="6" width="160" height="16" rx="8" fill="#e84a5f"/><rect x="116" y="-58" width="8" height="30" fill="#555"/><g class="prop-spin"><ellipse cx="120" cy="-60" rx="50" ry="8" fill="#ffd43b"/></g>' },
+    { id: 'king', ic: '👑', name: 'Đại ca', cond: 'Cấp 15', p: 0,
+      back: '<g class="cape-wave"><path d="M-6 110 Q120 250 246 110 L232 236 Q120 286 8 236 Z" fill="#b3263a" stroke="#7d1726" stroke-width="4"/></g>',
+      front: '<path d="M70 6 L76 -40 L100 -14 L120 -48 L140 -14 L164 -40 L170 6 Z" fill="#ffd43b" stroke="#e0a800" stroke-width="3"/><circle cx="120" cy="-20" r="7" fill="#e84a5f"/>' },
+  ];
+  let form = 'base', propKey = null;
+  // prop: tên đạo cụ của BotKit, hoặc chuỗi SVG tự vẽ (bắt đầu bằng "<")
+  function dress(p) {
+    if (p !== undefined) propKey = p;
+    const f = FORMS.find((x) => x.id === form) || FORMS[0], raw = propKey && propKey[0] === '<';
+    const o = BK.outfit(null, [], raw ? null : propKey);
+    bot.dress(HEADS[KIT.head].back + f.back, f.front, raw ? propKey : (o.prop || '').replace('{L}', 'N').replace('{N}', ''));
+  }
+  const QSIGN = '<g class="mcs-bob"><g transform="translate(214 -30) rotate(8)"><rect x="38" y="84" width="10" height="96" rx="3" fill="#a5794a"/><rect width="86" height="88" rx="14" fill="#5ab0ff" stroke="#2f7fd6" stroke-width="5"/><text x="43" y="68" text-anchor="middle" font-size="66" font-weight="900" fill="#fff" font-family="Segoe UI, sans-serif">?</text></g></g><circle cx="258" cy="150" r="13" fill="#2b313c" stroke="#454d5c" stroke-width="2"/>';
+
+  // =================== chỉ số + cấp ===================
+  const STATS = [['no', '🍙', 'No', '#f0a35a'], ['nl', '⚡', 'Năng lượng', '#ffd43b'], ['vui', '😊', 'Vui', '#ff7aa8'], ['sach', '🧼', 'Sạch', '#5ac8fa']];
+  const DEF = { no: 80, nl: 85, vui: 75, sach: 90 };
+  let N = { ...DEF }, xp = 1100;
+  const RATE = { no: -10, nl: -7, vui: -5, sach: -3 };
+  let speed = 120;
+  for (const [k, ic, name] of STATS) $('#stats').insertAdjacentHTML('beforeend', `<div class="stat"><span>${ic}</span><span>${name}</span><div class="bar"><i id="b-${k}"></i></div><span class="v" id="v-${k}"></span></div>`);
+  const lvl = () => BK.levelOf(xp);
+  let lastLv = lvl().lv;
+  function gainXp(n) {
+    xp += n;
+    const L = lvl();
+    if (L.lv > lastLv) { lastLv = L.lv; fx.once('confetti', 2000); bot.hop(); say(`⭐ Lên cấp ${L.lv}!`, 2600); diary(`Lên cấp ${L.lv} ⭐`); drawDeco(); drawBag(); }
+    pop('+' + n + ' XP');
+  }
+  function drawStats() {
+    for (const [k, , , col] of STATS) { const v = Math.round(N[k]); const b = $('#b-' + k); b.style.width = v + '%'; b.style.background = v < 25 ? '#ff5a5f' : col; $('#v-' + k).textContent = v; }
+    const L = lvl(); $('#lvT').textContent = `Cấp ${L.lv}`; $('#lvB').style.width = Math.round(L.cur / L.need * 100) + '%'; $('#lvX').textContent = `${L.cur}/${L.need} XP`;
+    $('#mood').textContent = moodText();
+    dirt.style.opacity = N.sach < 45 ? String(clamp((45 - N.sach) / 35, 0, 1)) : '0';
+  }
+  const add = (k, d) => { N[k] = clamp(N[k] + d, 0, 100); };
+  function moodText() {
+    if (fullApp) return '🎮 App toàn màn hình → nấp ở mép phải';
+    if (dnd) return '🔕 Ngồi yên ở góc (đừng làm phiền)';
+    if (st.mode === 'sleep') return limitOut ? `💤 Ngủ chờ giới hạn hồi (${cdText()})` : '💤 Đang ngủ — năng lượng hồi dần';
+    const where = inApp ? (roomOn ? '🏠 Trong phòng robot · ' : '🗔 Trong app · ') : '🖥 Ngoài desktop · ';
+    const w = [];
+    if (N.no < 30) w.push('đói'); if (N.nl < 25) w.push('buồn ngủ'); if (N.vui < 30) w.push('buồn'); if (N.sach < 35) w.push('bẩn, ruồi bay');
+    return where + (w.length ? '😟 đang ' + w.join(', ') : N.vui > 80 && N.no > 60 ? '🥰 vui vẻ, no nê' : '🙂 bình thường');
+  }
+
+  // =================== app Claude GUI giả ===================
+  const appEl = $('#app'), chat = $('#chat'), inp = $('#inp'), inrow = $('#inrow'), larkEl = $('#lark'), roomEl = $('#room'), apBar = $('#apBar');
+  const rows = [...document.querySelectorAll('.ses')];
+  const rowEl = (id) => rows.find((r) => r.dataset.s === id);
+  const SESS = { vl: 'Sửa combat Võ Lâm', ui: 'UI bảng xếp hạng', tax: 'Thuế chợ', bug: 'Fix crash đăng nhập', doc: 'Viết README' };
+  let appVis = true, appFocus = true, roomOn = false, cur = 'vl', turn = null, streaming = null, newBelow = false;
+  let typingT = 0, scrollT = 0, lastAct = performance.now(), idleFired = false, pendingId = null, ap = null, apBot = null, zTop = 5;
+  const S = { turns: 11, cost: 17.9, commits: 2, bugs: 1, beads: 9, perch: 1 };
+  const appFront = () => appVis && appFocus;
+  const busy = () => inApp && (performance.now() - typingT < 2500 || performance.now() - scrollT < 3000);
+  function layoutApp() { const l = 356, t = 14; Object.assign(appEl.style, { left: l + 'px', top: t + 'px', width: Math.max(600, W() - l - 14) + 'px', height: Math.max(400, GROUND() - 130 - t) + 'px' }); }
+  const mainY = () => roomOn ? $('#room .rfloor').getBoundingClientRect().top : inrow.getBoundingClientRect().top - 1;
+  // vùng robot đang sống: trong app (biên = cửa sổ app, sàn = mép trên ô nhập) hoặc desktop
+  function zb(app) { if (app) { const r = appEl.getBoundingClientRect(); return { l: r.left + 4, r: r.right - 4, f: mainY() }; } return { l: 0, r: W(), f: GROUND() }; }
+  const LX = () => zb(inApp).l, RX = () => zb(inApp).r - PW;
+
+  // =================== nền đứng + trạng thái ===================
+  let limitOut = 0, dnd = false, fullApp = false, bugs = [], foods = [], balls = [], nagT = 0, gameOn = null, chaseUntil = 0, notice = null;
+  function platforms() {
+    if (inApp) {
+      if (roomOn) { const fr = $('#room .rfloor').getBoundingClientRect(); return [{ y: fr.top, x1: fr.left, x2: fr.right, el: roomEl, main: 1 }]; }
+      const ar = appEl.getBoundingClientRect();
+      const out = [{ y: mainY(), x1: ar.left, x2: ar.right, el: inrow, main: 1 }];
+      for (const e of rows) { const q = e.getBoundingClientRect(); out.push({ y: q.top, x1: q.left, x2: q.right, el: e, row: e.dataset.s }); }
+      const cr = chat.getBoundingClientRect();
+      for (const c of chat.querySelectorAll('.cv.on .qcard')) { const q = c.getBoundingClientRect(); if (q.top > cr.top + 8 && q.top < cr.bottom - 40) out.push({ y: q.top, x1: q.left, x2: q.right, el: c }); }
+      return out;
+    }
+    const out = [{ y: GROUND(), x1: 0, x2: W(), el: null, main: 1 }];
+    if (!fullApp) for (const w of document.querySelectorAll('.win')) { if (w.classList.contains('min')) continue; const r = w.getBoundingClientRect(); out.push({ y: r.top, x1: r.left, x2: r.right, el: w }); }
+    return out;
+  }
+  function support(x, y, only) {
+    let best = null;
+    for (const p of platforms()) { if (only && p.el !== only && !p.main) continue; if (x + PW * .5 >= p.x1 + 6 && x + PW * .5 <= p.x2 - 6 && p.y >= y - 2 && (!best || p.y < best.y)) best = p; }
+    return best;
+  }
+  const onMain = () => st.ground && st.ground.main;
+  function setMode(m, ms) { st.mode = m; st.until = performance.now() + (ms || 0); }
+  const HOME_X = 362;
+  function chooseNext() {
+    const zone = (o) => !!o.app === inApp;
+    if (!inApp && appFront() && !fullApp && performance.now() - (st.outT || 0) > 7000) { enterApp(); return; }
+    if (fullApp || dnd) { st.target = RX() - 16; setMode('walk', 30000); return; }
+    if (notice) { goNotice(); return; }
+    if (inApp) {
+      if (newBelow) { setMode('waitScroll', 1e9); return; }
+      if (busy()) { setMode('idle', 900); return; }
+      if (turn) { if (propKey && streaming) dress(null); setMode(streaming && cur === 'vl' ? 'follow' : 'work', 1e9); return; }
+    }
+    if (N.nl < 20 || st.sleepWant) { goHome('sleep'); return; }
+    const food = foods.find(zone);
+    if (food) { st.target = food.x - PW / 2 + 10; st.food = food; setMode('walk', 20000); return; }
+    const bug = bugs.find((b) => b.ground && zone(b));
+    if (bug) { st.target = bug.x - PW / 2; st.bug = bug; dress('net'); setMode('walk', 20000); return; }
+    const ball = balls.find((b) => b.rest && zone(b));
+    if (ball && N.vui < 95) { st.target = ball.x - PW / 2; st.ball = ball; setMode('walk', 12000); return; }
+    const r = Math.random(), lazy = N.nl < 40 || N.no < 25, g = st.ground;
+    if (inApp) {
+      if (g && !g.main) {
+        if (r < .5) { setMode('perch', rnd(5000, 9000)); if (g.el.classList.contains('star')) { S.perch++; heart('⭐'); } }
+        else { st.target = g.x2 - PW * .3; setMode('walk', 8000); }
+        return;
+      }
+      if (!lazy && !roomOn && r < .14) { const stars = rows.filter((e) => e.classList.contains('star')); climbTo(rowPlat(stars[Math.floor(Math.random() * stars.length)].dataset.s)()); return; }
+      if (r < (lazy ? .25 : .5)) {
+        const cr = roomOn && g ? { left: g.x1, right: g.x2 } : chat.getBoundingClientRect();
+        const right = !roomOn && larkEl.classList.contains('on') ? larkEl.getBoundingClientRect().left - 4 : cr.right;
+        st.target = clamp(rnd(cr.left, right - PW), LX(), RX()); setMode('walk', 12000);
+      }
+      else if (r < .72) setMode('idle', rnd(2000, 5000));
+      else if (r < .86) { if (roomOn && isOn('lamp')) goHome('read'); else setMode('sit', rnd(3000, 6000)); }
+      else setMode('yawn', 2600);
+      return;
+    }
+    if (!lazy && r < .12 && g && g.main) { climb(); return; }
+    if (r < (lazy ? .25 : .5)) { const gg = g || { x1: 0, x2: W() }; st.target = clamp(rnd(gg.x1, gg.x2 - PW), LX(), RX()); setMode('walk', 12000); }
+    else if (r < .72) setMode('idle', rnd(2000, 5000));
+    else if (r < .86) { if (new Date().getHours() >= 18 && isOn('lamp')) goHome('read'); else setMode('sit', rnd(3000, 6000)); }
+    else setMode('yawn', 2600);
+  }
+  function homeX(then) {
+    if (!inApp) return HOME_X + 2;
+    if (roomOn) return $('#room .homeset').getBoundingClientRect().left + (then === 'read' ? 66 : 6);
+    return LX() + 4;
+  }
+  function goHome(then) { st.target = homeX(then); st.after = then; setMode('walk', 30000); }
+  // desktop: nhảy lên thanh tiêu đề cửa sổ gần nhất
+  function climb() {
+    if (inApp) { const stars = rows.filter((e) => e.classList.contains('star')); climbTo(rowPlat(stars[0].dataset.s)()); return; }
+    const wins = platforms().filter((p) => p.el && p.y < bottom() - 40);
+    if (!wins.length) { setMode('idle', 1500); return; }
+    const p = wins.sort((a, b) => Math.abs((a.x1 + a.x2) / 2 - st.x) - Math.abs((b.x1 + b.x2) / 2 - st.x))[0];
+    st.climbTo = p; st.target = clamp(p.x1 + rnd(20, p.x2 - p.x1 - PW - 20) - 60 * Math.sign((p.x1 + p.x2) / 2 - st.x), 0, W() - PW); setMode('walk', 15000);
+  }
+  // đi tới ngay dưới nền p (trong phạm vi nền đang đứng) rồi nhảy lên
+  function climbTo(p) {
+    st.climbTo = p; const g = st.ground;
+    const lo = g ? Math.max(g.x1, LX()) : LX(), hi = g ? Math.min(g.x2 - PW, RX()) : RX();
+    st.target = clamp((p.x1 + p.x2) / 2 - PW / 2, lo, Math.max(lo, hi)); setMode('walk', 15000);
+  }
+  function jumpTo(p, quiet) {
+    const span = Math.max(0, p.x2 - p.x1 - PW);
+    const tx = p.tx != null ? clamp(p.tx, p.x1, p.x1 + span) : p.x1 + span * rnd(.2, .8);
+    const g = 2200, b0 = bottom(), apex = Math.min(b0, p.y) - (p.row ? 22 : 40);
+    const vy = -Math.sqrt(2 * g * (b0 - apex)), tUp = -vy / g, tDown = Math.sqrt(2 * Math.max(1, p.y - apex) / g);
+    st.vy = vy; st.vx = (tx - st.x) / (tUp + tDown); st.ground = null; st.onWin = null; st.fallFrom = null; st.jumpP = p; bot.hop(); setMode('fall');
+    if (!quiet) say('Hây dô! 🧗', 1200);
+    if (p.el && p.el.classList && p.el.classList.contains('win') && p.el !== appEl && !st.climbed) { st.climbed = 1; diary('Lần đầu leo lên cửa sổ ' + p.el.querySelector('.tb').textContent.trim().split('—')[0].trim() + ' 🧗'); }
+  }
+
+  // =================== bóng nói (có thể có nút) ===================
+  const sayEl = $('#say'), thinkEl = $('#think');
+  let sayT = 0;
+  function say(t, ms = 2500, acts) {
+    if ((dnd || fullApp || busy()) && !acts) return;
+    sayEl.innerHTML = ''; sayEl.append(document.createTextNode(t));
+    sayEl.classList.toggle('act', !!acts);
+    if (acts) { const box = document.createElement('div'); box.className = 'acts'; for (const a of acts) { const b = document.createElement('button'); b.textContent = a.label; if (a.p) b.className = 'p'; b.onclick = () => { sayEl.classList.remove('on', 'act'); a.run && a.run(); }; box.append(b); } sayEl.append(box); }
+    sayEl.classList.add('on'); clearTimeout(sayT); if (ms) sayT = setTimeout(() => sayEl.classList.remove('on', 'act'), ms);
+  }
+  function placeUi() {
+    const cx = st.x + PW / 2, sw = sayEl.offsetWidth, sh = sayEl.offsetHeight;
+    const lx = clamp(cx - sw / 2, 6, W() - sw - 6);
+    sayEl.style.left = lx + 'px'; sayEl.style.top = Math.max(4, st.y - sh - 16) + 'px'; sayEl.style.setProperty('--tail', clamp(cx - lx, 12, sw - 12) + 'px');
+    thinkEl.style.left = (st.x + PW - 6) + 'px'; thinkEl.style.top = (st.y - 22) + 'px'; thinkEl.style.fontSize = inApp ? '15px' : '20px';
+    const sp = support(st.x, bottom()); const g = st.ground ? st.ground.y : sp ? sp.y : GROUND();
+    const s = clamp(1 - Math.max(0, g - bottom()) / 300, .3, 1);
+    Object.assign($('#shadow').style, { left: (cx - PW * .32 * s) + 'px', top: (g - 5) + 'px', width: PW * .64 * s + 'px', opacity: s });
+    if (bagOn) placeBag();
+  }
+  const log = (t) => {
+    const ts = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    for (const [id, max] of [['#log', 40], ['#log2', 14]]) { const d = document.createElement('div'); d.innerHTML = `<b>${ts}</b> ${t}`; $(id).prepend(d); while ($(id).children.length > max) $(id).lastChild.remove(); }
+  };
+  const heart = (ch = '💗') => { const e = document.createElement('div'); e.className = 'heart'; e.textContent = ch; e.style.left = (st.x + PW / 2 + rnd(-20, 14)) + 'px'; e.style.top = (st.y - 6) + 'px'; document.body.append(e); setTimeout(() => e.remove(), 1300); };
+  const pop = (t, x = st.x + PW / 2, y = st.y - 10) => { const e = document.createElement('div'); e.className = 'pop'; e.textContent = t; e.style.left = x + 'px'; e.style.top = y + 'px'; document.body.append(e); setTimeout(() => e.remove(), 950); };
+  function flyTo(ic, x0, y0, x1, y1, ms = 700) {
+    const e = document.createElement('div'); e.className = 'item'; e.textContent = ic; Object.assign(e.style, { left: x0 + 'px', top: y0 + 'px', zIndex: 27 }); document.body.append(e);
+    e.animate([{ transform: 'translate(0,0) rotate(0)' }, { transform: `translate(${(x1 - x0) / 2}px, ${(y1 - y0) / 2 - 70}px) rotate(-25deg)` }, { transform: `translate(${x1 - x0}px, ${y1 - y0}px) rotate(10deg) scale(.5)`, opacity: .1 }], { duration: ms, easing: 'ease-in-out' }).onfinish = () => e.remove();
+  }
+
+  // =================== chuột: nhấc / ném / vuốt ve / bấm đúp / kéo ra–vào app ===================
+  let drag = null, hoverT = 0, lastClick = 0;
+  petEl.addEventListener('pointerdown', (e) => {
+    petEl.setPointerCapture(e.pointerId); petEl.classList.add('held');
+    drag = { dx: e.clientX - st.x, dy: e.clientY - st.y, hist: [{ x: e.clientX, y: e.clientY, t: performance.now() }], moved: 0 };
+    st.held = true; st.ground = null; st.onWin = null; clearTimeout(hoverT); closeBag();
+  });
+  petEl.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    st.x = clamp(e.clientX - drag.dx, -20, W() - PW + 20); st.y = clamp(e.clientY - drag.dy, -10, GROUND() - TH);
+    drag.hist.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (drag.hist.length > 6) drag.hist.shift(); drag.moved++;
+  });
+  petEl.addEventListener('pointerup', () => {
+    if (!drag) return;
+    const a = drag.hist[0], b = drag.hist[drag.hist.length - 1], dt = Math.max(16, b.t - a.t) / 1000;
+    st.vx = clamp((b.x - a.x) / dt, -1400, 1400); st.vy = clamp((b.y - a.y) / dt, -1400, 1400);
+    const shaken = drag.moved > 25 && Math.hypot(st.vx, st.vy) > 900;
+    const click = drag.moved < 3;
+    st.held = false; drag = null; petEl.classList.remove('held');
+    setMode('fall'); st.fallFrom = st.y; st.dizzy = shaken;
+    if (click) {
+      st.vx = st.vy = 0;
+      const t = performance.now();
+      if (t - lastClick < 350) { openBag(); lastClick = 0; return; }
+      lastClick = t;
+      if (inApp && newBelow) { chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' }); bot.hop(); log('bấm robot → cuộn về cuối'); return; }
+      if (notice && notice.onClick) { notice.onClick(); return; }
+      setTimeout(() => { if (lastClick === t) petted(); }, 360);
+      return;
+    }
+    const cx = st.x + PW / 2, cy = st.y + TH / 2, ar = appEl.getBoundingClientRect();
+    const inside = appVis && cx > ar.left && cx < ar.right && cy > ar.top && cy < ar.bottom;
+    if (inApp && !inside) { setInApp(false); st.vx = st.vy = 0; st.dizzy = shaken; say('Ra ngoài chơi chút~ (lát mình tự về)', 1800); log('kéo robot ra khỏi app → bung thân'); }
+    else if (!inApp && inside && appFront() && !fullApp) { setInApp(true); st.vx = st.vy = 0; log('thả robot vào app → thu gọn'); }
+  });
+  petEl.addEventListener('mouseenter', () => { hoverT = setTimeout(() => { if (!st.held) petted(true); }, 1100); });
+  petEl.addEventListener('mouseleave', () => clearTimeout(hoverT));
+  function petted(long) {
+    if (st.mode === 'sleep') { say('Ưm… đang ngủ mà 😴', 1600); return; }
+    add('vui', long ? 6 : 3); heart(); setMode('petted', 1600); gainXp(1); log('được vuốt ve · Vui +' + (long ? 6 : 3));
+  }
+  // lắc chuột nhanh gần robot → chơi đuổi bắt
+  let mouse = null, mSpeed = 0, mLast = null;
+  addEventListener('pointermove', (e) => {
+    const t = performance.now(); lastAct = t; idleFired = false;
+    if (mLast) { const v = Math.hypot(e.clientX - mLast.x, e.clientY - mLast.y) / Math.max(1, t - mLast.t) * 1000; mSpeed = mSpeed * .8 + v * .2; }
+    mLast = { x: e.clientX, y: e.clientY, t }; mouse = { x: e.clientX, y: e.clientY };
+    if (mSpeed > 2600 && N.vui > 55 && !notice && !turn && !busy() && !st.after && !st.sleepWant && !limitOut && !gameOn && st.ground && ['idle', 'sit', 'walk'].includes(st.mode) && !st.food && !st.bug && Math.hypot(e.clientX - st.x - PW / 2, e.clientY - st.y) < 320 && !dnd && !fullApp) startChase();
+  }, { passive: true });
+  function startChase() { if (chaseUntil > performance.now()) return; chaseUntil = performance.now() + 4500; setMode('chase', 4500); say('Đuổi bắt hả? Chờ mình! 🐭', 1600); log('chơi đuổi con trỏ'); }
+
+  // =================== cửa sổ: kéo, bấm để đưa lên trước (đổi focus) ===================
+  const raise = (w) => { w.style.zIndex = ++zTop; };
+  for (const w of document.querySelectorAll('.win')) {
+    w.addEventListener('pointerdown', () => { if (w === appEl) { if (!appFocus) focusApp(); else raise(w); } else { raise(w); if (appFocus && appVis) blurApp(); } });
+    const tb = w.querySelector('.tb');
+    tb.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      tb.setPointerCapture(e.pointerId);
+      const ox = e.clientX - w.offsetLeft, oy = e.clientY - w.offsetTop;
+      const mv = (ev) => {
+        const nx = clamp(ev.clientX - ox, -100, W() - 80), ny = clamp(ev.clientY - oy, 0, GROUND() - 60);
+        const ddx = nx - w.offsetLeft, ddy = ny - w.offsetTop;
+        w.style.left = nx + 'px'; w.style.top = ny + 'px';
+        if (st.onWin === w || (inApp && w === appEl)) { st.x += ddx; st.y += ddy; }
+        if (w === appEl) { for (const o of [...foods, ...bugs, ...balls]) if (o.app) o.x += ddx; for (const m of minis) m.x += ddx; }
+      };
+      const up = () => { tb.removeEventListener('pointermove', mv); tb.removeEventListener('pointerup', up); };
+      tb.addEventListener('pointermove', mv); tb.addEventListener('pointerup', up);
+    });
+  }
+  $('#desk').addEventListener('pointerdown', (e) => { if ((e.target === e.currentTarget) && appFocus && appVis) blurApp(); });
+
+  // =================== đồ vật: thức ăn, bọ, bóng ===================
+  const FOODS = { rice: ['🍙', 18, 2], noodle: ['🍜', 25, 3], cake: ['🍰', 45, 8], milktea: ['🧋', 15, 12], sushi: ['🍣', 35, 6], bead: ['⚡', 8, 1] };
+  function dropFood(kind = 'rice', x) {
+    const [ic, no, vui] = FOODS[kind], z = zb(inApp);
+    const e = document.createElement('div'); e.className = 'item'; e.textContent = ic; if (kind === 'bead') e.style.fontSize = '16px';
+    const cr = inApp && !roomOn ? chat.getBoundingClientRect() : null;
+    const lo = cr ? cr.left + 10 : z.l + 20, hi = cr ? cr.right - 40 : z.r - 40;
+    const f = { el: e, app: inApp, kind, x: clamp(x != null ? x : st.x + PW / 2 + rnd(-260, 260), lo, hi), y: inApp ? appEl.getBoundingClientRect().top + 50 : -30, vy: 0, no, vui, ic, landed: false };
+    document.body.append(e); foods.push(f);
+    if (st.mode !== 'sleep' && !dnd && !fullApp) setTimeout(() => { if (['idle', 'sit', 'walk', 'yawn', 'perch'].includes(st.mode) && !st.food) chooseNext(); }, 700);
+  }
+  const dropBeads = (n) => { for (let i = 0; i < n; i++) setTimeout(() => dropFood('bead'), i * 260); };
+  function addBug(fromTop, x) {
+    const z = zb(inApp);
+    const e = document.createElement('div'); e.className = 'item'; e.textContent = ['🐞', '🪲', '🐛'][Math.floor(Math.random() * 3)]; e.style.fontSize = '18px';
+    const b = { el: e, app: inApp, x: x != null ? x : rnd(z.l + 40, z.r - 60), y: fromTop ? (inApp ? appEl.getBoundingClientRect().top + 40 : -20) : z.f - 18, vx: (Math.random() < .5 ? -1 : 1) * rnd(25, 45), vy: fromTop ? rnd(60, 140) : 0, ground: !fromTop, sway: rnd(0, 6) };
+    if (gameOn) { e.classList.add('click'); e.onpointerdown = (ev) => { ev.stopPropagation(); squash(b, true); }; }
+    document.body.append(e); bugs.push(b);
+    if (!gameOn && st.mode !== 'sleep') chooseNext();
+  }
+  function squash(b, byUser) {
+    if (!bugs.includes(b)) return;
+    bugs = bugs.filter((x) => x !== b); b.el.remove();
+    if (gameOn) { gameOn.score++; gameOn[byUser ? 'me' : 'bot']++; pop('+1', b.x + 8, b.y - 10); drawGame(); }
+  }
+  function throwBall() {
+    const z = zb(inApp);
+    const e = document.createElement('div'); e.className = 'item click'; e.textContent = '⚽'; e.style.fontSize = '20px';
+    const b = { el: e, app: inApp, x: clamp(st.x + PW / 2 + (Math.random() < .5 ? -1 : 1) * 160, z.l + 20, z.r - 40), y: z.f - 220, vx: rnd(-200, 200), vy: -200, rest: false, rot: 0 };
+    e.onpointerdown = (ev) => { ev.stopPropagation(); b.vx = (b.x > st.x ? 1 : -1) * rnd(350, 650); b.vy = -rnd(500, 760); b.rest = false; add('vui', 3); pop('⚽ sút!', b.x, b.y - 14); };
+    document.body.append(e); balls.push(b); log('ném bóng (bấm vào bóng để sút)');
+    setTimeout(() => { if (['idle', 'sit', 'walk', 'perch'].includes(st.mode)) chooseNext(); }, 900);
+  }
+  function putAway() { const mine = balls.filter((b) => b.app); if (!mine.length) return; mine.forEach((b) => b.el.remove()); balls = balls.filter((b) => !b.app); st.ball = null; log('bạn gõ phím → robot cất bóng'); }
+
+  // =================== túi đồ (bấm đúp robot) ===================
+  const BAG = [
+    { k: 'rice', ic: '🍙', lv: 1, name: 'Cơm nắm', run: () => dropFood('rice', st.x + PW + 30) },
+    { k: 'noodle', ic: '🍜', lv: 2, name: 'Mì', run: () => dropFood('noodle', st.x + PW + 30) },
+    { k: 'cake', ic: '🍰', lv: 4, name: 'Bánh to', run: () => dropFood('cake', st.x + PW + 30) },
+    { k: 'milktea', ic: '🧋', lv: 6, name: 'Trà sữa (vui hơn)', run: () => dropFood('milktea', st.x + PW + 30) },
+    { k: 'sushi', ic: '🍣', lv: 9, name: 'Sushi', run: () => dropFood('sushi', st.x + PW + 30) },
+    { k: 'ball', ic: '⚽', lv: 1, name: 'Bóng', run: throwBall },
+    { k: 'soap', ic: '🧼', lv: 1, name: 'Tắm', run: () => startBath() },
+    { k: 'bed', ic: '🛏️', lv: 1, name: 'Về giường ngủ', run: () => A.sleep() },
+    { k: 'game', ic: '🎮', lv: 3, name: 'Bắt bọ 30 giây', run: () => startGame() },
+    { k: 'climb', ic: '🧗', lv: 5, name: 'Leo lên cửa sổ / phiên ★', run: () => climb() },
+  ];
+  let bagOn = false;
+  const bagEl = $('#bag');
+  function drawBag() {
+    bagEl.innerHTML = '<div class="t">Túi đồ · bấm để dùng</div>';
+    for (const it of BAG) { const b = document.createElement('button'); b.textContent = it.ic; b.title = it.lv > lvl().lv ? `${it.name} — mở ở cấp ${it.lv}` : it.name; b.disabled = it.lv > lvl().lv; if (b.disabled) b.insertAdjacentHTML('beforeend', `<small>${it.lv}</small>`); b.onclick = (e) => { e.stopPropagation(); closeBag(); it.run(); }; bagEl.append(b); }
+  }
+  function placeBag() { const w = bagEl.offsetWidth, hh = bagEl.offsetHeight; bagEl.style.left = clamp(st.x + PW / 2 - w / 2, 6, W() - w - 6) + 'px'; bagEl.style.top = Math.max(6, st.y - hh - 18) + 'px'; }
+  function openBag() { drawBag(); bagOn = true; bagEl.classList.add('on'); sayEl.classList.remove('on'); placeBag(); }
+  function closeBag() { bagOn = false; bagEl.classList.remove('on'); }
+  addEventListener('pointerdown', (e) => { if (bagOn && !bagEl.contains(e.target) && !petEl.contains(e.target)) closeBag(); });
+
+  // =================== báo việc: chạy tới con trỏ / tới đúng chỗ trong app ===================
+  // notice: { face, prop, title, acts, dest()→nền cần nhảy lên, tx()→điểm cần đi tới, onArrive, onClick }
+  function goNotice() {
+    if (notice.dest) { const d = notice.dest(); if (st.ground && st.ground.el === d.el) { arriveNotice(); return; } climbTo(d); return; }
+    const tx = notice.tx ? notice.tx() : mouse ? mouse.x - PW / 2 : (LX() + RX()) / 2;
+    st.target = clamp(tx, LX(), RX()); setMode('walk', 9000);
+  }
+  function startNotice(n) {
+    if (dnd || fullApp) { log('đang Đừng làm phiền → chỉ nháy mắt ở góc: ' + (n.title || '')); bot.state('call'); return; }
+    notice = n; if (n.prop) dress(n.prop);
+    if (st.mode === 'sleep') st.sleepWant = false;
+    st.food = st.bug = st.ball = null; st.after = null;
+    goNotice(); if (n.log) log(n.log);
+  }
+  function arriveNotice() {
+    const n = notice; if (n.onArrive) { n.onArrive(); return; }
+    setMode('notice', 1e9);
+    say(n.title, 0, [...n.acts.map((a) => ({ ...a, run: () => { a.run && a.run(); endNotice(); } })), { label: 'Để sau', run: endNotice }]);
+  }
+  function endNotice() { notice = null; dress(null); sayEl.classList.remove('on', 'act'); setMode('idle', 1200); }
+
+  // =================== tắm ===================
+  let bath = 0;
+  function startBath() { st.sleepWant = false; bath = performance.now() + 3200; setMode('bath', 3200); say('Mát quá~ 🫧', 2400); log('tắm · Sạch → 100'); gainXp(2); }
+
+  // =================== mini game bắt bọ ===================
+  const gameEl = $('#game');
+  function drawGame() { gameEl.innerHTML = gameOn ? `🎮 Bắt bọ · còn <b>${Math.max(0, Math.ceil((gameOn.end - performance.now()) / 1000))}s</b> · bạn <b>${gameOn.me}</b> · robot <b>${gameOn.bot}</b>` : ''; }
+  function startGame() {
+    if (gameOn) return;
+    closeBag(); gameOn = { end: performance.now() + 30000, me: 0, bot: 0, score: 0, next: 0 };
+    gameEl.classList.add('on'); st.sleepWant = false; setMode('idle', 300); say('Bắt bọ nào! Bấm vào bọ để bắt 🐞', 2400); log('bắt đầu mini game bắt bọ'); drawGame();
+  }
+  function endGame() {
+    const g = gameOn; gameOn = null; gameEl.classList.remove('on'); st.bug = null;
+    for (const b of bugs) b.el.remove(); bugs = [];
+    const tot = g.me + g.bot;
+    add('vui', Math.min(30, 6 + tot)); gainXp(tot); fx.once('confetti', 1600); bot.hop();
+    say(`Hết giờ! Bạn bắt ${g.me}, mình bắt ${g.bot} 🎉 Vui +${Math.min(30, 6 + tot)}`, 4000);
+    log(`mini game: bạn ${g.me} · robot ${g.bot}`); if (tot >= 15) diary(`Cùng bạn bắt ${tot} con bọ trong 30 giây 🐞`);
+    dress(null); chooseNext();
+  }
+
+  // =================== nhà + trang trí ===================
+  const DECO = [['bed', '🛏️', 'Giường', 1], ['lamp', '🪔', 'Đèn đọc', 3], ['kb', '⌨️', 'Bàn phím mini', 5], ['plant', '🪴', 'Cây cảnh', 7], ['tv', '🖼️', 'Tranh treo', 9], ['cat', '🐈', 'Mèo con', 12]];
+  const decoOn = new Set(['bed', 'lamp', 'kb', 'plant']);
+  const isOn = (k) => decoOn.has(k) && (DECO.find((d) => d[0] === k) || [])[3] <= lvl().lv;
+  function drawDeco() {
+    const box = $('#deco'); box.innerHTML = '';
+    for (const [k, ic, name, lv] of DECO) {
+      const b = document.createElement('button'); const lock = lv > lvl().lv;
+      b.disabled = lock; b.className = decoOn.has(k) && !lock ? 'on' : '';
+      b.innerHTML = `<span>${ic}</span>${lock ? 'Cấp ' + lv : name}`;
+      b.onclick = () => { decoOn.has(k) ? decoOn.delete(k) : decoOn.add(k); drawDeco(); };
+      box.append(b);
+    }
+    for (const el of document.querySelectorAll('.homeset .it')) el.classList.toggle('off', !isOn(el.dataset.d));
+  }
+
+  // =================== tiến hoá ===================
+  function drawForms() {
+    const box = $('#forms'); box.innerHTML = '';
+    for (const f of FORMS) {
+      const p = f.id === 'king' ? Math.min(1, lvl().lv / 15) : f.p;
+      const d = document.createElement('div'); d.className = 'form' + (f.id === form ? ' on' : '');
+      d.innerHTML = `<div class="ic">${f.ic}</div><div><b>${f.name}</b><small>${f.cond} · ${Math.round(p * 100)}%</small><div class="pb"><i style="width:${p * 100}%"></i></div></div>`;
+      const b = document.createElement('button'); b.textContent = f.id === form ? 'Đang mặc' : 'Xem thử';
+      b.onclick = () => setForm(f.id);
+      d.append(b); box.append(d);
+    }
+  }
+  function setForm(id) { form = id; dress(); drawForms(); drawPreview(); if (roomOn) drawRoom(); bot.hop(); const f = FORMS.find((x) => x.id === id); say(`Dạng ${f.name} ${f.ic}`, 1800); }
+
+  // =================== thân hình: chọn đầu / thân / chân + xem thử ===================
+  const pvHost = $('#pvHost'), pvRigEl = $('#pvRig'), PV_W = 74;
+  Object.assign(pvHost.style, { width: PV_W + 'px', height: Math.round(PV_W * .76) + 'px' });
+  const pvBot = new BK.Bot(pvHost); pvBot.scale = PV_W / BK.BW;
+  const pvRig = makeRig(pvRigEl);
+  let pvPh = 0;
+  function drawPreview() {
+    if (!pvRig) return;
+    const f = FORMS.find((x) => x.id === form) || FORMS[0];
+    pvBot.dress(HEADS[KIT.head].back + f.back, f.front, '');
+    const rh = pvRig.build(KIT, PV_W, false), ph = Math.round(PV_W * .76); pvRigEl.style.top = (ph - 3) + 'px'; $('#pvBot').style.height = (ph - 3 + rh) + 'px';
+    const pre = PRESETS.find((p) => p.head === KIT.head && p.body === KIT.body && p.legs === KIT.legs);
+    $('#pvName').textContent = pre ? `${pre.ic} ${pre.name}` : `${HEADS[KIT.head].name} · ${BODY[KIT.body].name} · ${LEGS[KIT.legs].name}`;
+  }
+  function drawKit() {
+    const mk = (box, list, key) => { box.innerHTML = ''; for (const [id, o] of Object.entries(list)) { const b = document.createElement('button'); b.textContent = o.name; b.className = KIT[key] === id ? 'on' : ''; b.onclick = () => { KIT[key] = id; setKit(); }; box.append(b); } };
+    mk($('#kitHead'), HEADS, 'head'); mk($('#kitBody'), BODY, 'body'); mk($('#kitLegs'), LEGS, 'legs');
+    const pb = $('#kitPre'); pb.innerHTML = '';
+    for (const p of PRESETS) { const b = document.createElement('button'); b.textContent = `${p.ic} ${p.name}`; b.className = p.head === KIT.head && p.body === KIT.body && p.legs === KIT.legs ? 'on' : ''; b.onclick = () => { KIT = { head: p.head, body: p.body, legs: p.legs }; setKit(); }; pb.append(b); }
+  }
+  function setKit() { applyKit(); drawKit(); if (!st.held) { st.ground = null; setMode('fall'); } bot.hop(); log(`đổi thân hình: ${HEADS[KIT.head].name} · ${BODY[KIT.body].name} · ${LEGS[KIT.legs].name}`); }
+
+  // =================== nhật ký ===================
+  const DIARY = [
+    ['26/10', 'Thức tới 1 giờ sáng cùng bạn sửa combat 🦉'],
+    ['27/10', 'Ăn 9 bữa — hôm đó Claude chạy liền 9 lượt dài 🍜'],
+    ['28/10', 'Bắt được 4 con bọ, test xanh lại hết ✅'],
+    ['29/10', 'Lần đầu đưa thư Lark cho bạn ✉'],
+  ];
+  function drawDiary() { $('#diary').innerHTML = DIARY.slice().reverse().map(([d, t]) => `<div>${t}<small>${d}</small></div>`).join(''); }
+  function diary(t) { DIARY.push([new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }) + ' ' + hm(), t]); drawDiary(); if (roomOn) drawRoom(); }
+
+  // =================== trong app: phiên, chat, lượt Claude ===================
+  const cv = (id) => chat.querySelector(`.cv[data-s="${id}"]`);
+  const nearBottom = () => chat.scrollTop + chat.clientHeight >= chat.scrollHeight - 24;
+  function put(el, sid = 'vl') { const stick = nearBottom(); cv(sid).append(el); if (sid === cur) { if (stick) chat.scrollTop = chat.scrollHeight; else newBelow = true; } return el; }
+  function msg(cls, text, sid) { const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; return put(d, sid); }
+  function tool(text, sid) { const d = document.createElement('div'); d.className = 'tool'; d.textContent = text; return put(d, sid); }
+  function card(cls, html, sid) { const d = document.createElement('div'); d.className = 'card ' + cls; d.innerHTML = html; return put(d, sid); }
+  function setRow(id, text, addC = [], remC = []) { const r = rowEl(id); if (text != null) r.querySelector('small').textContent = text; addC.forEach((c) => r.classList.add(c)); remC.forEach((c) => r.classList.remove(c)); }
+  function switchSession(id) {
+    cur = id; rows.forEach((r) => r.classList.toggle('act', r.dataset.s === id)); rowEl(id).classList.remove('ping');
+    chat.querySelectorAll('.cv').forEach((c) => c.classList.toggle('on', c.dataset.s === id));
+    $('#appTitle').textContent = 'Claude GUI — ' + SESS[id]; chat.scrollTop = chat.scrollHeight; newBelow = false;
+    if (id === pendingId) pendingId = null;
+    log('mở phiên “' + SESS[id] + '”');
+  }
+  const rowPlat = (id) => () => { const e = rowEl(id), q = e.getBoundingClientRect(); return { y: q.top, x1: q.left, x2: q.right, el: e, row: id }; };
+
+  const TOOL = { think: ['thinking', 'thinking'], read: ['reading', 'reading'], grep: ['web', 'web'], edit: ['writing', 'writing'], bash: ['bash', 'bash'], agent: ['agents', 'agents'] };
+  const SCRIPT = {
+    normal: [['think', 1400], ['read', 1900, 'Read  src/combat/SkillHit.cs'], ['grep', 1600, 'Grep  “OnHit”  · 7 kết quả'], ['edit', 2300, 'Edit  SkillHit.cs  (+12 −3)'], ['bash', 2100, 'Bash  npm test  · 42/42 pass']],
+    agent: [['think', 1200], ['agent', 4800, 'Agent ×2  rà mọi chỗ gọi OnHit'], ['edit', 2000, 'Edit  3 tệp  (+31 −9)'], ['bash', 1500, 'Bash  npm test  · 42/42 pass']],
+    long: [['think', 900], ['read', 1300, 'Read  src/combat/*.cs  (6 tệp)']],
+    short: [['edit', 1600, 'Edit  MarketTax.cs  (+20 −4)']],
+  };
+  const ANSWER = {
+    normal: 'Đã sửa lỗi skill đánh trúng 2 lần ✅\n\n• Nguyên nhân: animation event OnHit bắn 2 lần khi combo chưa reset.\n• SkillHit.cs: thêm cờ _hitConsumed, reset ở EndCombo().\n• Thêm test HitOnceTest — 42/42 pass.\n\nBạn vào Unity đánh thử Thiết Sa Chưởng xem cảm giác đã ổn chưa nhé.',
+    agent: '2 agent đã rà xong 14 chỗ gọi OnHit:\n• 11 chỗ đã đúng.\n• 3 chỗ gọi trùng → sửa ở SkillHit.cs, ComboTimer.cs, BuffHit.cs.\n\nTest 42/42 pass. Mình để lại ghi chú trong PR cho từng chỗ.',
+    short: 'Ok, gom thuế chợ trong ngày rồi chia 1 lần lúc 0h. Đã sửa MarketTax.cs và thêm job DailyTaxSplit chạy lúc 0h.',
+    long: 'Luồng combat từ lúc bấm skill tới lúc trừ máu:\n\n1. Input\nSkillButton.OnClick → SkillInput.Request(skillId). Kiểm tra cooldown, mana và trạng thái bị khống chế (choáng, câm lặng). Không hợp lệ thì rung nút và dừng.\n\n2. Cast\nSkillCaster.Begin() khoá hướng nhân vật, phát animation cast và đăng ký animation event OnHit. Thời gian cast lấy từ SkillData.castTime, nhân hệ số tốc đánh.\n\n3. Tìm mục tiêu\nTargetQuery.Find() dùng hình nón / vòng tròn theo SkillData.shape, lọc theo phe, tầm nhìn và lớp bất tử.\n\n4. OnHit\nKhi animation chạm khung hit, SkillHit.Apply() được gọi cho từng mục tiêu. Đây là chỗ lỗi trúng 2 lần đã sửa: cờ _hitConsumed chặn lần gọi thứ hai trong cùng combo.\n\n5. Tính sát thương\nDamageCalc.Compute(): công cơ bản × hệ số skill × (1 + bonus nội công) − phòng thủ × (1 − xuyên giáp). Sau đó tính chí mạng, né, đỡ.\n\n6. Buff / debuff\nBuffHit.Apply() thêm hiệu ứng phụ (bỏng, chậm, choáng) theo xác suất trong SkillData.effects.\n\n7. Trừ máu\nHealth.Take(dmg) trừ khiên trước rồi tới máu, bắn OnDamaged cho số nhảy và thanh máu. Máu về 0 thì Death.Begin().\n\n8. Đồng bộ mạng\nServer là nguồn sự thật: client gửi CastRequest, server chạy bước 3–7 rồi phát DamageEvent cho mọi client trong tầm.\n\nNếu bạn muốn, mình vẽ sơ đồ trình tự cho luồng này.',
+  };
+  function sendPrompt(txt, kind = 'normal') {
+    if (turn) { pop('Claude đang bận…', st.x + PW / 2, st.y - 12); return; }
+    const t = (txt || inp.value).trim() || 'ok sửa đi';
+    inp.value = ''; typingT = 0; if (cur !== 'vl') switchSession('vl');
+    const m = msg('user', t, 'vl'); chat.scrollTop = chat.scrollHeight; newBelow = false;
+    if (inApp) { const r = m.getBoundingClientRect(); flyTo('📝', st.x + PW / 2, st.y, r.right - 30, r.top, 650); bot.hop(); if (st.ground && !notice) setMode('ev:done', 700); }
+    log('gửi prompt → robot ném prompt đi');
+    setTimeout(() => runTurn(kind), 700);
+  }
+  async function runTurn(kind) {
+    if (turn) return;
+    turn = { face: 'thinking', prop: 'thinking' };
+    setRow('vl', 'đang chạy…', ['run']);
+    if (inApp && st.ground && ['idle', 'sit', 'walk', 'yawn', 'watch', 'perch'].includes(st.mode) && !notice && !st.food) chooseNext();
+    for (const [k, ms, txt] of SCRIPT[kind]) {
+      [turn.face, turn.prop] = TOOL[k];
+      if (txt) { tool(txt, 'vl'); log('Claude dùng ' + txt.split(' ')[0] + ' → robot cầm đồ nghề tương ứng'); }
+      if (k === 'agent') spawnMinis(2, ms - 300);
+      await wait(ms);
+    }
+    turn.face = 'talking'; turn.prop = null;
+    await streamAnswer(ANSWER[kind], kind === 'long' ? 6 : 3);
+    turn = null; S.turns++; const before = S.cost; S.cost += rnd(.6, 1.4); drawCost();
+    setRow('vl', 'vừa xong', [], ['run']);
+    if (inApp) { dropBeads(kind === 'agent' ? 3 : 2); log('lượt xong → rơi ⚡ hạt năng lượng (robot tự đi ăn khi rảnh)'); }
+    else if (!fullApp) startNotice({ face: 'celebrate', prop: 'wave', title: '✓ Claude xong lượt · “Sửa combat Võ Lâm”', log: 'lượt xong khi app không mở → robot ngoài desktop chạy tới báo', acts: [{ label: 'Mở app', p: 1, run: () => focusApp() }] });
+    if (before < 20 && S.cost >= 20) setTimeout(costWorry, 1500);
+  }
+  function streamAnswer(text, n = 3) {
+    return new Promise((res) => {
+      const d = document.createElement('div'); d.className = 'msg asst'; const caret = document.createElement('span'); caret.className = 'caret'; d.append(caret); put(d, 'vl');
+      streaming = { caret }; let i = 0;
+      if (inApp && st.mode === 'work') chooseNext();
+      const tm = setInterval(() => {
+        const stick = nearBottom(); caret.before(text.slice(i, i + n)); i += n;
+        if (cur === 'vl') { if (stick) chat.scrollTop = chat.scrollHeight; else newBelow = true; }
+        if (i >= text.length) { clearInterval(tm); caret.remove(); streaming = null; res(); }
+      }, 35);
+    });
+  }
+  // subagent: robot mini chạy ra tìm giúp rồi chạy về
+  const minis = [];
+  function mkBot(parent, w) { const h = document.createElement('div'); h.className = 'mhost'; Object.assign(h.style, { width: w + 'px', height: Math.round(w * .76) + 'px' }); parent.append(h); const b = new BK.Bot(h); b.scale = w / BK.BW; return b; }
+  function spawnMinis(n, ms) {
+    if (!inApp) return;
+    const cr = chat.getBoundingClientRect();
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('div'); el.className = 'mini'; document.body.append(el);
+      const b = mkBot(el, 38); b.state('agents'); b.dress('', '', BK.outfit(null, [], 'web').prop);
+      const m = { el, bot: b, x: st.x + PW / 2 - 19, tx: 0, end: performance.now() + ms, dir: 1, ph: rnd(0, 6) };
+      m.tx = clamp(m.x + (i ? 1 : -1) * rnd(140, 280), cr.left, cr.right - 40);
+      minis.push(m);
+    }
+    say('Gọi 2 bạn nhỏ đi tìm giúp 🔍', 1600);
+  }
+
+  // Lark: mang phong bì tới khung chat Lark trong app, gõ cửa
+  const openDock = () => larkEl.classList.add('on');
+  function larkMsg() { $('#larkMsgs').insertAdjacentHTML('beforeend', `<div class="lm">gom thuế chợ trong ngày rồi chia 1 lần nhé<small>${hm()}</small></div>`); }
+  function larkApp() {
+    larkMsg();
+    if (busy() || !st.ground || larkEl.classList.contains('on')) { openDock(); bot.hop(); log('tin Lark lúc bạn đang gõ → mở luôn khung chat, robot không chạy'); return; }
+    startNotice({ face: 'mail', prop: 'mail', log: 'tin Lark → robot cầm phong bì chạy tới khung Lark, gõ cửa', tx: () => larkEl.getBoundingClientRect().left - PW - 6, onArrive: () => { st.dir = 1; setMode('knock', 1800); } });
+  }
+  // phiên khác xong / xin quyền: nhảy lên đúng phiên ở thanh bên, giơ biển
+  function otherSess(kind) {
+    pendingId = 'tax';
+    if (kind === 'perm') {
+      setRow('tax', '🔐 cần bạn duyệt', ['ping'], ['run']);
+      const c = card('perm', '🔐 Claude muốn chạy: <code>npm run migrate</code><div class="opts row"><button class="p">Cho phép</button><button>Từ chối</button></div>', 'tax');
+      c.querySelectorAll('button').forEach((b, i) => { b.onclick = () => { c.innerHTML = i ? '✕ Đã từ chối' : '✓ Đã cho phép · Claude chạy tiếp'; setRow('tax', i ? 'đã dừng' : 'đang chạy…', i ? [] : ['run'], ['ping']); if (!i) heart('👍'); log(i ? 'từ chối quyền' : 'cho phép quyền'); }; });
+    } else { setRow('tax', '✓ xong · chờ bạn xem', ['ping'], ['run']); msg('asst', 'Xong: thuế chợ gom trong ngày, 0h chia 1 lần cho bang hội. Test 18/18 pass ✓', 'tax'); }
+    const title = kind === 'perm' ? '🔐 “Thuế chợ” cần bạn duyệt quyền' : '🏁 Phiên “Thuế chợ” xong rồi';
+    const face = kind === 'perm' ? 'permission' : 'celebrate';
+    if (inApp) startNotice({ face, prop: 'sign', dest: rowPlat('tax'), title, log: 'phiên khác ' + (kind === 'perm' ? 'xin quyền' : 'xong') + ' → robot nhảy lên thanh bên, đứng trên đúng phiên, giơ biển', acts: [{ label: 'Mở phiên', p: 1, run: () => switchSession('tax') }], onClick: () => { switchSession('tax'); endNotice(); } });
+    else startNotice({ face, prop: 'wave', title, log: 'phiên khác ' + (kind === 'perm' ? 'xin quyền' : 'xong') + ' khi app không mở → báo ngoài desktop', acts: [{ label: 'Mở phiên', p: 1, run: () => { focusApp(); switchSession('tax'); } }] });
+  }
+  // AskUserQuestion: robot đứng lên hộp câu hỏi, giơ biển "?"
+  function askQ() {
+    const Q = 'Gom thuế chợ theo cách nào?', OPTS = ['Gom trong ngày, chia 1 lần lúc 0h', 'Chia ngay sau mỗi giao dịch', 'Để mình nghĩ thêm'];
+    if (!inApp) { startNotice({ face: 'permission', prop: QSIGN, title: '❓ Claude hỏi: ' + Q, log: 'Claude hỏi khi app không mở → robot mang câu hỏi ra desktop', acts: OPTS.slice(0, 2).map((o) => ({ label: o, run: () => answerQ(null, o) })) }); return; }
+    if (cur !== 'vl') switchSession('vl');
+    const c = card('qcard', `<b>❓ Claude hỏi:</b> ${Q}<div class="opts">${OPTS.map((o) => `<button>${o}</button>`).join('')}</div>`, 'vl');
+    chat.scrollTop = chat.scrollHeight; newBelow = false;
+    c.querySelectorAll('button').forEach((b) => { b.onclick = () => answerQ(c, b.textContent); });
+    startNotice({ face: 'permission', prop: QSIGN, log: 'Claude hỏi → robot nhảy lên hộp câu hỏi, giơ biển “?”', dest: () => { const q = c.getBoundingClientRect(); return { y: q.top, x1: q.left, x2: q.right, el: c }; }, onArrive: () => setMode('notice', 1e9), onClick: () => c.querySelector('button').focus() });
+  }
+  function answerQ(c, o) {
+    if (c) { c.classList.remove('qcard'); c.classList.add('qdone'); c.innerHTML = '✓ Bạn chọn: <b>' + o + '</b>'; }
+    if (notice) endNotice();
+    log('trả lời câu hỏi: ' + o); setTimeout(() => runTurn('short'), 400);
+  }
+  // dự án tự động: robot mini kéo xe hàng trên thanh tiến độ
+  function startAuto() {
+    if (ap) return;
+    if (!apBot) apBot = mkBot($('#apBar .mh'), 34);
+    ap = { n: 0, total: 5 }; apBar.classList.add('on'); apBot.state('typing'); drawAp(); log('dự án tự động 5 task → robot mini kéo xe hàng trên thanh tiến độ');
+    const step = () => { if (!ap) return; ap.n++; drawAp(); const c = $('#apBar .cart').getBoundingClientRect(); pop('📦', c.left + 2, c.top - 8); if (ap.n >= ap.total) finishAuto(); else ap.t = setTimeout(step, 3000); };
+    ap.t = setTimeout(step, 3000);
+  }
+  function drawAp() {
+    const p = ap.n / ap.total, tw = $('#apBar .track').clientWidth, rw = $('#apBar .train').offsetWidth;
+    $('#apN').textContent = `${ap.n}/${ap.total} task`; $('#apBar .fill').style.width = p * 100 + '%'; $('#apBar .train').style.left = (p * (tw - rw)) + 'px'; $('#apBar .cart sup').textContent = ap.n;
+  }
+  function finishAuto() {
+    apBot.state('celebrate'); $('#apN').textContent = '✓ xong 5/5 task'; S.cost += 2.1; drawCost();
+    if (inApp) { evMode('celebrate', 2200); fx.once('confetti', 1600); dropBeads(4); say('Dự án tự động xong hết 5 task! 🎉', 2600); }
+    else if (!fullApp) startNotice({ face: 'celebrate', prop: 'box', title: '🚂 Dự án tự động xong 5/5 task', log: 'dự án tự động xong khi app không mở → báo ngoài desktop', acts: [{ label: 'Mở app', p: 1, run: () => focusApp() }] });
+    diary('Kéo xe hàng 5 thùng cho dự án tự động 🚂');
+    setTimeout(() => { apBar.classList.remove('on'); ap = null; }, 5000);
+  }
+  // chi phí + tổng kết ngày
+  function drawCost() { const e = $('#cost'); e.textContent = `$${S.cost.toFixed(2)} hôm nay`; e.classList.toggle('warn', S.cost >= 20); }
+  function costWorry() { evMode('limitW', 3400, 'coin'); say(`Hôm nay tiêu $${S.cost.toFixed(2)} rồi đó… 😬`, 3000); log('chi phí vượt $20 → robot ôm đồng xu lo lắng'); }
+  function recap() {
+    const line = `Hôm nay bạn chạy ${S.turns} lượt, ${S.commits} commit. Mình ăn ${S.beads} hạt năng lượng, bắt ${S.bugs} con bọ, ngồi trên phiên ★ ${S.perch} lần. Mai nhớ ngủ sớm nha 🌙`;
+    diary('📔 ' + line);
+    if (inApp) {
+      if (cur !== 'vl') switchSession('vl');
+      card('recap', `<b>🌙 Tổng kết ${new Date().toLocaleDateString('vi-VN')}</b><div class="rg"><span><b>${S.turns}</b> lượt</span><span><b>$${S.cost.toFixed(2)}</b></span><span><b>${S.commits}</b> commit</span><span><b>${S.bugs}</b> bọ</span></div><div class="rd">📔 Robot viết: “${line}”</div>`, 'vl');
+      chat.scrollTop = chat.scrollHeight; newBelow = false; evMode('celebrate', 2400);
+    } else say('🌙 ' + line, 6000);
+    log('tổng kết ngày + robot viết nhật ký');
+  }
+  // phím tắt gọi robot
+  function summon() {
+    startNotice({ face: 'call', prop: 'wave', title: 'Gọi mình hả? 👋', log: 'Ctrl+Shift+P → robot chạy tới con trỏ, mở menu nhanh', acts: [
+      { label: '＋ Phiên mới', p: 1, run: () => setTimeout(() => say('Đã mở phiên mới (demo) ✨', 1800), 60) },
+      { label: '💲 Chi phí', run: () => setTimeout(() => say(`Hôm nay $${S.cost.toFixed(2)} · ${S.turns} lượt · Opus 72%`, 3800), 60) },
+      { label: pendingId ? '⏳ Phiên đang chờ (1)' : '⏳ Không có phiên chờ', run: () => { if (!pendingId) return; if (!appFront()) focusApp(); switchSession(pendingId); } },
+    ] });
+  }
+  addEventListener('keydown', (e) => { lastAct = performance.now(); idleFired = false; if (e.ctrlKey && e.shiftKey && e.code === 'KeyP') { e.preventDefault(); summon(); } });
+  function idlePlay() { say('Bạn rảnh hả? Chơi bóng với mình nha ⚽ Bấm vào bóng để sút!', 3200); throwBall(); log('rảnh 5 phút → robot lôi bóng ra rủ chơi'); }
+  // phòng robot trong app
+  function drawRoom() {
+    const L = lvl(); $('#roomLv').textContent = `Cấp ${L.lv} · ${L.cur}/${L.need} XP`;
+    const box = $('#rForms'); box.innerHTML = '';
+    for (const f of FORMS) { const b = document.createElement('button'); b.className = f.id === form ? 'on' : ''; b.innerHTML = `<span>${f.ic}</span>${f.name}`; b.onclick = () => setForm(f.id); box.append(b); }
+    $('#rDiary').innerHTML = DIARY.slice(-4).reverse().map(([d, t]) => `<div>${t}<small>${d}</small></div>`).join('');
+  }
+  function setRoom(on) {
+    if (on === roomOn) return;
+    if (!appFront()) focusApp();
+    roomOn = on; roomEl.classList.toggle('on', on); if (on) drawRoom();
+    log(on ? 'mở phòng robot → robot nhảy vào phòng' : 'đóng phòng robot');
+    if (!inApp) return;
+    if (notice) endNotice();
+    Object.assign(st, { food: null, bug: null, ball: null, after: null, climbTo: null });
+    const mp = platforms().find((p) => p.main);
+    jumpTo({ ...mp, tx: on ? $('#room .homeset').getBoundingClientRect().left + 90 : clamp(st.x, mp.x1 + 220, mp.x2 - PW - 30) }, true);
+  }
+
+  // =================== ra / vào app ===================
+  function setInApp(v) {
+    if (inApp === v) return;
+    inApp = v; setSize(v ? APP_W : DESK_W);
+    Object.assign(st, { ground: null, onWin: null, food: null, bug: null, ball: null, climbTo: null, jumpP: null, after: null });
+    if (notice) endNotice(); closeBag(); minis.forEach((m) => { m.dead = 1; });
+    if (!v) st.outT = performance.now();
+    setMode('fall');
+  }
+  function leaveApp(how) {
+    if (!inApp) return;
+    setInApp(false);
+    st.vx = rnd(60, 200) * (st.x < W() * .6 ? 1 : -1); st.vy = -560; st.fallFrom = null; bot.hop();
+    say(how === 'min' ? 'App thu nhỏ rồi → mình ra desktop chơi nha~ 🏃' : 'Bạn sang cửa sổ khác à? Mình ra ngoài nhé 🏃', 1800);
+    log(how === 'min' ? 'thu nhỏ app → robot nhảy ra desktop, bung thân' : 'bấm sang cửa sổ khác → robot nhảy ra desktop');
+  }
+  function enterApp() {
+    if (inApp || fullApp || st.held || !appFront()) return;
+    setInApp(true);
+    const mp = platforms().find((p) => p.main), cr = chat.getBoundingClientRect();
+    jumpTo({ ...mp, tx: clamp(st.x, cr.left + 20, cr.right - PW - 20) }, true);
+    say('Về app làm việc nào 💼', 1500); log('app được mở / bấm vào → robot nhảy vào app, thu gọn');
+  }
+  function focusApp() {
+    const was = appVis; appVis = true; appFocus = true; appEl.classList.remove('min'); raise(appEl); $('#tbApp').classList.add('on');
+    setTimeout(enterApp, was ? 60 : 400);
+  }
+  function blurApp() { if (!appFocus) return; appFocus = false; leaveApp('switch'); }
+  function minimizeApp() { if (!appVis) return; appFocus = false; leaveApp('min'); appVis = false; appEl.classList.add('min'); $('#tbApp').classList.remove('on'); }
+
+  // =================== vòng lặp ===================
+  let last = performance.now(), statT = 0;
+  const cdText = () => { const s = Math.max(0, Math.round((limitOut - Date.now()) / 1000)); return s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}` : `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+  const EV_CHEER = ['celebrate', 'pass', 'commit', 'done', 'push'];
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    const hrs = dt * speed / 3600, sleeping = st.mode === 'sleep';
+    add('no', RATE.no * hrs * (sleeping ? .5 : 1));
+    add('nl', (sleeping ? 30 : RATE.nl) * hrs);
+    add('vui', RATE.vui * hrs * (N.no < 25 ? 2 : 1));
+    add('sach', (RATE.sach - (bugs.length && !gameOn ? 8 : 0)) * hrs);
+    if (sleeping && N.nl >= 95 && !limitOut) { st.sleepWant = false; setMode('wake', 1600); say('Ngủ dậy rồi! ☀', 1800); log('ngủ dậy · Năng lượng đầy'); }
+    if (limitOut && Date.now() >= limitOut) { limitOut = 0; add('nl', 40); st.sleepWant = false; setMode('wake', 1600); say('🔋 Giới hạn hồi rồi, làm tiếp thôi!', 2600); }
+    if (now - statT > 300) {
+      statT = now; drawStats(); $('#clock').textContent = hm(); if (gameOn) drawGame();
+      if (inApp && !idleFired && now - lastAct > 300000) { idleFired = true; idlePlay(); }
+    }
+    const front = appFront();
+
+    if (gameOn) { if (now > gameOn.next) { gameOn.next = now + rnd(350, 750); addBug(true); } if (now > gameOn.end) endGame(); }
+    for (const f of foods) {
+      const z = zb(f.app);
+      if (!f.landed) { f.vy += 1400 * dt; f.y += f.vy * dt; if (f.y >= z.f - 26) { f.y = z.f - 26; f.landed = true; } } else f.y = z.f - 26;
+      f.el.style.left = f.x + 'px'; f.el.style.top = f.y + 'px'; f.el.style.display = f.app && !front ? 'none' : '';
+    }
+    for (const b of [...bugs]) {
+      const z = zb(b.app);
+      if (!b.ground) { b.y += b.vy * dt; b.x += Math.sin(now / 300 + b.sway) * 40 * dt; if (b.y >= z.f - 18) { b.y = z.f - 18; b.ground = true; b.born = now; } }
+      else { b.y = z.f - 18; b.x += b.vx * dt; if (b.x < z.l + 10 || b.x > z.r - 30) b.vx *= -1; if (gameOn && now - b.born > 5000) { bugs = bugs.filter((x) => x !== b); b.el.remove(); continue; } }
+      b.el.style.left = b.x + 'px'; b.el.style.top = b.y + 'px'; b.el.style.transform = `scaleX(${b.vx > 0 ? -1 : 1})`; b.el.style.display = b.app && !front ? 'none' : '';
+      if (gameOn && Math.abs(b.x + 8 - (st.x + PW / 2)) < PW * .45 && Math.abs(b.y - (st.y + TH / 2)) < TH * .6) squash(b, false);
+    }
+    for (const b of balls) {
+      const z = zb(b.app);
+      if (!b.rest) { b.vy += 1600 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.rot += b.vx * dt * 2; const g = z.f - 22; if (b.y > g) { b.y = g; b.vy *= -.55; b.vx *= .85; if (Math.abs(b.vy) < 60) { b.vy = 0; if (Math.abs(b.vx) < 15) { b.rest = true; b.vx = 0; } } } if (b.x < z.l || b.x > z.r - 24) { b.vx *= -.8; b.x = clamp(b.x, z.l, z.r - 24); } }
+      else b.y = z.f - 22;
+      b.el.style.left = b.x + 'px'; b.el.style.top = b.y + 'px'; b.el.style.transform = `rotate(${b.rot}deg)`; b.el.style.display = b.app && !front ? 'none' : '';
+    }
+    if (bath > now) {
+      if (Math.random() < .8) { const d = document.createElement('div'); d.className = 'drop'; Object.assign(d.style, { left: (st.x + rnd(0, PW)) + 'px', top: (st.y - 60) + 'px' }); document.body.append(d); d.animate([{ transform: 'translateY(0)', opacity: 1 }, { transform: `translateY(${TH + 55}px)`, opacity: .2 }], { duration: 500, easing: 'ease-in' }).onfinish = () => d.remove(); }
+      if (Math.random() < .15) { const b = document.createElement('div'); b.className = 'bubble'; const s = rnd(6, 14); Object.assign(b.style, { width: s + 'px', height: s + 'px', left: (st.x + rnd(0, PW)) + 'px', top: (st.y + rnd(10, TH)) + 'px' }); document.body.append(b); b.animate([{ transform: 'translateY(0)', opacity: 1 }, { transform: 'translateY(-50px)', opacity: 0 }], { duration: 1200 }).onfinish = () => b.remove(); }
+      add('sach', 60 * dt);
+    }
+    // robot mini (subagent)
+    for (const m of [...minis]) {
+      if (m.dead) { m.el.remove(); minis.splice(minis.indexOf(m), 1); continue; }
+      const home = st.x + PW / 2 - 19;
+      if (now > m.end) m.tx = home;
+      const d = m.tx - m.x, moving = Math.abs(d) >= 3;
+      if (!moving) { if (now > m.end) { m.el.remove(); minis.splice(minis.indexOf(m), 1); heart('🔍'); continue; } if (Math.random() < dt * 1.2) { const cr = chat.getBoundingClientRect(); m.tx = rnd(cr.left, cr.right - 40); } }
+      else { m.dir = Math.sign(d); m.x += m.dir * Math.min(Math.abs(d), 150 * dt); m.ph += dt * 16; }
+      m.bot.extraTilt = moving ? Math.sin(m.ph) * 6 : 0; m.bot.lookAt = { x: m.dir * .8, y: .3 };
+      m.el.style.transform = `translate(${m.x}px, ${mainY() - 33 + (moving ? -Math.abs(Math.sin(m.ph)) * 3 : 0)}px)`;
+      m.bot.tick(BK.now(), dt);
+    }
+    if (ap && apBot) { apBot.extraTilt = ap.n < ap.total ? Math.sin(now / 90) * 5 : 0; apBot.lookAt = { x: .9, y: .2 }; apBot.tick(BK.now(), dt); }
+
+    // vật lý robot
+    if (!st.held) {
+      if (!st.ground) {
+        st.vy += 2200 * dt; st.x += st.vx * dt; st.y += st.vy * dt;
+        const lx = LX(), rx = RX();
+        if (st.x < lx) { st.x = lx; st.vx *= -.5; } if (st.x > rx) { st.x = rx; st.vx *= -.5; }
+        const p = st.vy >= 0 ? support(st.x, bottom() - st.vy * dt - 1, st.jumpP && st.jumpP.el) : null;
+        if (p && bottom() >= p.y) {
+          st.y = p.y - TH;
+          if (st.vy > 520 && !st.jumpP) { st.vy *= -.32; st.vx *= .7; bot.hop(); }
+          else {
+            const far = (p.y - (st.fallFrom || p.y)) > 240;
+            if (st.jumpP) st.climbTo = null;
+            st.vy = 0; st.vx = 0; st.ground = p; st.onWin = p.el; st.jumpP = null;
+            if (st.dizzy || far) { setMode('dizzy', 2200); say(st.dizzy ? 'Chóng mặt quáaa 😵‍💫' : 'Úi da!', 1800); add('vui', -2); st.dizzy = false; }
+            else if (st.mode === 'fall') chooseNext();
+          }
+        } else if (st.vy > 0 && bottom() > zb(inApp).f + 30) {
+          // lọt khỏi mọi nền (vd. thả ngoài vùng sàn) → đặt lại lên sàn chính
+          const mp = platforms().find((q) => q.main); st.x = clamp(st.x, mp.x1, mp.x2 - PW); st.y = mp.y - TH - 1; st.vy = 0; st.jumpP = null;
+        }
+      } else {
+        const p = support(st.x, bottom() - 3);
+        if (!p || Math.abs(p.y - bottom()) > 4) { st.ground = null; st.onWin = null; st.fallFrom = st.mode === 'walk' ? null : st.y; setMode('fall'); }
+        else { st.ground = p; st.onWin = p.el; st.y = p.y - TH; }
+      }
+    }
+
+    // hành vi
+    let face = 'idle', walking = false;
+    const m = st.mode;
+    if (st.held) face = drag && drag.moved > 20 ? 'web' : 'stopped';
+    else if (!st.ground) face = 'web';
+    else if (m === 'walk' || m === 'chase' || m === 'follow') {
+      const slow = N.no < 25 || N.nl < 30;
+      let sp = (dnd || fullApp ? 140 : notice ? 170 : slow ? 45 : 80) * (st.bug ? 1.7 : st.food ? 1.4 : 1) * (inApp ? .85 : 1);
+      if (m === 'chase') { sp = 210; st.target = mouse ? clamp(mouse.x - PW / 2, LX(), RX()) : st.x; if (mouse && mouse.y < st.y - 60 && Math.random() < dt * 1.5) { st.vy = -620; st.ground = null; st.fallFrom = st.y; } }
+      if (m === 'follow') { sp = 130; const c = streaming && cur === 'vl' ? streaming.caret.getBoundingClientRect() : null; if (c && c.height) { const cr = chat.getBoundingClientRect(); st.target = clamp(c.left - PW / 2 + 4, cr.left, cr.right - PW); } }
+      if (st.bug && bugs.includes(st.bug)) st.target = st.bug.x - PW / 2 + 6;
+      if (st.ball && balls.includes(st.ball)) st.target = st.ball.x - PW / 2 + (st.ball.x > st.x ? -10 : 10);
+      if (notice && !notice.dest && !notice.tx) st.target = mouse ? clamp(mouse.x - PW / 2, LX(), RX()) : st.target;
+      // đang đứng trên nền phụ (cửa sổ / phiên ở thanh bên) mà việc cần làm ở sàn dưới → ra mép rồi nhảy xuống
+      const g0 = st.ground, wantDown = g0 && !g0.main && (st.food || st.bug || st.ball || st.after || (notice && !notice.dest) || m === 'follow');
+      if (wantDown && st.target + PW / 2 > g0.x1 && st.target + PW / 2 < g0.x2) st.target = inApp || (st.target + PW / 2 - g0.x1 >= g0.x2 - st.target - PW / 2) ? g0.x2 - PW * .3 : g0.x1 - PW * .7;
+      const d = st.target - st.x;
+      const reached = Math.abs(d) < 4;
+      if (m === 'follow' && (!streaming || newBelow || cur !== 'vl')) chooseNext();
+      else if (m === 'chase' && now > st.until) chooseNext();
+      else if (m === 'walk' && (reached || now > st.until)) {
+        if (st.food && foods.includes(st.food)) { if (st.food.landed && onMain()) setMode('eat', st.food.kind === 'bead' ? 800 : 1700); else if (onMain()) st.until = now + 400; else setMode('walk', 3000); }
+        else if (st.bug && bugs.includes(st.bug)) setMode('catch', 1200);
+        else if (st.ball && balls.includes(st.ball)) { const b = st.ball; b.vx = (b.x > st.x + PW / 2 ? 1 : -1) * rnd(350, 600); b.vy = -rnd(300, 520); b.rest = false; st.ball = null; add('vui', 6); gainXp(1); heart('⚽'); setMode('ev:done', 900); }
+        else if (st.climbTo) { const p = platforms().find((q) => q.el === st.climbTo.el) || st.climbTo; jumpTo(p, inApp); }
+        else if (notice) { if (notice.dest) goNotice(); else arriveNotice(); }
+        else if (st.after) { const a = st.after; st.after = null; if (a === 'sleep') { setMode('sleep', 1e9); say('Về ngủ đây 🌙', 1500); } else setMode('read', rnd(4000, 7000)); }
+        else if (dnd || fullApp) setMode('dndsit', 1e9);
+        else chooseNext();
+      } else if (!reached) {
+        const step = Math.min(Math.abs(d), sp * dt);
+        st.dir = Math.sign(d); st.x += st.dir * step; st.roll += st.dir * step * 5;
+        walking = true; face = m === 'chase' ? 'done' : m === 'follow' ? 'talking' : st.bug && bugs.includes(st.bug) ? 'bug' : notice ? notice.face : N.no < 25 ? 'limit5' : 'typing';
+      } else face = m === 'follow' ? 'talking' : 'done';
+    }
+    if (!walking && st.ground && !st.held && m !== 'walk' && m !== 'chase' && m !== 'follow') {
+      if (m === 'idle') { face = N.vui < 30 ? 'stopped' : 'idle'; if (now > st.until) chooseNext(); }
+      else if (m === 'sit') { face = N.nl < 40 ? 'yawn' : 'done'; if (now > st.until) chooseNext(); }
+      else if (m === 'perch') { face = 'done'; if (now > st.until) chooseNext(); }
+      else if (m === 'watch') { face = 'typing'; if (now > st.until) chooseNext(); }
+      else if (m === 'waitScroll') { face = 'idle'; if (!newBelow) chooseNext(); }
+      else if (m === 'work') { face = turn ? turn.face : 'idle'; const want = turn ? turn.prop : null; if (propKey !== want && !notice) dress(want); if (!turn || streaming) { if (!turn) dress(null); chooseNext(); } }
+      else if (m === 'knock') { face = 'mail'; const k = Math.floor(now / 300); if (k !== st.kn) { st.kn = k; if (k % 2) pop('cốc', st.x + PW + 2, st.y + 8); } if (now > st.until) { openDock(); endNotice(); heart('✉'); diary('Mang thư Lark của Ngọc tới tận khung chat ✉'); } }
+      else if (m === 'read') { face = 'reading'; if (propKey !== 'reading') dress('reading'); if (now > st.until) { dress(null); chooseNext(); } }
+      else if (m === 'yawn') { face = 'yawn'; if (now > st.until) chooseNext(); }
+      else if (m === 'sleep') { face = limitOut ? 'limitOut' : 'sleep'; bot.cdEnd = limitOut; }
+      else if (m === 'wake') { face = 'sun'; if (now > st.until) chooseNext(); }
+      else if (m === 'dizzy') { face = 'dizzy'; if (now > st.until) chooseNext(); }
+      else if (m === 'petted') { face = 'petted'; if (now > st.until) chooseNext(); }
+      else if (m === 'bath') { face = 'relief'; if (now > st.until) { N.sach = 100; chooseNext(); } }
+      else if (m === 'notice') face = notice ? notice.face : 'idle';
+      else if (m === 'eat') {
+        face = 'talking';
+        if (now > st.until) {
+          const f = st.food; foods = foods.filter((x) => x !== f); f.el.remove(); st.food = null;
+          add('no', f.no); add('vui', f.vui); gainXp(f.kind === 'bead' ? 1 : 2);
+          if (f.kind === 'bead') { S.beads++; heart('⚡'); log('ăn ⚡ hạt năng lượng · No +' + f.no); }
+          else { heart('😋'); log(`ăn ${f.ic} · No +${f.no}${f.vui > 5 ? ` · Vui +${f.vui}` : ''}`); say(f.no >= 40 ? 'Bánh to quá, ngon ghê! 🥳' : f.ic === '🧋' ? 'Trà sữa! Vui hẳn 🧋' : 'Măm măm~', 1600); }
+          chooseNext();
+        }
+      } else if (m === 'catch') {
+        face = 'bug';
+        if (now > st.until) {
+          const b = st.bug; squash(b, false); st.bug = null; dress(null);
+          if (!gameOn) { add('vui', 10); gainXp(5); S.bugs++; fx.once('confetti', 1200); say('Bắt được con bọ rồi! 🐞✔', 2000); log('bắt bọ · Vui +10'); }
+          chooseNext();
+        }
+      } else if (m === 'dndsit') face = 'sleep';
+      else if (m.startsWith('ev:')) { face = m.slice(3); if (now > st.until) { if (propKey && !notice) dress(null); chooseNext(); } }
+      else if (m === 'fall') chooseNext();
+    }
+    if (inApp && newBelow && st.ground && !st.held && !notice && ['idle', 'sit', 'yawn', 'perch', 'work'].includes(st.mode)) setMode('waitScroll', 1e9);
+    if (gameOn && st.ground && !st.held && m !== 'catch') {
+      const b = bugs.filter((x) => x.ground && !!x.app === inApp).sort((a, c) => Math.abs(a.x - st.x) - Math.abs(c.x - st.x))[0];
+      if (b && m !== 'walk') { st.bug = b; dress('net'); setMode('walk', 4000); }
+    }
+    if (m !== 'walk' && m !== 'catch' && !gameOn && propKey === 'net') dress(null);
+    if (bot.s !== face) bot.state(face);
+
+    bot.lookAt = walking ? { x: st.dir * .8, y: .1 } : mouse && Math.hypot(mouse.x - st.x - PW / 2, mouse.y - st.y) < 360 && !['sleep', 'dndsit'].includes(st.mode) ? { x: clamp((mouse.x - st.x - PW / 2) / 200, -1, 1), y: clamp((mouse.y - st.y - PH / 2) / 160, -1, 1) } : null;
+    if (st.mode === 'watch') { const r = inp.getBoundingClientRect(); bot.lookAt = { x: clamp((r.left + Math.min(r.width, 30 + inp.value.length * 7) - st.x - PW / 2) / 160, -1, 1), y: 1 }; }
+    if (st.mode === 'waitScroll') bot.lookAt = { x: 0, y: 1 };
+    if (st.mode === 'knock') bot.lookAt = { x: 1, y: 0 };
+    const legKind = rig.kind;
+    st.walkPh += walking ? dt * (m === 'chase' || notice ? 15 : N.no < 25 ? 7 : 11) : 0;
+    const bob = walking ? Math.abs(Math.sin(st.walkPh)) * -(legKind === 'wheel' ? 0 : legKind === 'spring' ? 8 : 4) : 0;
+    bot.extraTilt = walking ? (legKind === 'wheel' ? st.dir * 5 : Math.sin(st.walkPh) * 4 * st.dir) : st.mode === 'sleep' ? 6 : st.mode === 'knock' ? Math.sin(now / 60) * 5 : st.mode === 'watch' ? 5 : 0;
+    // tay chân theo trạng thái
+    const ev = m.startsWith('ev:') ? m.slice(3) : '';
+    const arms = st.held ? 'up' : !st.ground ? 'up' : m === 'knock' ? 'knock' : m === 'notice' || m === 'catch' ? 'wave' : EV_CHEER.includes(ev) || m === 'wake' ? 'cheer' : m === 'petted' ? 'out' : (m === 'work' && turn && ['writing', 'bash', 'agents'].includes(turn.face)) || m === 'eat' || m === 'watch' ? 'type' : ['sleep', 'dndsit'].includes(m) ? 'rest' : walking ? 'swing' : 'idle';
+    rig.pose({ ph: st.walkPh, t: now / 1000, walking, arms, dangle: st.held || (!st.ground && st.vy < 0), roll: st.roll });
+    // app toàn màn hình: ló nửa người ở mép phải
+    const peek = fullApp && st.mode === 'dndsit' ? PW * .55 : 0;
+    petEl.style.transform = `translate(${st.x + peek}px, ${st.y + bob}px)`;
+    const dirty = N.sach < 30;
+    flies.forEach((f, i) => { f.style.display = dirty ? '' : 'none'; if (dirty) { const a = now / 300 + i * 3; f.style.left = (st.x + PW / 2 + Math.cos(a * 1.3) * (PW * .6)) + 'px'; f.style.top = (st.y + 10 + Math.sin(a * 2.1) * 18) + 'px'; } });
+    const hint = inApp && newBelow ? '⬇' : '';
+    const want = hint || (st.mode === 'sleep' || dnd || fullApp || notice || gameOn ? '' : N.no < 30 ? '🍙' : N.sach < 30 ? '🛁' : N.vui < 30 ? '🤚' : '');
+    thinkEl.textContent = want; thinkEl.classList.toggle('on', !!want);
+    if (want && !hint && !inApp && now - nagT > 20000) { nagT = now; say(N.no < 30 ? 'Đói bụng quá… cho mình ăn với 🥺' : N.sach < 30 ? 'Người mình dính bùn rồi, tắm cho mình nha' : 'Chơi với mình chút đi…', 2600); }
+    placeUi();
+    bot.tick(BK.now(), dt);
+    // xem thử thân hình (chỉ khi tab đang mở)
+    if ($('[data-p="body"]').classList.contains('on')) {
+      pvPh += dt * 9; const walkPv = Math.floor(now / 3200) % 2 === 0;
+      pvRig.pose({ ph: pvPh, t: now / 1000, walking: walkPv, arms: walkPv ? 'swing' : 'wave', roll: pvPh * 18 });
+      pvBot.extraTilt = walkPv ? (KIT.legs === 'wheel' ? 4 : Math.sin(pvPh) * 3) : 0; pvBot.state(walkPv ? 'typing' : 'done'); pvBot.lookAt = walkPv ? { x: .8, y: .1 } : null;
+      $('#pvBot').style.transform = `translateY(${walkPv && KIT.legs !== 'wheel' ? -Math.abs(Math.sin(pvPh)) * (KIT.legs === 'spring' ? 6 : 3) : 0}px)`;
+      pvBot.tick(BK.now(), dt);
+    }
+    fx.step(dt, now);
+  }
+
+  // =================== nút ===================
+  const evMode = (face, ms, prop) => { if (st.mode === 'sleep') st.sleepWant = false; if (prop) dress(prop); setMode('ev:' + face, ms); };
+  const withApp = (fn) => { if (!appFront()) { focusApp(); setTimeout(fn, 900); } else fn(); };
+  const A = {
+    // trong app
+    appMin: minimizeApp, appOpen: focusApp, appSwitch: () => { raise($('#w1')); blurApp(); }, room: () => setRoom(!roomOn),
+    send: () => withApp(() => sendPrompt()), agentTurn: () => withApp(() => sendPrompt('Rà mọi chỗ gọi OnHit rồi sửa cho đồng bộ', 'agent')),
+    long: () => withApp(() => sendPrompt('Giải thích luồng combat từ lúc bấm skill tới lúc trừ máu', 'long')), askq: askQ,
+    oDone: () => otherSess('done'), oPerm: () => otherSess('perm'), auto: startAuto,
+    cost: () => { S.cost = Math.max(S.cost, 20.3) + 1.1; drawCost(); costWorry(); }, recap, summon, idle: idlePlay,
+    // thân hình
+    toDesk: () => { if (inApp) minimizeApp(); else say('Mình đang ở ngoài desktop nè 👋', 1600); },
+    bodyApp: (b) => { bodyInApp = !bodyInApp; b.textContent = 'Thân cả khi ở trong app: ' + (bodyInApp ? 'bật' : 'tắt'); b.classList.toggle('on', bodyInApp); applyKit(); st.ground = null; setMode('fall'); },
+    // chăm sóc
+    feed: () => { dropFood('rice'); log('thả đồ ăn'); },
+    cake: () => { dropFood('cake'); log('thả bánh to'); },
+    pet: () => petted(true),
+    bath: startBath,
+    sleep: () => { st.sleepWant = true; goHome('sleep'); log('đi ngủ'); },
+    // từ Claude
+    turn: () => { if (inApp) { dropBeads(2); log('Claude xong lượt → 2 ⚡ hạt năng lượng'); return; } dropFood(Math.random() < .5 ? 'rice' : 'noodle'); say('Claude xong lượt — có đồ ăn rơi xuống!', 2200); log('Claude xong lượt → 1 miếng ăn'); },
+    longdone: () => inApp ? otherSess('done') : startNotice({ face: 'celebrate', prop: 'wave', title: '✓ Xong rồi! “Sửa combat Võ Lâm” · 12 phút', log: 'Claude xong việc dài → chạy tới con trỏ báo', acts: [{ label: 'Mở phiên', p: 1, run: () => focusApp() }] }),
+    ask: () => inApp ? otherSess('perm') : startNotice({ face: 'permission', prop: 'wave', title: '🔐 Claude muốn chạy: npm run test', log: 'Claude xin quyền → robot mang tới', acts: [{ label: 'Cho phép', p: 1, run: () => { log('→ đã cho phép'); heart('👍'); } }, { label: 'Từ chối', run: () => log('→ đã từ chối') }] }),
+    lark: () => { if (inApp) { larkApp(); return; } larkMsg(); startNotice({ face: 'mail', prop: 'mail', title: '✉ Ngọc: "gom thuế chợ trong ngày rồi chia 1 lần"', log: 'tin Lark → cầm phong bì chạy tới con trỏ', acts: [{ label: 'Mở khung chat', p: 1, run: () => { focusApp(); setTimeout(openDock, 500); } }] }); },
+    pass: () => { add('vui', 8); gainXp(10); evMode('pass', 2200); fx.once('confetti', 1500); log('test pass · Vui +8'); },
+    fail: () => { addBug(false); say('Có bọ! Để mình bắt 🐞', 2000); log('test fail → con bọ bò ra · Sạch tụt nhanh tới khi bắt được'); },
+    commit: () => { add('vui', 5); gainXp(3); S.commits++; dropFood(inApp ? 'bead' : 'rice'); evMode('commit', 2400); fx.once('fireworks', 2600); log('commit · pháo hoa · thêm đồ ăn'); },
+    push: () => { add('vui', 4); gainXp(2); evMode('push', 2800, 'rocket'); log('push · tên lửa'); },
+    limit: () => { limitOut = Date.now() + (2 * 3600 + 15 * 60) * 1000 / speed; add('nl', -60); st.sleepWant = true; goHome('sleep'); say('Hết giới hạn 5 giờ… mình về ngủ chờ nhé 💤', 2600); log('hết giới hạn 5h → về ngủ, LED đếm ngược (demo tua ×' + speed + ')'); },
+    dnd: (b) => { dnd = !dnd; b.classList.toggle('on', dnd); sayEl.classList.remove('on'); if (dnd) { notice = null; st.target = RX() - 16; setMode('walk', 30000); log('bật Đừng làm phiền → về góc ngồi yên'); } else { setMode('idle', 800); log('tắt Đừng làm phiền'); } },
+    full: (b) => { fullApp = !fullApp; b.classList.toggle('on', fullApp); $('#full').classList.toggle('on', fullApp); sayEl.classList.remove('on'); if (fullApp) { appFocus = false; setInApp(false); notice = null; log('app khác toàn màn hình → robot ra ngoài, nấp mép phải'); } st.ground = null; st.fallFrom = null; setMode('fall'); },
+    speed: (b) => { speed = speed === 1 ? 120 : speed === 120 ? 1200 : 1; b.textContent = `⏩ Thời gian ×${speed}`; },
+    xp: () => gainXp(300),
+    reset: () => { N = { ...DEF }; [...foods, ...bugs, ...balls].forEach((f) => f.el.remove()); foods = []; bugs = []; balls = []; limitOut = 0; notice = null; st.sleepWant = false; dress(null); setMode('idle', 500); drawStats(); log('đặt lại'); },
+    game: startGame, ball: throwBall, chase: startChase, climb: () => climb(),
+  };
+  for (const b of document.querySelectorAll('#panel button[data-a]')) b.onclick = () => A[b.dataset.a](b);
+  for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => { document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b)); document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.dataset.p === b.dataset.t)); };
+  $('#minbtn').onclick = () => $('#panel').classList.toggle('min');
+  // app: ô nhập, cuộn, phiên, nút
+  inp.addEventListener('input', () => {
+    typingT = performance.now(); putAway();
+    if (inApp && st.ground && !notice && !turn && !st.food && ['idle', 'walk', 'sit', 'yawn', 'perch'].includes(st.mode)) setMode('watch', 2600);
+    else if (st.mode === 'watch') st.until = performance.now() + 2600;
+  });
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); } });
+  $('#send').onclick = () => sendPrompt();
+  chat.addEventListener('wheel', () => { scrollT = performance.now(); if (inApp && !notice && !turn && !st.food && ['walk', 'sit', 'yawn'].includes(st.mode)) setMode('idle', 1500); }, { passive: true });
+  chat.addEventListener('scroll', () => { if (nearBottom()) newBelow = false; });
+  rows.forEach((r) => r.addEventListener('click', () => switchSession(r.dataset.s)));
+  $('#roomBtn').onclick = () => setRoom(!roomOn); $('#roomX').onclick = () => setRoom(false);
+  $('#larkX').onclick = () => larkEl.classList.remove('on');
+  $('#appMin').onclick = (e) => { e.stopPropagation(); minimizeApp(); };
+  $('#tbApp').onclick = () => (appFront() ? minimizeApp() : focusApp());
+  addEventListener('resize', () => { layoutApp(); st.ground = null; });
+
+  window.__pet = { A, st, N, S, startGame, climb, openBag, get form() { return form; }, setForm, get inApp() { return inApp; }, get appFront() { return appFront(); }, get TH() { return TH; }, get KIT() { return KIT; }, setKit: (k) => { KIT = { ...KIT, ...k }; setKit(); }, switchSession, focusApp, minimizeApp, blurApp, platforms };
+  // khởi động: robot ở trong app
+  layoutApp(); raise(appEl);
+  inApp = true; setSize(APP_W);
+  { const ar = appEl.getBoundingClientRect(); st.x = ar.left + 420; st.y = ar.top + 60; }
+  drawStats(); drawDeco(); drawForms(); drawDiary(); drawBag(); drawKit(); drawCost(); log('robot rơi vào app');
+  requestAnimationFrame(frame);
+  setTimeout(() => say('Mình ở trong app nè 👋 Thu nhỏ app (nút — / 🤖 dưới taskbar) là mình nhảy ra desktop', 4200), 900);
+})();
+</script>
+</body>
+</html>

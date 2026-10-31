@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: file:; media-src 'self' blob: file:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; frame-src http: https: file:">
+  <title>Claude GUI</title>
+  <link rel="stylesheet" href="../node_modules/@highlightjs/cdn-assets/styles/github.min.css" media="(prefers-color-scheme: light)">
+  <link rel="stylesheet" href="../node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="themes.css">
+  <link rel="stylesheet" href="bot.css">
+  <link rel="stylesheet" href="decor.css">
+  <link rel="stylesheet" href="sched.css">
+  <link rel="stylesheet" href="gitpanel.css">
+  <link rel="stylesheet" href="autopilot.css">
+  <link rel="stylesheet" href="notebook.css">
+  <link rel="stylesheet" href="lark.css">
+  <link rel="stylesheet" href="pack.css">
+  <link rel="stylesheet" href="usage.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Thanh bên: mọi phiên trên máy -->
+    <aside id="sidebar">
+      <div class="sb-head">
+        <div class="brand"><span class="logo" data-logo="20"></span><span>Claude Code</span></div>
+        <button id="btn-hide-sidebar" class="icon-btn" title="Ẩn thanh bên (Ctrl+B)" data-icon="sidebar"></button>
+      </div>
+      <button id="btn-new" class="new-session"><span data-icon="plus"></span><span>Phiên mới</span><kbd>Ctrl N</kbd></button>
+      <div class="sb-tools">
+        <div class="search-wrap"><span data-icon="search" data-size="14"></span><input id="session-search" placeholder="Tìm phiên…  (Ctrl K)" spellcheck="false"></div>
+        <button id="btn-sb-filter" class="icon-btn" title="Nhóm & lọc" data-icon="filter" data-size="15"></button>
+      </div>
+      <div id="session-list"></div>
+      <div class="sb-foot">
+        <button id="btn-account" class="account-btn">
+          <span id="avatar" class="avatar">?</span>
+          <span class="acc-text"><span id="acc-email" class="ellipsis">Đang kết nối…</span><span id="acc-plan" class="ellipsis"></span></span>
+          <span id="update-dot" class="update-dot hidden" title="Có bản cập nhật"></span>
+        </button>
+        <button id="btn-settings" class="icon-btn" title="Cài đặt (Ctrl+,)" data-icon="settings"></button>
+      </div>
+    </aside>
+
+    <main id="main" class="hero">
+      <header id="titlebar">
+        <button id="btn-show-sidebar" class="icon-btn" title="Hiện thanh bên (Ctrl+B)" data-icon="sidebar"></button>
+        <div class="title-wrap">
+          <button id="chat-title" class="title-btn ellipsis" title="Bấm để đổi tên">Phiên mới</button>
+          <button id="btn-session-menu" class="icon-btn sm" title="Menu phiên" data-icon="chevronDown" data-size="14" data-pop-anchor></button>
+        </div>
+        <div class="spacer"></div>
+        <button id="tb-folder" class="tb-chip hidden" title="Mở thư mục"><span data-icon="folder" data-size="14"></span><span id="tb-folder-name" class="ellipsis"></span><span id="tb-branch" class="tb-branch hidden"><span data-icon="branch" data-size="13"></span><span></span></span></button>
+        <button id="btn-changes" class="tb-btn hidden" title="Thay đổi (Ctrl+Shift+D)"><span data-icon="fileDiff" data-size="15"></span><span id="changes-count"></span></button>
+        <button id="btn-nb" class="icon-btn" title="Sổ tài liệu của phiên này — hỏi nhanh tài liệu/design bằng model rẻ (Ctrl+Shift+L)" data-icon="book"></button>
+        <button id="btn-split" class="icon-btn" title="Chia đôi màn hình — xem 2 phiên song song (Ctrl+\)" data-icon="columns" data-pop-anchor></button>
+        <button id="btn-terminal" class="icon-btn" title="Terminal (Ctrl+`)" data-icon="terminal"></button>
+        <button id="btn-viewer" class="icon-btn" title="Khung xem tệp & web (Ctrl+Shift+P)" data-icon="eye"></button>
+        <button id="btn-details" class="icon-btn" title="Chi tiết phiên" data-icon="panelRight"></button>
+      </header>
+
+      <div class="workspace">
+        <section id="chat-col">
+          <div id="scroller">
+            <div id="welcome">
+              <div class="welcome-logo"><span class="logo" data-logo="46"></span></div>
+              <h1 id="welcome-title">Hôm nay mình làm gì?</h1>
+              <div id="welcome-error" class="banner error hidden"></div>
+            </div>
+            <div id="conversations"></div>
+            <div id="indicator" class="indicator hidden">
+              <span class="logo spin" data-logo="18"></span>
+              <span class="ind-text"></span>
+              <span class="ind-meta"></span>
+              <span class="ind-hint">Esc để dừng</span>
+            </div>
+          </div>
+
+          <div id="composer-wrap">
+            <div id="ac-menu" class="menu ac hidden"></div>
+            <div id="tasks-bar" class="hidden">
+              <div class="tb-head"><span class="tb-dot"></span><span class="tb-title"></span><span class="tb-cur ellipsis"></span><span class="tb-chev"></span></div>
+              <div class="tb-list"></div>
+            </div>
+            <div id="child-bar" class="hidden"></div>
+            <div id="lark-dock" class="hidden"></div>
+            <div id="composer">
+              <div id="attachments" class="hidden"></div>
+              <textarea id="input" rows="1" spellcheck="false" placeholder="Giao việc cho Claude…"></textarea>
+              <div class="composer-bar">
+                <button id="btn-plus" class="icon-btn" title="Thêm tệp, ảnh, lệnh" data-icon="plus" data-pop-anchor></button>
+                <button id="ctl-folder" class="ctl" title="Thư mục dự án" data-pop-anchor><span data-icon="folder" data-size="14"></span><span id="ctl-folder-name" class="ellipsis">Chọn thư mục</span><span id="ctl-worktree" class="wt-badge hidden">worktree</span><span data-icon="chevronDown" data-size="13" class="chev"></span></button>
+                <button id="ctl-mode" class="ctl" title="Chế độ quyền (Shift+Tab / Ctrl+Shift+M)" data-pop-anchor><span id="ctl-mode-icon"></span><span id="ctl-mode-name">Hỏi trước</span><span data-icon="chevronDown" data-size="13" class="chev"></span></button>
+                <div class="spacer"></div>
+                <button id="ctl-model" class="ctl" title="Model & effort (Ctrl+Shift+I / Ctrl+Shift+E)" data-pop-anchor><span id="ctl-model-name">Model</span><span data-icon="chevronDown" data-size="13" class="chev"></span></button>
+                <button id="ctl-usage" class="usage-ring" title="Mức sử dụng" data-pop-anchor></button>
+                <button id="btn-send" class="send" title="Gửi (Enter)" data-icon="arrowUp"></button>
+              </div>
+            </div>
+            <div id="hero-below">
+              <div id="suggestions" class="suggestions"></div>
+              <div id="hero-recent"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Khung thứ hai: theo dõi/nhắn một phiên khác song song -->
+        <div id="split-resize" class="hidden" title="Kéo để đổi độ rộng"></div>
+        <section id="split-col" class="hidden">
+          <div class="split-head">
+            <span id="split-dot" class="st"></span>
+            <button id="split-title" class="title-btn ellipsis" title="Bấm để chuyển phiên này sang khung chính"></button>
+            <span id="split-status" class="split-status ellipsis"></span>
+            <div class="spacer"></div>
+            <button id="split-pick" class="icon-btn sm" title="Đổi phiên trong khung này" data-icon="list" data-size="15" data-pop-anchor></button>
+            <button id="split-swap" class="icon-btn sm" title="Đổi chỗ hai khung" data-icon="swap" data-size="15"></button>
+            <button id="split-close" class="icon-btn sm" title="Đóng khung (Ctrl+\)" data-icon="x" data-size="15"></button>
+          </div>
+          <div id="split-scroller"><div id="split-convs"></div></div>
+          <div class="split-composer">
+            <textarea id="split-input" rows="1" spellcheck="false" placeholder="Nhắn phiên này…"></textarea>
+            <button id="split-send" class="send" title="Gửi (Enter)" data-icon="arrowUp"></button>
+          </div>
+        </section>
+
+        <!-- Sổ tài liệu: hỏi tài liệu/design của phiên đang mở bằng model rẻ (notebook.js) -->
+        <div id="nb-resize" class="hidden" title="Kéo để đổi độ rộng"></div>
+        <section id="nb-col" class="hidden">
+          <div id="nb-head" class="nb-head"></div>
+          <div id="nb-topics" class="nb-topics"></div>
+          <div id="nb-tabs" class="nb-tabs"></div>
+          <div id="nb-scroller"><div id="nb-pane"></div><div id="nb-convs"></div></div>
+          <div id="nb-hint" class="nb-hint hidden"></div>
+          <div class="nb-composer">
+            <textarea id="nb-input" rows="1" spellcheck="false" placeholder="Hỏi trong phạm vi tài liệu…"></textarea>
+            <button id="nb-send" class="send" title="Hỏi (Enter)" data-icon="arrowUp"></button>
+          </div>
+          <div id="nb-foot" class="nb-foot"></div>
+        </section>
+
+        <!-- Khung xem: tệp code / markdown / ảnh và trang web (localhost) ngay trong app -->
+        <div id="viewer-resize" class="hidden" title="Kéo để đổi độ rộng"></div>
+        <section id="viewer" class="hidden">
+          <div class="vw-tabs">
+            <div id="vw-tablist"></div>
+            <button id="vw-alltabs" class="icon-btn sm hidden" title="Tất cả tab" data-pop-anchor></button>
+            <button id="vw-open" class="icon-btn sm" title="Mở tệp trong dự án (Ctrl+P)" data-icon="file" data-size="15" data-pop-anchor></button>
+            <button id="vw-web" class="icon-btn sm" title="Mở trang web / localhost" data-icon="globe" data-size="15"></button>
+            <button id="vw-close" class="icon-btn sm" title="Đóng khung xem" data-icon="x" data-size="15"></button>
+          </div>
+          <div id="vw-bar"></div>
+          <div id="vw-body"><div class="vw-empty">Bấm vào đường dẫn tệp hoặc link localhost trong cuộc trò chuyện để xem ở đây.</div></div>
+        </section>
+
+        <aside id="details" class="hidden">
+          <div id="details-body"></div>
+        </aside>
+      </div>
+
+      <!-- Terminal tích hợp (giống bản desktop chính thức) -->
+      <section id="term-panel" class="hidden">
+        <div id="term-resize" title="Kéo để đổi chiều cao"></div>
+        <div class="term-head">
+          <span data-icon="terminal" data-size="14"></span>
+          <span id="term-title" class="ellipsis">Terminal</span>
+          <span class="spacer"></span>
+          <button id="term-restart" class="icon-btn sm" title="Khởi động lại terminal" data-icon="refresh" data-size="14"></button>
+          <button id="term-external" class="icon-btn sm" title="Mở bằng Windows Terminal (cửa sổ riêng)" data-icon="external" data-size="14"></button>
+          <button id="term-close" class="icon-btn sm" title="Ẩn terminal (Ctrl+`)" data-icon="x" data-size="14"></button>
+        </div>
+        <div id="term-host"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="settings-root"></div>
+  <div id="drop-overlay" class="hidden"><div>Thả ảnh hoặc tệp vào đây</div></div>
+  <div id="modal-root"></div>
+  <div id="toasts"></div>
+  <input type="file" id="file-input" multiple hidden>
+
+  <script src="../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="../node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
+  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="lib.js"></script>
+  <script src="app.js"></script>
+  <script src="settings.js"></script>
+  <script src="viewer.js"></script>
+  <script src="decor.js"></script>
+  <script src="seasons.js"></script>
+  <script src="bot.js"></script>
+  <script src="petlife.js"></script>
+  <script src="mascot.js"></script>
+  <script src="motion.js"></script>
+  <script src="sched.js"></script>
+  <script src="gitpanel.js"></script>
+  <script src="autopilot.js"></script>
+  <script src="notebook.js"></script>
+  <script src="lark.js"></script>
+  <script src="lark-guide.js"></script>
+  <script src="pack.js"></script>
+  <script src="usage.js"></script>
+  <script src="lan.js"></script>
+</body>
+</html>

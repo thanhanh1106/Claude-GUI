@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo Lịch & Hàng đợi — Claude GUI</title>
+<style>
+  :root { --bg:#1b1d23; --side:#16181d; --card:#22252d; --card2:#272b34; --line:#2e323c; --fg:#e8eaf0; --muted:#9aa1b2; --faint:#6b7282; --acc:#d97757; --new:#e0895f; --cont:#5aa9e6; --ok:#4caf50; --warn:#e6b450; --err:#e5534b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0f1014; color:var(--fg); font:14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  .intro { max-width:1280px; margin:14px auto 0; color:#aab; font-size:13px; padding:0 4px; }
+  .intro b { color:#e8eaf0; }
+  .app { margin:12px auto 30px; width:1280px; height:760px; display:grid; grid-template-columns:230px 1fr; border-radius:12px; overflow:hidden; border:1px solid var(--line); background:var(--bg); position:relative; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .side { background:var(--side); border-right:1px solid var(--line); padding:12px 8px; }
+  .side .it { padding:7px 10px; border-radius:8px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+  .side .it.on { background:color-mix(in srgb, var(--acc) 16%, transparent); color:var(--fg); border:1px solid color-mix(in srgb, var(--acc) 40%, transparent); }
+  .side .badge { margin-left:auto; font-size:11px; background:var(--acc); color:#fff; border-radius:999px; padding:0 7px; }
+  .side h4 { font-size:12px; color:var(--faint); font-weight:400; margin:14px 8px 4px; }
+  .main { display:grid; grid-template-rows:auto 1fr; overflow:hidden; position:relative; }
+  .hdr { padding:14px 20px 10px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  .hdr h2 { margin:0; font-size:18px; }
+  .lim { display:flex; gap:10px; margin-left:auto; }
+  .lim div { font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:10px; padding:5px 10px; background:var(--card); }
+  .lim b { color:var(--fg); }
+  .bar { height:4px; border-radius:2px; background:var(--line); margin-top:3px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--acc); }
+  .btn { background:var(--card2); border:1px solid var(--line); color:var(--fg); border-radius:9px; padding:6px 12px; cursor:pointer; font:inherit; font-size:13px; }
+  .btn:hover { border-color:#4a5162; }
+  .btn.pri { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .btn.sm { padding:3px 9px; font-size:12px; }
+  .body { display:grid; grid-template-columns:330px 1fr; overflow:hidden; }
+  .plans { border-right:1px solid var(--line); padding:12px; overflow:auto; }
+  .plan { border:1px solid var(--line); background:var(--card); border-radius:12px; padding:10px 12px; margin-bottom:10px; cursor:pointer; position:relative; }
+  .plan.on { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .plan .nm { font-weight:600; display:flex; gap:8px; align-items:center; }
+  .plan .tr { color:var(--muted); font-size:12.5px; margin-top:3px; }
+  .plan .meta { display:flex; justify-content:space-between; font-size:12px; color:var(--faint); margin-top:6px; }
+  .tog { width:30px; height:17px; border-radius:9px; background:var(--line); position:relative; margin-left:auto; flex:none; cursor:pointer; }
+  .tog::after { content:""; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:#fff; transition:.2s; }
+  .tog.on { background:var(--ok); } .tog.on::after { left:15px; }
+  .flow { padding:16px 26px 30px; overflow:auto; position:relative; }
+  .flow-h { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .flow-h h3 { margin:0; font-size:16px; }
+  .node { width:640px; border:1px solid var(--line); background:var(--card); border-radius:14px; padding:12px 14px; cursor:pointer; position:relative; transition: border-color .2s, box-shadow .2s, transform .2s; }
+  .node:hover { border-color:#4a5162; transform:translateY(-1px); }
+  .node.sel { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .node.trig { background:linear-gradient(135deg, color-mix(in srgb, var(--acc) 14%, var(--card)), var(--card)); }
+  .node .top { display:flex; gap:8px; align-items:center; }
+  .tag { font-size:11.5px; border-radius:999px; padding:1px 9px; font-weight:600; }
+  .tag.new { background:color-mix(in srgb, var(--new) 22%, transparent); color:var(--new); }
+  .tag.cont { background:color-mix(in srgb, var(--cont) 22%, transparent); color:var(--cont); }
+  .tag.trg { background:color-mix(in srgb, var(--acc) 25%, transparent); color:#ffb79a; }
+  .st { margin-left:auto; font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
+  .st.run { color:var(--ok); } .st.done { color:var(--ok); } .st.err { color:var(--err); }
+  .spin { width:12px; height:12px; border:2px solid var(--ok); border-top-color:transparent; border-radius:50%; animation:sp 1s linear infinite; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  .node .pr { margin:7px 0 8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 9px; display:flex; gap:5px; align-items:center; background:var(--bg); }
+  .chip img { width:16px; height:16px; border-radius:4px; object-fit:cover; }
+  .link { width:640px; display:flex; flex-direction:column; align-items:center; position:relative; height:54px; }
+  .link::before { content:""; position:absolute; top:0; bottom:0; left:50%; border-left:2px dashed var(--line); }
+  .link.lit::before { border-left-color:var(--ok); }
+  .link .cond { position:relative; margin-top:9px; font-size:11.5px; color:var(--muted); background:var(--bg); border:1px solid var(--line); border-radius:999px; padding:1px 10px; }
+  .link .add { position:absolute; left:calc(50% + 14px); top:15px; width:22px; height:22px; border-radius:50%; border:1px solid var(--line); background:var(--card2); color:var(--muted); cursor:pointer; line-height:18px; text-align:center; opacity:.0; transition:.15s; }
+  .link:hover .add { opacity:1; }
+  .end { width:640px; text-align:center; margin-top:8px; }
+  /* drawer */
+  .drawer { position:absolute; top:0; right:0; bottom:0; width:430px; background:var(--card); border-left:1px solid var(--line); box-shadow:-20px 0 40px rgba(0,0,0,.35); transform:translateX(105%); transition:transform .32s cubic-bezier(.2,.8,.2,1); display:flex; flex-direction:column; z-index:10; }
+  .drawer.open { transform:none; }
+  .drawer .dh { padding:14px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+  .drawer .dh h3 { margin:0; font-size:15px; }
+  .drawer .db { padding:14px 16px; overflow:auto; flex:1; }
+  .drawer .df { padding:12px 16px; border-top:1px solid var(--line); display:flex; gap:8px; }
+  .f { margin-bottom:13px; }
+  .f > label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  .seg button { flex:1; background:transparent; border:0; color:var(--muted); padding:6px; cursor:pointer; font:inherit; font-size:13px; }
+  .seg button.on { background:var(--card2); color:var(--fg); box-shadow: inset 0 -2px 0 var(--acc); }
+  textarea, select, input[type=text], input[type=time], input[type=date], input[type=number] { width:100%; background:var(--bg); border:1px solid var(--line); color:var(--fg); border-radius:9px; padding:7px 9px; font:inherit; font-size:13px; }
+  textarea { min-height:96px; resize:vertical; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .atts { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .atts .chip { cursor:default; }
+  .atts .chip b { cursor:pointer; font-weight:400; color:var(--faint); }
+  .days { display:flex; gap:4px; } .days button { flex:1; padding:5px 0; border-radius:7px; border:1px solid var(--line); background:transparent; color:var(--muted); cursor:pointer; }
+  .days button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .hint { font-size:12px; color:var(--faint); margin-top:4px; }
+  .hide { display:none !important; }
+  .composer-demo { max-width:1280px; margin:0 auto 40px; display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
+  .cd { background:#16181d; border:1px solid #2a2e38; border-radius:12px; padding:14px 16px; color:#aab; font-size:13px; }
+  .cd h4 { margin:0 0 8px; color:#e8eaf0; }
+  .fake-comp { border:1px solid var(--line); border-radius:14px; background:var(--card); padding:10px 12px; position:relative; margin-top:10px; color:var(--muted); }
+  .menu { position:static; margin:12px 0 0 auto; background:var(--card2); border:1px solid var(--line); border-radius:10px; padding:4px; width:250px; box-shadow:0 10px 30px rgba(0,0,0,.4); color:var(--fg); }
+  .menu div { padding:6px 10px; border-radius:7px; } .menu div:hover { background:var(--card); }
+  .menu small { display:block; color:var(--faint); }
+  ul { margin:6px 0; padding-left:18px; } li { margin:3px 0; }
+</style>
+</head>
+<body>
+<div class="intro"><button class="btn pri" id="replayNew" style="float:right;margin-left:12px">▶ Mở như người vừa cập nhật app</button><b>Demo Lịch & Hàng đợi</b> (dữ liệu giả, chưa chạy thật). Bấm từng kế hoạch bên trái, bấm vào node để sửa, rê chuột lên đường nối để thấy nút <b>＋</b> chèn node, bấm <b>▶ Mô phỏng chạy</b> để xem các bước nối nhau chạy.</div>
+<div class="app">
+  <aside class="side">
+    <div class="it">＋ Phiên mới</div>
+    <div class="it on" id="navSched">⏰ Lịch & hàng đợi <span class="newdot">MỚI</span><span class="badge">4</span></div>
+    <h4>Phiên</h4>
+    <div class="it">Thêm lịch chạy phiên</div>
+    <div class="it">Sửa lỗi link file</div>
+    <div class="it">Kiểm tra merge nhánh chính</div>
+  </aside>
+  <section class="main">
+    <div class="hdr">
+      <h2>Lịch & hàng đợi</h2>
+      <button class="btn pri" id="newPlan">＋ Kế hoạch mới</button><button class="btn" id="helpBtn" title="Xem lại hướng dẫn">?</button>
+      <div class="lim">
+        <div>Giới hạn 5 giờ: <b>72%</b> · hồi lúc <b>19:05</b> (còn 2:35)<div class="bar"><i style="width:72%"></i></div></div>
+        <div>Giới hạn tuần: <b>41%</b> · hồi <b>T3 03/11 05:59</b><div class="bar"><i style="width:41%"></i></div></div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="plans" id="plans"></div>
+      <div class="flow" id="flow"></div>
+    </div>
+    <div class="drawer" id="drawer">
+      <div class="dh"><h3 id="dtitle">Sửa bước</h3><button class="btn sm" style="margin-left:auto" id="dclose">✕</button></div>
+      <div class="db" id="dbody"></div>
+      <div class="df"><button class="btn pri" id="dsave">Lưu</button><button class="btn" id="ddup">Nhân bản</button><button class="btn" id="ddel" style="margin-left:auto;color:var(--err)">Xoá bước</button></div>
+    </div>
+  </section>
+</div>
+
+<div class="composer-demo">
+  <div class="cd">
+    <h4>Thêm vào hàng đợi ngay từ ô chat</h4>
+    Nút gửi có thêm mũi tên ▾ (hoặc <code>Ctrl+Shift+Enter</code>) để chọn cách gửi:
+    <div class="fake-comp">Viết test cho phần lập lịch…
+      <div class="menu">
+        <div>↑ Gửi ngay<small>Đang chạy thì gửi bổ sung giữa chừng</small></div>
+        <div>⛓ Xếp sau việc hiện tại<small>Thành bước kế tiếp của phiên này</small></div>
+        <div>⏰ Lên lịch gửi…<small>Theo giờ / khi giới hạn hồi</small></div>
+        <div>＋ Mở phiên mới sau khi xong…<small>Chọn thư mục, agent, effort</small></div>
+      </div>
+      <div style="text-align:right;margin-top:40px"><span class="btn sm pri">↑ ▾</span></div>
+    </div>
+  </div>
+  <div class="cd">
+    <h4>Hoạt động thế nào</h4>
+    <ul>
+      <li>Bộ hẹn giờ chạy trong tiến trình chính của app, lưu ở <code>schedules.json</code>. Cửa sổ đóng vẫn chạy (thu xuống khay hệ thống). Nếu app bị tắt lúc đến giờ: <b>chạy bù khi mở lại</b> hoặc <b>bỏ qua</b>, tuỳ bạn chọn.</li>
+      <li>Giờ hồi giới hạn 5 giờ / tuần lấy từ cùng nguồn với bảng "Sử dụng" hiện tại, nên luôn khớp giờ thật.</li>
+      <li>Mọi bước đều chạy qua Claude CLI như khi bạn tự gõ, nên vẫn ghi vào <code>~/.claude/projects</code> để hệ thống công ty đồng bộ.</li>
+      <li>Bước đang chạy hiện trong thanh bên như phiên bình thường: bấm vào xem, nhắn bổ sung giữa chừng, dừng được. Hàng đợi tự đi tiếp khi bước đó xong.</li>
+      <li>Hết giới hạn giữa chừng: tạm dừng hàng đợi, tự chạy tiếp khi giới hạn hồi.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#5aa9e6"/><circle cx="11" cy="11" r="5" fill="#fff"/><path d="M0 32 L12 18 L20 26 L26 20 L32 26 V32Z" fill="#2d6"/></svg>');
+const TRIGS = { now: 'Chạy ngay khi bấm', at: 'Vào lúc', repeat: 'Lặp lại', reset5: 'Khi giới hạn 5 giờ hồi', resetW: 'Khi giới hạn tuần hồi', after: 'Sau khi một phiên xong' };
+const MODES = { default: 'Hỏi quyền', acceptEdits: 'Tự sửa tệp', plan: 'Lập kế hoạch', bypassPermissions: 'Bỏ qua quyền' };
+const CONDS = { ok: 'khi xong (thành công)', any: 'khi xong (kể cả lỗi)', wait: 'xong rồi chờ 10 phút', reset: 'khi giới hạn hồi' };
+const plans = [
+  { id: 1, name: 'Đêm nay refactor server', on: true, trig: { type: 'at', date: '2026-10-28', time: '23:00', missed: 'run' },
+    nodes: [
+      { kind: 'new', prompt: 'Refactor module network/: tách PacketHandler thành từng file theo opcode, giữ nguyên hành vi. Chạy build sau mỗi bước.', dir: 'vo-lam-server', mode: 'acceptEdits', agent: 'mặc định', model: 'Opus', effort: 'cao', atts: [['📁', 'docs/network-spec']], cond: 'ok', st: 'wait' },
+      { kind: 'cont', prompt: 'Viết test cho các handler vừa tách, chạy và sửa đến khi pass.', mode: 'acceptEdits', effort: 'trung bình', atts: [], cond: 'ok', st: 'wait' },
+      { kind: 'cont', prompt: 'Tóm tắt thay đổi thành CHANGELOG và commit (không push).', mode: 'acceptEdits', effort: 'thấp', atts: [], cond: 'any', st: 'wait' },
+    ] },
+  { id: 2, name: 'Tận dụng khi giới hạn hồi', on: true, trig: { type: 'reset5', minLeft: 80 },
+    nodes: [
+      { kind: 'new', prompt: 'Review toàn bộ Assets/UI theo checklist đính kèm, ghi kết quả ra review.md', dir: 'GitProject', mode: 'plan', agent: 'code-reviewer', model: 'Opus', effort: 'tối đa', atts: [['🖼', 'checklist.png', IMG], ['📄', 'ui-guidelines.pdf']], cond: 'ok', st: 'wait' },
+      { kind: 'new', prompt: 'Đọc review.md ở repo GitProject rồi sửa các lỗi mức cao.', dir: 'GitProject', mode: 'acceptEdits', agent: 'mặc định', model: 'Sonnet', effort: 'cao', atts: [['🔗', 'git@dev.sabogame.vn:client.git']], cond: 'ok', st: 'wait' },
+    ] },
+  { id: 3, name: 'Báo cáo sáng thứ 2', on: false, trig: { type: 'repeat', time: '08:30', days: [1] },
+    nodes: [{ kind: 'new', prompt: 'Tổng hợp commit tuần trước của cả 3 repo thành báo cáo ngắn, kèm số dòng thay đổi.', dir: 'GitProject', mode: 'default', agent: 'mặc định', model: 'Sonnet', effort: 'trung bình', atts: [['🎬', 'demo-tuan-truoc.mp4']], cond: 'ok', st: 'wait' }] },
+  { id: 4, name: 'Nối đuôi "Thêm lịch chạy phiên"', on: true, trig: { type: 'after', sess: 'Thêm lịch chạy phiên' },
+    nodes: [
+      { kind: 'cont', prompt: 'Giờ viết tài liệu cho tính năng lập lịch vào README.', mode: 'acceptEdits', effort: 'trung bình', atts: [], cond: 'ok', st: 'done' },
+      { kind: 'cont', prompt: 'Chạy thử toàn bộ bằng harness và chụp màn hình.', mode: 'acceptEdits', effort: 'cao', atts: [['🖼', 'mau-giao-dien.png', IMG]], cond: 'ok', st: 'run' },
+      { kind: 'new', prompt: 'Ở repo ClaudeGUI-docs: cập nhật trang hướng dẫn theo README mới.', dir: 'ClaudeGUI-docs', mode: 'acceptEdits', agent: 'mặc định', model: 'Haiku', effort: 'thấp', atts: [], cond: 'ok', st: 'wait' },
+    ] },
+];
+let selPlan = plans[0], selNode = null; // selNode: 'trig' | index
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const DAYS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+function trigText(t) {
+  if (t.type === 'at') return `⏰ ${t.time} ngày ${t.date.split('-').reverse().slice(0, 2).join('/')}`;
+  if (t.type === 'repeat') return `🔁 ${t.time} ${t.days.map((d) => DAYS[d]).join(', ')} hằng tuần`;
+  if (t.type === 'reset5') return `♻ Khi giới hạn 5 giờ hồi (19:05)${t.minLeft ? ` · chỉ khi còn ≥ ${t.minLeft}%` : ''}`;
+  if (t.type === 'resetW') return '♻ Khi giới hạn tuần hồi (T3 03/11 05:59)';
+  if (t.type === 'after') return `⛓ Sau khi phiên “${t.sess}” xong`;
+  return '▶ Chạy khi bấm';
+}
+function nextText(p) {
+  if (!p.on) return 'Đang tắt';
+  if (p.nodes.some((n) => n.st === 'run')) return `Đang chạy bước ${p.nodes.findIndex((n) => n.st === 'run') + 1}/${p.nodes.length}`;
+  return { at: 'còn 6 giờ 12 phút', repeat: 'lần tới T2 03/11', reset5: 'còn 2:35', resetW: 'còn 5 ngày', after: 'chờ phiên đó xong', now: '' }[p.trig.type];
+}
+function renderPlans() {
+  $('#plans').innerHTML = '';
+  for (const p of plans) {
+    const el = document.createElement('div'); el.className = 'plan' + (p === selPlan ? ' on' : '');
+    el.innerHTML = `<div class="nm">${esc(p.name)}<span class="tog ${p.on ? 'on' : ''}"></span></div><div class="tr">${trigText(p.trig)}</div><div class="meta"><span>${p.nodes.length} bước</span><span>${nextText(p)}</span></div>`;
+    el.onclick = (e) => { if (e.target.classList.contains('tog')) { p.on = !p.on; renderPlans(); return; } selPlan = p; closeDrawer(); renderPlans(); renderFlow(); };
+    $('#plans').append(el);
+  }
+}
+const ST = { wait: ['○', 'chờ', ''], run: ['<span class="spin"></span>', 'đang chạy', 'run'], done: ['✓', 'xong', 'done'], err: ['✕', 'lỗi', 'err'] };
+function nodeHTML(n, i) {
+  const s = ST[n.st];
+  const chips = [];
+  if (n.kind === 'new') chips.push(`📁 ${esc(n.dir)}`, `🤖 ${esc(n.agent)}`, `✦ ${n.model}`);
+  else chips.push(i === 0 && selPlan.trig.type === 'after' ? `↪ phiên “${esc(selPlan.trig.sess)}”` : '↪ phiên của bước trước');
+  chips.push(`⚡ ${MODES[n.mode]}`, `🧠 ${n.effort}`);
+  const att = n.atts.map((a) => `<span class="chip">${a[2] ? `<img src="${a[2]}">` : a[0]} ${esc(a[1])}</span>`).join('');
+  return `<div class="top"><span class="tag ${n.kind}">${n.kind === 'new' ? 'Phiên mới' : 'Nối tiếp phiên'}</span><span style="color:var(--faint);font-size:12px">Bước ${i + 1}</span><span class="st ${s[2]}">${s[0]} ${s[1]}</span></div>
+    <div class="pr">${esc(n.prompt)}</div><div class="chips">${chips.map((c) => `<span class="chip">${c}</span>`).join('')}${att}</div>`;
+}
+function renderFlow() {
+  const f = $('#flow'), p = selPlan; f.innerHTML = '';
+  const h = document.createElement('div'); h.className = 'flow-h';
+  h.innerHTML = `<h3>${esc(p.name)}</h3><button class="btn sm" id="sim">▶ Mô phỏng chạy</button><button class="btn sm">⏸ Tạm dừng</button><button class="btn sm">Chạy ngay</button>`;
+  f.append(h);
+  const trig = document.createElement('div'); trig.className = 'node trig' + (selNode === 'trig' ? ' sel' : '');
+  trig.innerHTML = `<div class="top"><span class="tag trg">Kích hoạt</span><span class="st">${nextText(p)}</span></div><div class="pr" style="margin-bottom:0">${trigText(p.trig)}${p.trig.type === 'at' ? ` · nếu app đang tắt lúc đó: ${p.trig.missed === 'run' ? 'chạy bù khi mở lại' : 'bỏ qua'}` : ''}</div>`;
+  trig.onclick = () => openDrawer('trig');
+  f.append(trig);
+  p.nodes.forEach((n, i) => {
+    f.append(linkEl(i, i === 0 ? 'khi kích hoạt' : CONDS[p.nodes[i - 1].cond], i > 0 ? p.nodes[i - 1].st === 'done' : p.nodes[0].st !== 'wait'));
+    const el = document.createElement('div'); el.className = 'node' + (selNode === i ? ' sel' : ''); el.innerHTML = nodeHTML(n, i);
+    el.onclick = () => openDrawer(i); f.append(el);
+  });
+  f.append(linkEl(p.nodes.length, CONDS[p.nodes[p.nodes.length - 1].cond], false));
+  const end = document.createElement('div'); end.className = 'end'; end.innerHTML = '<button class="btn sm">＋ Thêm bước</button>';
+  end.firstChild.onclick = () => addNode(p.nodes.length);
+  f.append(end);
+  $('#sim').onclick = simulate;
+}
+function linkEl(i, cond, lit) {
+  const l = document.createElement('div'); l.className = 'link' + (lit ? ' lit' : '');
+  l.innerHTML = `<span class="cond">${cond}</span><button class="add" title="Chèn bước ở đây">＋</button>`;
+  l.querySelector('.add').onclick = () => addNode(i);
+  return l;
+}
+function addNode(i) {
+  selPlan.nodes.splice(i, 0, { kind: 'cont', prompt: '', mode: 'acceptEdits', effort: 'trung bình', atts: [], cond: 'ok', st: 'wait', fresh: true });
+  renderFlow(); openDrawer(i);
+  const el = document.querySelectorAll('.flow .node:not(.trig)')[i];
+  el.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
+}
+
+// ----- drawer sửa node / kích hoạt
+function openDrawer(which) {
+  selNode = which; renderFlow();
+  const b = $('#dbody'); b.innerHTML = '';
+  $('#ddel').classList.toggle('hide', which === 'trig'); $('#ddup').classList.toggle('hide', which === 'trig');
+  if (which === 'trig') { $('#dtitle').textContent = 'Kích hoạt kế hoạch'; trigForm(b); }
+  else { $('#dtitle').textContent = `Sửa bước ${which + 1}`; nodeForm(b, selPlan.nodes[which], which); }
+  $('#drawer').classList.add('open');
+}
+function closeDrawer() { $('#drawer').classList.remove('open'); selNode = null; }
+$('#dclose').onclick = () => { closeDrawer(); renderFlow(); };
+$('#dsave').onclick = () => { const f = $('#dbody'); if (f._save) f._save(); closeDrawer(); renderPlans(); renderFlow(); };
+$('#ddel').onclick = () => { if (selPlan.nodes.length > 1) selPlan.nodes.splice(selNode, 1); closeDrawer(); renderPlans(); renderFlow(); };
+$('#ddup').onclick = () => { const n = selPlan.nodes[selNode]; selPlan.nodes.splice(selNode + 1, 0, JSON.parse(JSON.stringify({ ...n, st: 'wait' }))); closeDrawer(); renderPlans(); renderFlow(); };
+const opt = (o, v) => Object.entries(o).map(([k, t]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${t}</option>`).join('');
+const optL = (arr, v) => arr.map((t) => `<option ${t === v ? 'selected' : ''}>${t}</option>`).join('');
+function seg(el, val, onPick) { el.querySelectorAll('button').forEach((x) => { x.classList.toggle('on', x.dataset.v === val); x.onclick = () => { el.querySelectorAll('button').forEach((y) => y.classList.toggle('on', y === x)); onPick(x.dataset.v); }; }); }
+function nodeForm(b, n, i) {
+  let kind = n.kind; const atts = n.atts.slice();
+  const prevLabel = i === 0 && selPlan.trig.type === 'after' ? `phiên “${selPlan.trig.sess}”` : i === 0 ? '— (bước đầu, chọn phiên có sẵn)' : `phiên của bước ${i}`;
+  b.innerHTML = `
+    <div class="f"><label>Loại bước</label><div class="seg" id="kind"><button data-v="new">＋ Mở phiên mới</button><button data-v="cont">↪ Nối tiếp phiên</button></div></div>
+    <div class="f only-cont"><label>Nối tiếp vào</label><select><option>${prevLabel}</option><option>Phiên có sẵn: Sửa lỗi link file</option><option>Phiên có sẵn: Kiểm tra merge nhánh chính</option></select>
+      <div class="hint">Prompt được gửi thẳng vào phiên đó, Claude làm tiếp với toàn bộ ngữ cảnh cũ.</div></div>
+    <div class="f"><label>Prompt</label><textarea id="pr" placeholder="Nhập việc cần làm… (@ để nhắc tệp, / để dùng lệnh/skill)">${esc(n.prompt)}</textarea>
+      <div class="row" id="attRow" style="display:flex;gap:6px;margin-top:6px"><button class="btn sm" id="aImg">📎 Tệp / ảnh / video</button><button class="btn sm" id="aDir">📁 Thêm thư mục</button><button class="btn sm" id="aRepo">🔗 Repo</button></div>
+      <div class="atts" id="atts"></div></div>
+    <div class="f only-new"><label>Thư mục dự án</label><select>${optL(['vo-lam-server', 'GitProject', 'ClaudeGUI', 'ClaudeGUI-docs', 'Chọn thư mục khác…'], n.dir)}</select></div>
+    <div class="two" id="optGrid">
+      <div class="f only-new"><label>Agent</label><select>${optL(['mặc định', 'code-reviewer', 'test-writer', 'unity-expert'], n.agent)}</select></div>
+      <div class="f only-new"><label>Model</label><select>${optL(['Opus', 'Sonnet', 'Haiku', 'Fable'], n.model)}</select></div>
+      <div class="f"><label>Chế độ quyền</label><select id="mode">${opt(MODES, n.mode)}</select></div>
+      <div class="f"><label>Effort</label><select id="eff">${optL(['thấp', 'trung bình', 'cao', 'tối đa'], n.effort)}</select></div>
+    </div>
+    <div class="f" id="condBox"><label>Bước kế tiếp chạy</label><select id="cond">${opt(CONDS, n.cond)}</select></div>
+    <div class="f"><label>Khi hết giới hạn giữa chừng</label><select><option>Tạm dừng, tự chạy tiếp khi giới hạn hồi</option><option>Dừng cả hàng đợi</option></select></div>
+    <div class="hint">Chế độ "Hỏi quyền" thì bước sẽ dừng chờ bạn bấm cho phép (có thông báo Windows). Muốn chạy qua đêm không cần ai trông thì chọn "Tự sửa tệp" hoặc "Bỏ qua quyền".</div>`;
+  const apply = () => b.querySelectorAll('.only-new').forEach((x) => x.classList.toggle('hide', kind !== 'new')) || b.querySelectorAll('.only-cont').forEach((x) => x.classList.toggle('hide', kind !== 'cont'));
+  seg(b.querySelector('#kind'), kind, (v) => { kind = v; apply(); }); apply();
+  const drawAtts = () => { b.querySelector('#atts').innerHTML = atts.map((a, j) => `<span class="chip">${a[2] ? `<img src="${a[2]}">` : a[0]} ${esc(a[1])} <b data-j="${j}">✕</b></span>`).join('');
+    b.querySelectorAll('#atts b').forEach((x) => x.onclick = () => { atts.splice(+x.dataset.j, 1); drawAtts(); }); };
+  drawAtts();
+  b.querySelector('#aImg').onclick = () => { atts.push(['🖼', 'anh-man-hinh.png', IMG]); drawAtts(); };
+  b.querySelector('#aDir').onclick = () => { atts.push(['📁', 'shared/common']); drawAtts(); };
+  b.querySelector('#aRepo').onclick = () => { atts.push(['🔗', 'git@dev.sabogame.vn:tools.git']); drawAtts(); };
+  b._save = () => { Object.assign(n, { kind, prompt: b.querySelector('#pr').value || '(chưa có prompt)', atts, mode: b.querySelector('#mode').value, effort: b.querySelector('#eff').value, cond: b.querySelector('#cond').value });
+    if (kind === 'new') { const s = b.querySelectorAll('.only-new select'); n.dir = s[0].value; n.agent = s[1].value; n.model = s[2].value; } delete n.fresh; };
+}
+function trigForm(b) {
+  const t = selPlan.trig; let type = t.type; const days = new Set(t.days || [1, 2, 3, 4, 5]);
+  b.innerHTML = `
+    <div class="f"><label>Tên kế hoạch</label><input type="text" id="pn" value="${esc(selPlan.name)}"></div>
+    <div class="f"><label>Kích hoạt</label><select id="tt">${opt(TRIGS, type)}</select></div>
+    <div class="f k-at"><label>Thời điểm</label><div class="two"><input type="date" value="${t.date || '2026-10-28'}"><input type="time" value="${t.time || '23:00'}"></div></div>
+    <div class="f k-repeat"><label>Giờ</label><input type="time" value="${t.time || '08:30'}"><label style="margin-top:8px">Các ngày</label><div class="days">${DAYS.map((d, i) => `<button data-d="${i}" class="${days.has(i) ? 'on' : ''}">${d}</button>`).join('')}</div></div>
+    <div class="f k-reset5 k-resetW"><label>Giờ hồi hiện tại</label><div class="hint" style="margin:0">Giới hạn 5 giờ hồi lúc <b>19:05</b> hôm nay, giới hạn tuần hồi <b>T3 03/11 05:59</b>. Giờ hồi được cập nhật liên tục, kế hoạch tự dời theo.</div>
+      <label style="margin-top:8px">Chỉ chạy nếu sau khi hồi còn ít nhất</label><div class="two"><input type="number" value="${t.minLeft || 0}" min="0" max="100"><span class="hint">% giới hạn (0 = luôn chạy)</span></div>
+      <label style="margin-top:8px"><input type="checkbox" checked> Lặp lại mỗi lần hồi</label></div>
+    <div class="f k-after"><label>Phiên cần chờ</label><select><option>${esc(t.sess || 'Thêm lịch chạy phiên')}</option><option>Sửa lỗi link file</option></select><div class="hint">Phiên đó xong lượt hiện tại thì bước 1 chạy (có thể nối tiếp ngay vào chính phiên đó).</div></div>
+    <div class="f k-at k-repeat"><label>Nếu app đang tắt đúng lúc đó</label><select><option ${t.missed !== 'skip' ? 'selected' : ''}>Chạy bù ngay khi mở app</option><option ${t.missed === 'skip' ? 'selected' : ''}>Bỏ qua lần đó</option></select></div>
+    <div class="f"><label><input type="checkbox" checked> Thông báo Windows khi bắt đầu / xong / lỗi</label></div>`;
+  const apply = () => b.querySelectorAll('[class*="k-"]').forEach((x) => x.classList.toggle('hide', !x.classList.contains('k-' + type)));
+  b.querySelector('#tt').onchange = (e) => { type = e.target.value; apply(); }; apply();
+  b.querySelectorAll('.days button').forEach((x) => x.onclick = () => { const d = +x.dataset.d; days.has(d) ? days.delete(d) : days.add(d); x.classList.toggle('on'); });
+  b._save = () => { selPlan.name = b.querySelector('#pn').value; Object.assign(selPlan.trig, { type, days: [...days].sort() });
+    const tm = b.querySelector('.k-' + type + ' input[type=time]'); if (tm) selPlan.trig.time = tm.value;
+    const dt = b.querySelector('.k-at input[type=date]'); if (type === 'at') selPlan.trig.date = dt.value;
+    if (type === 'after' && !selPlan.trig.sess) selPlan.trig.sess = 'Thêm lịch chạy phiên'; };
+}
+// ----- mô phỏng
+let simT = null;
+function simulate() {
+  clearTimeout(simT); const p = selPlan; p.nodes.forEach((n) => n.st = 'wait'); let i = 0; renderPlans(); renderFlow();
+  const step = () => { if (i > 0) p.nodes[i - 1].st = 'done'; if (i < p.nodes.length) p.nodes[i].st = 'run'; renderPlans(); renderFlow();
+    const el = document.querySelectorAll('.flow .node:not(.trig)')[i]; if (el) { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); el.animate([{ boxShadow: '0 0 0 0 rgba(76,175,80,.6)' }, { boxShadow: '0 0 0 10px rgba(76,175,80,0)' }], { duration: 900 }); }
+    if (i++ < p.nodes.length) simT = setTimeout(step, 1800); };
+  simT = setTimeout(step, 400);
+}
+$('#newPlan').onclick = () => { const p = { id: Date.now(), name: 'Kế hoạch mới', on: true, trig: { type: 'at', date: '2026-10-28', time: '22:00', missed: 'run' }, nodes: [{ kind: 'new', prompt: '', dir: 'ClaudeGUI', mode: 'acceptEdits', agent: 'mặc định', model: 'Opus', effort: 'cao', atts: [], cond: 'ok', st: 'wait' }] };
+  plans.unshift(p); selPlan = p; renderPlans(); renderFlow(); openDrawer('trig'); };
+renderPlans(); renderFlow();
+</script>
+<script src="emo.js"></script>
+<script src="sched-tour.js"></script>
+</body>
+</html>

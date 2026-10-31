@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo linh vật robot mắt LED — Claude GUI</title>
+<style>
+  :root { --bg:#14161c; --card:#1d2029; --line:#2b2f3b; --fg:#e8eaf0; --muted:#9aa1b2; --acc:#d97757; --eye:#3ff2ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(1200px 600px at 30% 0%, #222634, var(--bg)); color:var(--fg); font:14px/1.5 "Segoe UI", system-ui, sans-serif; min-height:100vh; }
+  header { padding:18px 28px 6px; display:flex; gap:16px; align-items:flex-end; }
+  h1 { margin:0; font-size:20px; }
+  header p { margin:4px 0 0; color:var(--muted); }
+  header a { margin-left:auto; color:#fff; background:var(--acc); padding:8px 14px; border-radius:9px; text-decoration:none; white-space:nowrap; }
+  main { display:grid; grid-template-columns: 440px 1fr; gap:22px; padding:16px 28px 40px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .stage { height:360px; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 60%, #262b3a, #171a22 70%); border-radius:12px; position:relative; }
+  .cur { font-size:13px; color:var(--muted); text-align:center; min-height:62px; margin-top:12px; }
+  .cur b { color:var(--fg); font-size:15px; }
+  .rims { display:flex; gap:8px; justify-content:center; margin-top:10px; flex-wrap:wrap; }
+  .group { margin-bottom:16px; }
+  .group h3 { margin:0 0 8px; font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+  .states { display:grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap:8px; }
+  .st { text-align:left; background:#232734; border:1px solid var(--line); color:var(--fg); border-radius:10px; padding:8px 10px; cursor:pointer; font:inherit; }
+  .st small { display:block; color:var(--muted); font-size:12px; line-height:1.35; margin-top:2px; }
+  .st:hover { border-color:#4a5166; }
+  .st.on { border-color:var(--eye); box-shadow:0 0 0 1px var(--eye) inset; }
+  .st.new { position:relative; } .st.new::after { content:"MỚI"; position:absolute; top:6px; right:8px; font-size:10px; background:var(--acc); color:#fff; border-radius:5px; padding:0 5px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .btn { background:#2a2f3d; border:1px solid var(--line); color:var(--fg); border-radius:9px; padding:7px 12px; cursor:pointer; font:inherit; }
+  .btn:hover { border-color:#566; }
+  .btn.pri { background:var(--acc); border-color:var(--acc); color:#fff; }
+  .btn.on { border-color:var(--eye); color:var(--eye); }
+  .sess { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .sess .btn { text-align:left; } .sess .btn small { display:block; color:var(--muted); font-size:12px; }
+  .note-box { color:var(--muted); font-size:13px; }
+  select { background:#232734; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:6px; font:inherit; }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Linh vật robot mắt LED: tất cả biểu cảm</h1>
+  <p>Viền mới đơn giản: chỉ là màn hình kính đen bo tròn, viền mảnh, phát sáng nhẹ theo màu mắt. Rê chuột để robot nhìn theo, bấm vào để nó thả tim.</p></div>
+  <a href="mascot-gui.html">Xem robot trong giao diện app →</a>
+</header>
+<main>
+  <section class="card">
+    <div class="stage" id="stage"></div>
+    <div class="cur" id="cur"></div>
+    <div class="note-box" style="text-align:center">Màu viền:</div>
+    <div class="rims">
+      <button class="btn on" data-rim="#343b48">Xám than (mặc định)</button>
+      <button class="btn" data-rim="transparent">Không viền</button>
+      <button class="btn" data-rim="#d97757">Màu nhấn của theme</button>
+    </div>
+  </section>
+  <section class="card">
+    <div class="group"><h3>Tự diễn một phiên làm việc</h3>
+      <button class="btn pri" id="auto">▶ Kịch bản: gõ → nghĩ → đọc → sửa → chạy lệnh → xin quyền → xong → sắp hết giới hạn → hết → hồi</button></div>
+    <div class="group"><h3>Chuyển phiên</h3>
+      <div class="sess">
+        <button class="btn" data-sess="0">Phiên A<small>Đang sửa code</small></button>
+        <button class="btn" data-sess="1">Phiên B<small>Chờ bạn cấp quyền</small></button>
+        <button class="btn" data-sess="2">Phiên C<small>Vừa xong việc dài</small></button>
+        <button class="btn" data-sess="3">Phiên D<small>Lỗi CLI</small></button>
+      </div>
+      <div class="row" style="margin-top:8px"><span class="note-box">Kiểu chuyển:</span>
+        <select id="swstyle"><option value="blink">Chớp mắt rồi đổi</option><option value="morph">Morph thẳng</option><option value="turn">Quay đầu nhìn sang</option></select></div>
+    </div>
+    <div class="group"><h3>Đang làm việc nhưng sắp hết giới hạn</h3>
+      <div class="row">
+        <button class="btn" data-tint="">Bình thường</button>
+        <button class="btn" data-tint="5h">≥ 80% giới hạn 5 giờ</button>
+        <button class="btn" data-tint="week">≥ 80% giới hạn tuần</button>
+      </div>
+      <div class="note-box" style="margin-top:6px">Đang làm việc thì robot giữ biểu cảm của việc đó, chỉ đổi màu mắt (hổ phách cho giới hạn 5 giờ, cam cho giới hạn tuần) và thỉnh thoảng toát mồ hôi. Lúc rảnh thì hiện hẳn biểu cảm "sắp hết giới hạn" (các ô có nhãn MỚI bên dưới).</div>
+    </div>
+    <div class="group"><h3>Nhạc</h3>
+      <div class="row">
+        <button class="btn" data-music="chill">♪ Lo-fi chill</button>
+        <button class="btn" data-music="edm">♫ EDM sôi động</button>
+        <button class="btn" data-music="sad">♩ Piano buồn</button>
+        <button class="btn" data-music="">⏹ Tắt</button>
+      </div></div>
+    <div class="group"><h3>Tất cả biểu cảm</h3><div class="states" id="states"></div></div>
+  </section>
+</main>
+<script src="emo.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+const [hs, hp] = location.hash.slice(1).split('+');
+const bot = Emo.create($('#stage'), { w: 260, snap: !!hs });
+bot.onState = (s, why) => {
+  document.querySelectorAll('.st').forEach((b) => b.classList.toggle('on', b.dataset.s === s));
+  $('#cur').innerHTML = `<b>${Emo.STATES[s].name}</b><br>${why || Emo.STATES[s].why}`;
+};
+const NEW = ['limit5', 'limitW', 'limitOut', 'recharged'];
+for (const [k, s] of Object.entries(Emo.STATES)) {
+  const b = document.createElement('button'); b.className = 'st' + (NEW.includes(k) ? ' new' : ''); b.dataset.s = k;
+  b.innerHTML = `${s.name}<small>${s.why}</small>`; b.onclick = () => { stopAuto(); bot.state(k); }; $('#states').append(b);
+}
+document.querySelectorAll('[data-rim]').forEach((b) => b.onclick = () => { bot.el.style.setProperty('--emo-rim', b.dataset.rim); document.querySelectorAll('[data-rim]').forEach((x) => x.classList.toggle('on', x === b)); });
+document.querySelectorAll('[data-music]').forEach((b) => b.onclick = () => { Emo.music(b.dataset.music || null); document.querySelectorAll('[data-music]').forEach((x) => x.classList.toggle('on', x === b && !!b.dataset.music)); });
+document.querySelectorAll('[data-tint]').forEach((b) => b.onclick = () => { bot.tint(b.dataset.tint || null); document.querySelectorAll('[data-tint]').forEach((x) => x.classList.toggle('on', x === b && !!b.dataset.tint)); });
+const SESS = [['writing', 'Phiên A · đang sửa code'], ['permission', 'Phiên B · chờ bạn cấp quyền'], ['celebrate', 'Phiên C · vừa xong việc dài'], ['error', 'Phiên D · CLI báo lỗi']];
+document.querySelectorAll('[data-sess]').forEach((b) => b.onclick = () => { stopAuto(); const [s, l] = SESS[+b.dataset.sess]; bot.switchTo(s, l, $('#swstyle').value); });
+const SCRIPT = [['typing', 1800, 'Bạn đang gõ prompt…'], ['thinking', 2400, 'Claude đang suy nghĩ'], ['reading', 2400, 'Read: src/app.js'], ['writing', 2800, 'Edit: src/app.js'],
+  ['bash', 2400, 'Bash: npm test'], ['permission', 2800, 'Xin quyền: git push'], ['celebrate', 3000, 'Xong lượt dài 2 phút'], ['limit5', 4200, 'Giới hạn 5 giờ đã dùng 86%'],
+  ['limitW', 3500, 'Giới hạn tuần đã dùng 91%'], ['limitOut', 3200, 'Hết giới hạn 5 giờ, hồi lúc 19:05'], ['recharged', 3200, '19:05: giới hạn đã hồi!'], ['idle', 2000, 'Rảnh'], ['sleep', 3000, 'Rảnh lâu → ngủ']];
+let autoT = null;
+function stopAuto() { clearTimeout(autoT); $('#auto').classList.remove('on'); }
+$('#auto').onclick = () => { stopAuto(); let i = 0; $('#auto').classList.add('on'); const go = () => { if (i >= SCRIPT.length) return stopAuto(); const [s, d, w] = SCRIPT[i++]; bot.state(s, w); autoT = setTimeout(go, d); }; go(); };
+bot.state(Emo.STATES[hs] ? hs : 'idle');
+if (hp === 'phones') bot.el.classList.add('music');
+if (hp === '5h' || hp === 'week') bot.tint(hp);
+</script>
+</body>
+</html>

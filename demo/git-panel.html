@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo: bảng Thay đổi theo repo + cây git — Claude GUI</title>
+<style>
+  :root { --bg:#1b1d23; --bg2:#22252d; --card:#262a33; --line:#343946; --fg:#e8eaf0; --muted:#9aa1b2; --acc:#d97757; --add:#5fd38d; --del:#ff6b6b; --warn:#ffbc46; --link:#7cb7ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#121318; color:var(--fg); font:13.5px/1.45 "Segoe UI", system-ui, sans-serif; }
+  header { padding:14px 22px 6px; } h1 { margin:0; font-size:19px; } header p { margin:4px 0 0; color:var(--muted); max-width:1100px; }
+  .ctl { display:flex; gap:8px; flex-wrap:wrap; padding:10px 22px; align-items:center; }
+  .ctl .lbl { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; margin-right:4px; }
+  .btn { background:#2a2f3d; border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:6px 11px; cursor:pointer; font:inherit; font-size:12.5px; }
+  .btn:hover { border-color:#566; } .btn.pri { background:var(--acc); border-color:var(--acc); color:#fff; } .btn.sm { padding:3px 8px; font-size:12px; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .app { display:grid; grid-template-columns: 1fr 420px; height:calc(100vh - 150px); min-height:620px; margin:0 22px 22px; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .app.wide { grid-template-columns: 1fr 760px; }
+  .chat { background:var(--bg); padding:16px 22px; overflow:auto; display:flex; flex-direction:column; gap:10px; }
+  .msg { background:var(--bg2); border-radius:10px; padding:9px 12px; max-width:86%; } .msg.u { align-self:flex-end; background:#2f3546; }
+  .tool { border:1px solid var(--line); border-radius:9px; padding:6px 10px; font-size:12.5px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+  .tool b { color:var(--fg); font-weight:600; } .tool .ok { color:var(--add); margin-left:auto; }
+  .tool.new { animation:pop .4s ease; } @keyframes pop { from { opacity:0; transform:translateY(6px); } }
+  .side { background:#17191e; border-left:1px solid var(--line); overflow:auto; padding:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .head { display:flex; align-items:center; gap:8px; margin-bottom:10px; } .head b { font-size:14px; } .head .sp { flex:1; }
+  .cnt .a { color:var(--add); } .cnt .d { color:var(--del); }
+  /* tab theo repo */
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:10px; }
+  .tab { border:1px solid var(--line); background:#1f2229; color:var(--muted); border-radius:8px; padding:4px 9px; cursor:pointer; font:inherit; font-size:12.5px; display:flex; gap:6px; align-items:center; }
+  .tab.on { background:#323848; color:var(--fg); border-color:#4a5166; }
+  .tab .br { color:var(--muted); font-size:11.5px; } .tab .n { background:var(--acc); color:#fff; border-radius:8px; padding:0 6px; font-size:11px; }
+  .tab.fresh { animation:fresh 1.6s ease; } @keyframes fresh { 0% { transform:scale(.6); opacity:0; } 30% { transform:scale(1.08); opacity:1; box-shadow:0 0 0 3px #d9775766; } 100% { box-shadow:0 0 0 0 transparent; } }
+  /* repo */
+  .rbar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .chip { display:inline-flex; gap:5px; align-items:center; background:#1f2229; border:1px solid var(--line); border-radius:7px; padding:2px 8px; font-size:12px; cursor:pointer; }
+  .ab { font-size:12px; color:var(--muted); }
+  .commit { border:1px solid var(--line); border-radius:10px; background:#1f2229; padding:8px; margin-bottom:10px; }
+  .commit textarea { width:100%; min-height:46px; resize:vertical; background:transparent; border:0; outline:0; color:var(--fg); font:inherit; }
+  .commit .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .commit .row .sp { flex:1; }
+  .split { display:inline-flex; } .split .btn:first-child { border-radius:8px 0 0 8px; } .split .btn:last-child { border-radius:0 8px 8px 0; border-left:1px solid #0003; padding:6px 7px; }
+  .agent { border:1px dashed #4a5166; border-radius:10px; padding:8px; margin-bottom:10px; display:flex; flex-direction:column; gap:6px; }
+  .agent select { background:#1f2229; color:var(--fg); border:1px solid var(--line); border-radius:7px; padding:4px 6px; font:inherit; font-size:12.5px; }
+  .agent .lb { font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
+  .agent .seg2 { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .agent .seg2 button { flex:1; background:#1f2229; color:var(--muted); border:0; padding:5px 7px; font:inherit; font-size:12px; cursor:pointer; text-align:left; line-height:1.3; }
+  .agent .seg2 button small { display:block; font-size:10.5px; opacity:.8; }
+  .agent .seg2 button.on { background:#323848; color:var(--fg); box-shadow:inset 0 -2px 0 var(--acc); }
+  .agent .two { display:grid; grid-template-columns:1fr 1fr; gap:6px; } .agent .two select { width:100%; }
+  .agent .hint { font-size:11.5px; color:var(--muted); }
+  .agent textarea { width:100%; min-height:54px; resize:vertical; background:#1f2229; border:1px solid var(--line); border-radius:8px; color:var(--fg); font:inherit; font-size:12.5px; padding:6px 8px; outline:0; }
+  .agent textarea:focus { border-color:#5a6378; }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .chips span { font-size:11.5px; border:1px solid var(--line); background:#1f2229; border-radius:12px; padding:1px 8px; cursor:pointer; color:#cfd4df; }
+  .chips span:hover { border-color:var(--acc); color:#fff; }
+  .agent details summary { font-size:12px; color:var(--link); cursor:pointer; }
+  .agent pre { white-space:pre-wrap; font:11.5px/1.45 Consolas, monospace; background:#15171c; border:1px solid var(--line); border-radius:8px; padding:7px 9px; margin:6px 0 0; color:#cfd4df; max-height:220px; overflow:auto; }
+  .grp { margin-bottom:8px; } .grp-h { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; padding:4px 2px; }
+  .grp-h .sp { flex:1; } .grp-h a { color:var(--link); cursor:pointer; text-transform:none; letter-spacing:0; }
+  .f { display:flex; align-items:center; gap:7px; padding:4px 6px; border-radius:7px; cursor:pointer; }
+  .f:hover { background:#2c303b; }
+  .f input { accent-color:var(--acc); margin:0; }
+  .f .nm { white-space:nowrap; } .f .dir { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .f .st { font:600 11px Consolas, monospace; width:14px; text-align:center; } .st.M { color:#e2c08d; } .st.A, .st.U { color:var(--add); } .st.D { color:var(--del); }
+  .f .cl { font-size:10.5px; background:#3a2a24; color:#ffb08f; border-radius:5px; padding:0 5px; } .f .cnt { font-size:12px; }
+  .f.moving { animation:mv .35s ease; } @keyframes mv { from { background:#d9775733; } }
+  .note { color:var(--muted); font-size:12.5px; padding:4px 2px; }
+  /* cây git */
+  .graph { margin-top:6px; border-top:1px solid var(--line); padding-top:8px; }
+  .gl { display:flex; align-items:center; height:36px; overflow:hidden; cursor:pointer; border-radius:6px; }
+  .gl:hover { background:#2a2e38; } .gl.sel { background:#303648; }
+  .gl svg { flex:none; }
+  .gl .tx { flex:1; min-width:0; line-height:1.25; } .gl .m { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .gl .mt { color:var(--muted); font-size:11px; }
+  .cf-w { display:flex; } .cf-w svg { flex:none; align-self:stretch; height:auto; }
+  .ref { display:inline-block; font-size:10.5px; border-radius:5px; padding:0 5px; margin-right:4px; vertical-align:1px; border:1px solid; }
+  .ref.head { background:#d97757; border-color:#d97757; color:#fff; } .ref.br { border-color:#5aa8ff; color:#9fd0ff; } .ref.rm { border-color:#7a8296; color:#b9c0cf; } .ref.tag { border-color:#ffd43b; color:#ffe27a; }
+  .cfiles { padding:2px 0 6px 6px; font-size:12px; color:var(--muted); } .cfiles div { padding:1px 0; }
+  /* diff */
+  .diff { font:12px/1.5 Consolas, monospace; border:1px solid var(--line); border-radius:8px; overflow:hidden; margin-bottom:10px; }
+  .hunk { border-bottom:1px solid var(--line); } .hunk-h { display:flex; align-items:center; gap:6px; background:#20242e; color:#9fb3d9; padding:3px 8px; }
+  .hunk-h .sp { flex:1; }
+  .dl { padding:0 8px; white-space:pre; } .dl.a { background:#1f3a2a; color:#b6f0c9; } .dl.d { background:#3d2224; color:#ffc1c1; }
+  .back { color:var(--link); cursor:pointer; font-size:12.5px; margin-bottom:6px; display:inline-block; }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(80px); background:#2f3546; border:1px solid #4a5166; padding:8px 14px; border-radius:10px; transition:.3s; z-index:99; }
+  .toast.on { transform:translateX(-50%); }
+  .explain { margin:0 22px 10px; color:var(--muted); font-size:12.5px; max-width:1200px; } .explain b { color:var(--fg); }
+  .menu { position:absolute; background:#262a33; border:1px solid #4a5166; border-radius:9px; padding:4px; z-index:50; box-shadow:0 10px 30px #0008; display:none; min-width:200px; }
+  .menu.on { display:block; } .menu div { padding:5px 9px; border-radius:6px; cursor:pointer; } .menu div:hover { background:#323848; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bảng "Thay đổi" theo repo + cây git</h1>
+  <p>Claude sửa tệp thuộc repo nào thì repo đó <b>tự hiện thành một tab</b> trong bảng Thay đổi (chưa có tab thì thêm, có rồi thì cập nhật số). Trong tab: nhánh, stage thủ công bằng ô chọn, commit tay, hoặc giao Claude commit theo luật; bên dưới là cây git. Tệp Claude vừa sửa có nhãn ✳ để phân biệt với tệp bạn tự sửa.</p>
+</header>
+<div class="ctl">
+  <span class="lbl">Giả lập</span>
+  <button class="btn" id="s1">✳ Claude sửa <code>src/app.js</code> (repo ClaudeGUI)</button>
+  <button class="btn" id="s2">✳ Claude tạo <code>src/pet.js</code> (repo ClaudeGUI)</button>
+  <button class="btn" id="s3">✳ Claude sửa <code>api/user.go</code> (repo sabo-server)</button>
+  <button class="btn" id="s4">✳ Claude ghi tệp nháp (không thuộc repo)</button>
+  <button class="btn" id="wide">⇔ Bảng rộng</button>
+  <button class="btn" id="reset">↺ Làm lại</button>
+</div>
+<div class="explain"><b>Hiện tại trong app:</b> tab "Phiên này" liệt kê mọi tệp Claude sửa trong phiên (cả tệp nháp ngoài repo), tab "Git" chỉ có khi <i>thư mục của phiên</i> là repo — nên phiên chạy ở <code>dist</code> mà sửa tệp ở <code>ClaudeGUI</code> thì không thấy gì. <b>Bản mới:</b> dò repo theo từng tệp được sửa.</div>
+<div class="app" id="app">
+  <div class="chat" id="chat">
+    <div class="msg u">sửa lỗi tab xem trước mở chồng nhiều trang</div>
+    <div class="msg">Mình sẽ sửa <code>viewer.js</code> và <code>app.js</code>…</div>
+  </div>
+  <div class="side"><div class="card" id="panel"></div></div>
+</div>
+<div class="menu" id="menu"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const toast = (t) => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove('on'), 2600); };
+
+// ---------------- dữ liệu giả lập ----------------
+function initial() {
+  return {
+    tab: 'session', wide: false, view: null, sel: null,
+    session: [],
+    repos: {
+      ClaudeGUI: { name: 'ClaudeGUI', path: 'C:\\WSP\\ClaudeGUI', branch: 'main', ahead: 1, behind: 0, shown: false, fresh: false,
+        files: [ { p: 'README.md', st: 'M', add: 8, del: 1, staged: false, claude: false } ],
+        log: [
+          { id: 'a71c', msg: 'feat(mascot): linh vật mặc đồ ngày lễ, desktop pet', au: 'sabodev', t: '2 giờ', parents: ['9f02'], refs: ['HEAD -> main'] },
+          { id: '9f02', msg: 'Merge branch \'feature/scheduler\'', au: 'sabodev', t: 'hôm qua', parents: ['5e11', 'c3d4'], refs: ['origin/main', 'v1.7.0'] },
+          { id: 'c3d4', msg: 'feat(sched): hàng đợi + tutorial 8 bước', au: 'sabodev', t: 'hôm qua', parents: ['b2e8'], refs: ['feature/scheduler'] },
+          { id: '5e11', msg: 'fix: vỡ font tên bài hát (PowerShell OEM)', au: 'sabodev', t: '2 ngày', parents: ['7aa0'], refs: [] },
+          { id: 'b2e8', msg: 'wip: lịch theo giờ hồi giới hạn', au: 'sabodev', t: '2 ngày', parents: ['7aa0'], refs: [] },
+          { id: '7aa0', msg: 'feat: tự mở xem trước tệp & localhost', au: 'sabodev', t: '3 ngày', parents: ['4410'], refs: ['v1.6.0'] },
+          { id: '4410', msg: 'chore: release script', au: 'sabodev', t: '5 ngày', parents: [], refs: [] },
+        ] },
+      'sabo-server': { name: 'sabo-server', path: 'C:\\WSP\\GitProject\\sabo-server', branch: 'dev', ahead: 0, behind: 2, shown: false, fresh: false,
+        files: [],
+        log: [
+          { id: 'e9a1', msg: 'feat(api): phân trang danh sách user', au: 'minh', t: '1 giờ', parents: ['d2b7'], refs: ['origin/dev'] },
+          { id: 'd2b7', msg: 'fix(auth): refresh token hết hạn sớm', au: 'lan', t: '3 giờ', parents: ['0c33'], refs: [] },
+          { id: '0c33', msg: 'chore: bump go 1.23', au: 'sabodev', t: 'hôm qua', parents: ['88f1'], refs: ['HEAD -> dev'] },
+          { id: '88f1', msg: 'Merge pull request #212', au: 'minh', t: '2 ngày', parents: ['71aa'], refs: ['origin/main', 'main'] },
+          { id: '71aa', msg: 'feat: webhook thanh toán', au: 'lan', t: '4 ngày', parents: [], refs: [] },
+        ] },
+    },
+  };
+}
+let S = initial();
+const HUNKS = {
+  'src/app.js': [{ h: '@@ -629,12 +629,16 @@ autoPreview(card, content)', l: [[' ', '      if (card.name === \'Write\' && !open)'], ['-', '        CG.viewer.openFile(f).then(done, () => {});'], ['+', '        CG.viewer.autoShow({ file: f }).then(done, () => {});']] },
+                 { h: '@@ -654,8 +654,6 @@', l: [['-', '      if (!url || this.previewed.has(url)) return;'], ['+', '      if (!url) return;'], ['+', '      if (this.previewed.has(card)) return;']] }],
+};
+
+// ---------------- giả lập Claude sửa tệp ----------------
+function claudeEdits(repo, p, st, add, del) {
+  addChat(`<b>${st === 'A' ? 'Write' : 'Edit'}</b> ${esc(repo ? S.repos[repo].path + '\\' + p.replace(/\//g, '\\') : p)} <span class="cnt"><span class="a">+${add}</span> <span class="d">−${del}</span></span>`);
+  S.session.push({ p, repo, add, del });
+  if (repo) {
+    const r = S.repos[repo];
+    const f = r.files.find((x) => x.p === p);
+    if (f) { f.add += add; f.del += del; f.claude = true; } else r.files.push({ p, st, add, del, staged: false, claude: true });
+    if (!r.shown) { r.shown = true; r.fresh = true; toast(`Repo “${repo}” vừa có thay đổi → đã thêm tab`); setTimeout(() => { r.fresh = false; }, 1700); }
+  }
+  render();
+}
+function addChat(html) { const el = document.createElement('div'); el.className = 'tool new'; el.innerHTML = html + '<span class="ok">✓</span>'; $('#chat').append(el); $('#chat').scrollTop = 1e9; }
+$('#s1').onclick = () => claudeEdits('ClaudeGUI', 'src/app.js', 'M', 6, 4);
+$('#s2').onclick = () => claudeEdits('ClaudeGUI', 'src/pet.js', 'A', 118, 0);
+$('#s3').onclick = () => claudeEdits('sabo-server', 'api/user.go', 'M', 22, 7);
+$('#s4').onclick = () => claudeEdits(null, 'scratchpad\\probe.js', 'A', 26, 0);
+$('#wide').onclick = () => { S.wide = !S.wide; $('#app').classList.toggle('wide', S.wide); };
+$('#reset').onclick = () => { S = initial(); $('#chat').querySelectorAll('.tool, .msg.sys').forEach((e) => e.remove()); $('#app').classList.remove('wide'); render(); };
+
+// ---------------- vẽ ----------------
+function render() {
+  const P = $('#panel');
+  const repos = Object.values(S.repos).filter((r) => r.shown);
+  const tot = S.session.reduce((a, x) => [a[0] + x.add, a[1] + x.del], [0, 0]);
+  let h = `<div class="head"><b>Thay đổi</b><span class="sp"></span><span class="cnt"><span class="a">+${tot[0]}</span> <span class="d">−${tot[1]}</span></span></div>`;
+  h += `<div class="tabs"><button class="tab ${S.tab === 'session' ? 'on' : ''}" data-tab="session">Phiên này</button>`;
+  for (const r of repos) { const n = r.files.length; h += `<button class="tab ${S.tab === r.name ? 'on' : ''} ${r.fresh ? 'fresh' : ''}" data-tab="${esc(r.name)}" title="${esc(r.path)}">⎇ ${esc(r.name)} <span class="br">${esc(r.branch)}</span>${n ? `<span class="n">${n}</span>` : ''}</button>`; }
+  h += `</div>`;
+  if (S.tab === 'session' || !S.repos[S.tab]) h += sessionView();
+  else h += S.view ? diffView(S.repos[S.tab]) : repoView(S.repos[S.tab]);
+  P.innerHTML = h;
+  P.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { S.tab = b.dataset.tab; S.view = null; S.sel = null; render(); });
+  bind(P);
+}
+function sessionView() {
+  if (!S.session.length) return `<div class="note">Claude chưa sửa tệp nào trong phiên này.</div>`;
+  return S.session.map((x) => `<div class="f"><span class="nm">${esc(x.p.split(/[\\/]/).pop())}</span><span class="dir">${x.repo ? '⎇ ' + esc(x.repo) : 'ngoài repo (tệp nháp)'}</span><span class="cnt"><span class="a">+${x.add}</span> <span class="d">−${x.del}</span></span></div>`).join('');
+}
+function fileRow(f, r) {
+  const nm = f.p.split('/').pop(), dir = f.p.includes('/') ? f.p.slice(0, f.p.lastIndexOf('/')) : '';
+  return `<div class="f" data-file="${esc(f.p)}"><input type="checkbox" ${f.staged ? 'checked' : ''} data-stage="${esc(f.p)}" title="${f.staged ? 'Bỏ stage' : 'Stage'}"><span class="st ${f.st}">${f.st}</span><span class="nm">${esc(nm)}</span><span class="dir">${esc(dir)}</span>${f.claude ? '<span class="cl" title="Claude sửa trong phiên này">✳ Claude</span>' : ''}<span class="cnt"><span class="a">+${f.add}</span> <span class="d">−${f.del}</span></span></div>`;
+}
+function repoView(r) {
+  const staged = r.files.filter((f) => f.staged), un = r.files.filter((f) => !f.staged);
+  let h = `<div class="rbar"><span class="chip" data-act="branch" title="Đổi / tạo nhánh">⎇ ${esc(r.branch)} ▾</span><span class="ab" title="Chưa đẩy lên / chưa kéo về">↑${r.ahead} ↓${r.behind}</span><span style="flex:1"></span>
+    <button class="btn sm" data-act="pull" ${r.behind ? '' : 'disabled'}>Pull</button><button class="btn sm" data-act="push" ${r.ahead ? '' : 'disabled'}>Push</button><button class="btn sm" data-act="refresh" title="Làm mới">↻</button></div>`;
+  h += `<div class="commit"><textarea id="cmsg" placeholder="Nội dung commit (Ctrl+Enter để commit)…">${esc(r.draft || '')}</textarea>
+    <div class="row"><button class="btn sm" data-act="suggest" title="Claude đọc diff đã stage rồi viết nội dung commit">✨ Gợi ý nội dung</button><span class="sp"></span>
+    <span class="split"><button class="btn sm pri" data-act="commit" ${staged.length ? '' : 'disabled'}>Commit ${staged.length ? `(${staged.length})` : ''}</button><button class="btn sm pri" data-act="cmenu" ${staged.length ? '' : 'disabled'}>▾</button></span></div></div>`;
+  h += agentForm(r);
+  h += `<div class="grp"><div class="grp-h">Đã stage (${staged.length})<span class="sp"></span>${staged.length ? '<a data-act="unstageAll">Bỏ stage hết</a>' : ''}</div>${staged.map((f) => fileRow(f, r)).join('') || '<div class="note">Tích ô bên trái tệp để stage.</div>'}</div>`;
+  h += `<div class="grp"><div class="grp-h">Thay đổi (${un.length})<span class="sp"></span>${un.length ? '<a data-act="stageClaude">Stage tệp ✳ Claude</a> · <a data-act="stageAll">Stage hết</a>' : ''}</div>${un.map((f) => fileRow(f, r)).join('') || '<div class="note">Không còn thay đổi chưa stage.</div>'}</div>`;
+  h += `<div class="graph"><div class="grp-h">Lịch sử (cây git)<span class="sp"></span><a data-act="bigGraph">Mở lớn trong khung xem ↗</a></div>${graph(r)}</div>`;
+  return h;
+}
+// ---------------- giao Claude commit: nơi chạy, model, effort, luật, ghi chú ----------------
+const MODELS = [['haiku', 'Haiku 5.5 — rẻ, nhanh'], ['sonnet', 'Sonnet 5.5 — khéo hơn'], ['opus', 'Opus 5.5'], ['fable', 'Fable 5.1']];
+const EFF = [['low', 'Thấp'], ['medium', 'Vừa'], ['high', 'Cao'], ['max', 'Tối đa']];
+const RULES = { repo: 'Theo luật của repo (CLAUDE.md / commitlint / lịch sử commit)', conv: 'Conventional Commits (feat/fix/chore…)', split: 'Tách thành nhiều commit theo từng việc', one: 'Gộp thành một commit' };
+const CHIPS = [
+  ['Tách theo việc', 'Tách theo việc: mỗi tính năng / mỗi lỗi một commit, các tệp cùng một việc gom chung'],
+  ['Tách từng đoạn', 'Tệp sửa cho nhiều việc thì stage từng đoạn (git add -p) cho đúng commit'],
+  ['Bỏ qua dist, log, .env', 'Không commit dist/, *.log, .env, tệp tạm'],
+  ['Tiếng Việt', 'Nội dung commit viết tiếng Việt'],
+  ['Mã task', 'Thêm mã task vào đầu nội dung, ví dụ [SABO-123]'],
+  ['Hỏi trước khi commit', 'Chưa chắc thì hỏi lại tôi trước khi commit'],
+];
+function ag(r) { return r.ag || (r.ag = { where: 'bg', model: 'haiku', effort: 'low', rule: 'repo', note: '', remember: true, only: true, push: false }); }
+function agentForm(r) {
+  const a = ag(r), bg = a.where === 'bg';
+  return `<div class="agent">
+    <b style="font-size:12.5px">🤖 Giao Claude commit</b>
+    <div class="lb">Chạy ở</div>
+    <div class="seg2"><button data-ag="where" data-v="bg" class="${bg ? 'on' : ''}">Phiên nền riêng<small>chọn model/effort · không tốn ngữ cảnh phiên này</small></button><button data-ag="where" data-v="cur" class="${bg ? '' : 'on'}">Phiên hiện tại<small>biết vì sao sửa · dùng model của phiên</small></button></div>
+    ${bg ? `<div class="two"><select data-agsel="model">${MODELS.map(([v, l]) => `<option value="${v}" ${a.model === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select data-agsel="effort">${EFF.map(([v, l]) => `<option value="${v}" ${a.effort === v ? 'selected' : ''}>Effort: ${l}</option>`).join('')}</select></div>
+      <div class="hint">Phiên nền vẫn nhận danh sách tệp ✳ và vài tin nhắn gần nhất của phiên này để hiểu bối cảnh.</div>`
+    : `<div class="hint">Dùng model đang chọn ở phiên: <b style="color:var(--fg)">Fable 5.1 · effort cao</b>. Nội dung commit sát ý định hơn, nhưng tốn ngữ cảnh và phải chờ phiên rảnh.</div>`}
+    <div class="lb">Luật</div>
+    <select data-agsel="rule">${Object.entries(RULES).map(([v, l]) => `<option value="${v}" ${a.rule === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <div class="lb">Ghi chú cho agent</div>
+    <textarea id="agnote" placeholder="Dặn thêm Claude, ví dụ: tách thành nhiều commit theo từng việc; app.js có cả sửa lỗi lẫn tính năng thì tách từng đoạn…">${esc(a.note)}</textarea>
+    <div class="chips">${CHIPS.map(([k, t], i) => `<span data-chip="${i}" title="${esc(t)}">+ ${esc(k)}</span>`).join('')}</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted)">
+      <label><input type="checkbox" data-agck="only" ${a.only ? 'checked' : ''} style="accent-color:var(--acc)"> chỉ tệp ✳ Claude sửa</label>
+      <label><input type="checkbox" data-agck="push" ${a.push ? 'checked' : ''} style="accent-color:var(--acc)"> rồi push</label>
+      <label title="Lần sau tự điền lại ghi chú + lựa chọn cho repo này"><input type="checkbox" data-agck="remember" ${a.remember ? 'checked' : ''} style="accent-color:var(--acc)"> nhớ cho repo này</label>
+      <span style="flex:1"></span><button class="btn sm pri" data-act="agent" ${r.files.length ? '' : 'disabled'}>Giao việc</button></div>
+    <details><summary>Xem lời nhắn sẽ gửi Claude</summary><pre>${esc(buildPrompt(r))}</pre></details>
+  </div>`;
+}
+function buildPrompt(r) {
+  const a = ag(r), files = r.files.filter((f) => !a.only || f.claude);
+  const rule = { repo: 'Làm theo quy ước commit của repo: đọc CLAUDE.md, commitlint/.gitmessage nếu có, và theo phong cách 20 commit gần nhất (git log --oneline -20).',
+    conv: 'Dùng Conventional Commits: <type>(<scope>): <mô tả>, type là feat/fix/refactor/docs/chore/test/style/perf.',
+    split: 'Tách thành nhiều commit, mỗi commit một việc (một tính năng, một lỗi, một lần dọn dẹp). Tệp cùng một việc gom chung; tệp chứa nhiều việc thì stage từng đoạn.',
+    one: 'Gộp tất cả thành một commit với nội dung tóm tắt đủ ý.' }[a.rule];
+  const note = a.note.trim() ? 'Ghi chú của người dùng:\n' + a.note.trim().split('\n').map((l) => '  - ' + l).join('\n') + '\n' : '';
+  return `Commit các thay đổi trong repo ${r.path} (nhánh ${r.branch}).
+Chỉ đụng tới các tệp sau${a.only ? ' (Claude sửa trong phiên)' : ''}:
+${files.map((f) => `  ${f.st} ${f.p}  (+${f.add} −${f.del})`).join('\n') || '  (chưa có tệp)'}
+Luật: ${rule}
+${note}Trước khi commit: xem git diff từng tệp; không commit tệp bí mật (.env, khoá), tệp build hay tệp ngoài danh sách. ${a.push ? 'Commit xong thì git push.' : 'Không push.'}
+Xong thì liệt kê các commit đã tạo (mã + nội dung).`;
+}
+
+function diffView(r) {
+  const f = r.files.find((x) => x.p === S.view);
+  const hs = HUNKS[S.view] || [{ h: '@@ -1,0 +1,' + (f ? f.add : 3) + ' @@', l: [['+', '// … nội dung mới …'], ['+', 'export function run() {'], ['+', '}']] }];
+  let h = `<span class="back" data-act="back">‹ ${esc(r.name)}</span><div class="head"><b style="font-size:13px">${esc(S.view)}</b><span class="sp"></span><label style="font-size:12px;color:var(--muted)"><input type="checkbox" data-stage="${esc(S.view)}" ${f && f.staged ? 'checked' : ''} style="accent-color:var(--acc)"> stage cả tệp</label></div><div class="diff">`;
+  hs.forEach((hk, i) => { h += `<div class="hunk"><div class="hunk-h"><span>${esc(hk.h)}</span><span class="sp"></span><button class="btn sm" data-hunk="${i}">${hk.staged ? 'Bỏ stage đoạn' : 'Stage đoạn này'}</button><button class="btn sm" data-revert="${i}" title="Bỏ thay đổi của đoạn này">Hoàn tác</button></div>${hk.l.map(([k, t]) => `<div class="dl ${k === '+' ? 'a' : k === '-' ? 'd' : ''}">${k}${esc(t)}</div>`).join('')}</div>`; });
+  return h + `</div><div class="note">Stage / hoàn tác từng đoạn (hunk) giống VS Code. Bấm đường dẫn để mở tệp trong khung xem.</div>`;
+}
+
+// cây git: mỗi commit một hàng, nhánh là các làn màu
+const LC = ['#5aa8ff', '#d97757', '#5fd38d', '#c792ea', '#ffd43b'];
+function graph(r) {
+  const log = r.log, lanes = [], rows = [];
+  for (const c of log) {
+    let li = lanes.indexOf(c.id); if (li < 0) { li = lanes.indexOf(null); if (li < 0) li = lanes.length; lanes[li] = c.id; }
+    const before = lanes.slice();
+    lanes[li] = c.parents[0] || null;
+    for (const p of c.parents.slice(1)) if (!lanes.includes(p)) { let k = lanes.indexOf(null); if (k < 0) k = lanes.length; lanes[k] = p; }
+    // các làn khác cùng chờ commit này (nhánh gộp về) → kết thúc ở đây
+    const merges = []; before.forEach((x, i) => { if (x === c.id && i !== li) { merges.push(i); lanes[i] = null; } });
+    rows.push({ c, li, before, after: lanes.slice(), merges });
+  }
+  const W = 14, H = 36, maxL = Math.max(...rows.map((x) => Math.max(x.before.length, x.after.length)), 1);
+  return rows.map((row, ri) => {
+    const w = maxL * W + 8; let s = `<svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}">`;
+    const X = (i) => 8 + i * W;
+    row.before.forEach((x, i) => { if (x && !row.merges.includes(i) && i !== row.li) s += `<line x1="${X(i)}" y1="0" x2="${X(i)}" y2="${H}" stroke="${LC[i % 5]}" stroke-width="2"/>`; });
+    if (row.before[row.li] === row.c.id && ri) s += `<line x1="${X(row.li)}" y1="0" x2="${X(row.li)}" y2="${H / 2}" stroke="${LC[row.li % 5]}" stroke-width="2"/>`;
+    row.merges.forEach((i) => { s += `<path d="M${X(i)} 0 C ${X(i)} ${H / 2}, ${X(row.li)} ${H / 4}, ${X(row.li)} ${H / 2}" stroke="${LC[i % 5]}" stroke-width="2" fill="none"/>`; });
+    row.after.forEach((x, i) => { if (!x) return; if (i === row.li) s += `<line x1="${X(i)}" y1="${H / 2}" x2="${X(i)}" y2="${H}" stroke="${LC[i % 5]}" stroke-width="2"/>`; else if (!row.before[i] || row.before[i] !== x) s += `<path d="M${X(row.li)} ${H / 2} C ${X(row.li)} ${H * .8}, ${X(i)} ${H * .7}, ${X(i)} ${H}" stroke="${LC[i % 5]}" stroke-width="2" fill="none"/>`; });
+    const head = row.c.refs.some((x) => x.startsWith('HEAD'));
+    s += `<circle cx="${X(row.li)}" cy="${H / 2}" r="${head ? 5.5 : 4.5}" fill="${head ? '#fff' : LC[row.li % 5]}" stroke="${LC[row.li % 5]}" stroke-width="2"/></svg>`;
+    const refs = row.c.refs.map((x) => { const k = x.startsWith('HEAD') ? 'head' : x.startsWith('origin/') ? 'rm' : /^v\d/.test(x) ? 'tag' : 'br'; return `<span class="ref ${k}">${esc(x.replace('HEAD -> ', '● '))}</span>`; }).join('');
+    const open = S.sel === row.c.id;
+    const cont = `<svg width="${w}" viewBox="0 0 ${w} 10" preserveAspectRatio="none">${row.after.map((x, i) => x ? `<line x1="${X(i)}" y1="0" x2="${X(i)}" y2="10" stroke="${LC[i % 5]}" stroke-width="2" vector-effect="non-scaling-stroke"/>` : '').join('')}</svg>`;
+    return `<div class="gl ${open ? 'sel' : ''}" data-commit="${row.c.id}">${s}<div class="tx"><div class="m">${refs}${esc(row.c.msg)}</div><div class="mt">${row.c.id} · ${esc(row.c.au)} · ${row.c.t}</div></div></div>${open ? `<div class="cf-w">${cont}<div class="cfiles">${(row.c.files || ['src/mascot.js  +412 −88', 'src/bot.js  +290 −0', 'main.js  +64 −2']).map((x) => `<div>${esc(x)}</div>`).join('')}<div><a style="color:var(--link);cursor:pointer">Checkout</a> · <a style="color:var(--link);cursor:pointer">Tạo nhánh từ đây</a> · <a style="color:var(--link);cursor:pointer">Sao chép mã</a></div></div></div>` : ''}`;
+  }).join('');
+}
+
+// ---------------- thao tác ----------------
+function bind(P) {
+  const r = S.repos[S.tab];
+  P.querySelectorAll('[data-stage]').forEach((cb) => cb.onclick = (e) => { e.stopPropagation(); const f = r.files.find((x) => x.p === cb.dataset.stage); f.staged = cb.checked; draft(); render(); });
+  P.querySelectorAll('.f[data-file]').forEach((el) => el.onclick = () => { S.view = el.dataset.file; render(); });
+  P.querySelectorAll('[data-commit]').forEach((el) => el.onclick = () => { S.sel = S.sel === el.dataset.commit ? null : el.dataset.commit; render(); });
+  P.querySelectorAll('[data-hunk]').forEach((b) => b.onclick = () => { const hk = (HUNKS[S.view] || [])[+b.dataset.hunk]; if (hk) hk.staged = !hk.staged; toast(hk && hk.staged ? 'Đã stage đoạn này' : 'Đã bỏ stage đoạn này'); render(); });
+  P.querySelectorAll('[data-revert]').forEach((b) => b.onclick = () => toast('Hỏi xác nhận rồi mới hoàn tác đoạn này'));
+  const ta = $('#cmsg', P); if (ta) { ta.oninput = () => { r.draft = ta.value; }; ta.onkeydown = (e) => { if (e.key === 'Enter' && e.ctrlKey) act('commit'); }; }
+  P.querySelectorAll('[data-act]').forEach((b) => b.onclick = (e) => act(b.dataset.act, e));
+  if (r && r.ag) {
+    const a = r.ag, pre = P.querySelector('.agent pre');
+    const upd = () => { if (pre) pre.textContent = buildPrompt(r); };
+    P.querySelectorAll('[data-ag]').forEach((b) => b.onclick = () => { a[b.dataset.ag] = b.dataset.v; render(); });
+    P.querySelectorAll('[data-agsel]').forEach((el) => el.onchange = () => { a[el.dataset.agsel] = el.value; upd(); });
+    P.querySelectorAll('[data-agck]').forEach((el) => el.onchange = () => { a[el.dataset.agck] = el.checked; upd(); });
+    const nt = P.querySelector('#agnote'); if (nt) nt.oninput = () => { a.note = nt.value; upd(); };
+    P.querySelectorAll('[data-chip]').forEach((c) => c.onclick = () => {
+      const t = CHIPS[+c.dataset.chip][1]; if (!a.note.includes(t)) a.note = (a.note.trim() ? a.note.trim() + '\n' : '') + t;
+      const open = P.querySelector('.agent details').open; render(); if (open) $('#panel .agent details').open = true;
+    });
+  }
+}
+function draft() {}
+function act(a, e) {
+  const r = S.repos[S.tab];
+  if (a === 'back') { S.view = null; return render(); }
+  if (a === 'stageAll') r.files.forEach((f) => (f.staged = true));
+  if (a === 'unstageAll') r.files.forEach((f) => (f.staged = false));
+  if (a === 'stageClaude') r.files.forEach((f) => { if (f.claude) f.staged = true; });
+  if (a === 'refresh') toast('Đã làm mới (git status)');
+  if (a === 'pull') { r.behind = 0; toast('Đã pull'); }
+  if (a === 'push') { r.ahead = 0; r.log[0].refs = r.log[0].refs.filter((x) => !x.startsWith('origin/')); r.log.forEach((c) => c.refs = c.refs.filter((x) => !x.startsWith('origin/' + r.branch))); r.log[0].refs.push('origin/' + r.branch); toast('Đã push lên origin/' + r.branch); }
+  if (a === 'suggest') { const st = r.files.filter((f) => f.staged); r.draft = st.length ? (st.some((f) => f.p.includes('pet')) ? 'feat(pet): robot ra desktop khi thu nhỏ app' : 'fix(viewer): chỉ giữ một tab tự mở xem trước') : ''; if (!st.length) toast('Stage tệp trước đã'); }
+  if (a === 'commit' || a === 'commitPush') {
+    const st = r.files.filter((f) => f.staged); const msg = ($('#cmsg') && $('#cmsg').value.trim()) || r.draft;
+    if (!st.length) return; if (!msg) { toast('Nhập nội dung commit hoặc bấm ✨ Gợi ý'); return; }
+    commit(r, msg, st); if (a === 'commitPush') act('push'); else toast('Đã commit ' + st.length + ' tệp');
+  }
+  if (a === 'cmenu') { const m = $('#menu'); const rc = e.target.getBoundingClientRect(); m.innerHTML = '<div data-m="commitPush">Commit & Push</div><div data-m="amend">Sửa commit trước (amend)</div>'; m.style.left = rc.right - 210 + 'px'; m.style.top = rc.bottom + 4 + 'px'; m.classList.add('on'); m.onclick = (ev) => { m.classList.remove('on'); const k = ev.target.dataset.m; if (k === 'commitPush') act('commitPush'); else toast('Gộp vào commit trước'); }; return; }
+  if (a === 'branch') { const m = $('#menu'); const rc = e.target.getBoundingClientRect(); m.innerHTML = `<div>● ${r.branch}</div><div>feature/scheduler</div><div style="color:var(--link)">+ Tạo nhánh mới…</div>`; m.style.left = rc.left + 'px'; m.style.top = rc.bottom + 4 + 'px'; m.classList.add('on'); m.onclick = () => m.classList.remove('on'); return; }
+  if (a === 'bigGraph') { S.wide = true; $('#app').classList.add('wide'); toast('Bản thật: mở cây git cỡ lớn ở khung xem bên phải'); }
+  if (a === 'agent') return agent(r);
+  render();
+}
+function commit(r, msg, files) {
+  const id = Math.random().toString(16).slice(2, 6);
+  r.log.forEach((c) => (c.refs = c.refs.filter((x) => !x.startsWith('HEAD'))));
+  r.log.unshift({ id, msg, au: 'sabodev', t: 'vừa xong', parents: [r.log[0].id], refs: ['HEAD -> ' + r.branch], files: files.map((f) => `${f.p}  +${f.add} −${f.del}`) });
+  r.files = r.files.filter((f) => !files.includes(f)); r.ahead++; r.draft = '';
+}
+async function agent(r) {
+  const a = ag(r), files = r.files.filter((f) => !a.only || f.claude);
+  if (!files.length) return toast('Không có tệp ✳ Claude nào để commit');
+  const split = a.rule === 'split' || /tách/i.test(a.note);
+  const where = a.where === 'bg' ? `phiên nền · ${MODELS.find((m) => m[0] === a.model)[1].split(' —')[0]} · effort ${EFF.find((e) => e[0] === a.effort)[1].toLowerCase()}` : 'phiên hiện tại';
+  const m = document.createElement('div'); m.className = 'msg u sys';
+  m.innerHTML = `<b>🤖 Giao commit</b> (${esc(where)})<pre style="white-space:pre-wrap;font:11.5px/1.45 Consolas,monospace;margin:6px 0 0;color:#cfd4df">${esc(buildPrompt(r))}</pre>`;
+  $('#chat').append(m); $('#chat').scrollTop = 1e9;
+  if (a.where === 'bg') toast('Đã mở phiên nền “Commit ' + r.name + '” (xem ở thanh bên)');
+  await new Promise((x) => setTimeout(x, 700)); addChat('<b>Bash</b> git log --oneline -20 && git diff --stat');
+  await new Promise((x) => setTimeout(x, 800));
+  if (split && files.length > 1) { for (const f of files) { addChat(`<b>Bash</b> git add ${esc(f.p)} && git commit -m "…"`); commit(r, f.p.includes('pet') ? 'feat(pet): cửa sổ robot ngoài desktop' : f.p.includes('app') ? 'fix(viewer): một tab tự mở xem trước' : 'fix: ' + f.p, [f]); render(); await new Promise((x) => setTimeout(x, 600)); } }
+  else { addChat(`<b>Bash</b> git add ${files.map((f) => esc(f.p)).join(' ')} && git commit -m "…"`); commit(r, 'feat: robot ngoài desktop + một tab xem trước', files); }
+  if (a.push) { await new Promise((x) => setTimeout(x, 500)); addChat('<b>Bash</b> git push'); act('push'); }
+  if (!a.remember) r.ag = null;
+  const d = document.createElement('div'); d.className = 'msg sys'; d.textContent = 'Đã commit xong. Cây git bên phải đã cập nhật.'; $('#chat').append(d);
+  render();
+}
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#menu') && !e.target.closest('[data-act="cmenu"],[data-act="branch"]')) $('#menu').classList.remove('on'); });
+render();
+</script>
+</body>
+</html>

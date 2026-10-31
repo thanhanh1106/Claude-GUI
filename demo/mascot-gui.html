@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo linh vật trong giao diện — Claude GUI</title>
+<style>
+  :root { --bg:#1b1d23; --side:#16181d; --card:#22252d; --line:#2e323c; --fg:#e8eaf0; --muted:#9aa1b2; --faint:#6b7282; --acc:#d97757; --user:#2c303a; }
+  :root.light { --bg:#faf9f6; --side:#f1efe9; --card:#ffffff; --line:#e3e0d8; --fg:#24262b; --muted:#6b6e76; --faint:#9a9ca3; --user:#ece9e2; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0f1014; color:#e8eaf0; font:14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  .ctl { padding:12px 22px; background:#14161b; border-bottom:1px solid #262a33; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+  .ctl h1 { font-size:16px; margin:0 8px 0 0; }
+  .ctl label { color:#aab; font-size:13px; display:flex; gap:6px; align-items:center; }
+  .ctl select, .ctl button { background:#232733; color:#e8eaf0; border:1px solid #333847; border-radius:8px; padding:5px 10px; font:inherit; font-size:13px; cursor:pointer; }
+  .ctl button.on { border-color:#3ff2ff; color:#3ff2ff; }
+  .hint { padding:8px 22px; color:#99a; font-size:13px; background:#14161b; border-bottom:1px solid #262a33; }
+  .hint b { color:#e8eaf0; }
+  .app { margin:16px auto 30px; width:1260px; height:690px; display:grid; grid-template-columns:250px 1fr auto; border-radius:12px; overflow:hidden; border:1px solid var(--line); background:var(--bg); color:var(--fg); position:relative; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .side { background:var(--side); border-right:1px solid var(--line); padding:12px 8px; display:flex; flex-direction:column; }
+  .brand { font-weight:600; padding:4px 8px 10px; } .brand i { color:var(--acc); font-style:normal; }
+  .it { padding:7px 10px; border-radius:8px; cursor:pointer; display:flex; gap:8px; align-items:center; white-space:nowrap; }
+  .it:hover { background:color-mix(in srgb, var(--fg) 5%, transparent); }
+  .it.on { background:color-mix(in srgb, var(--acc) 16%, transparent); }
+  .it small { margin-left:auto; color:var(--faint); font-size:11.5px; }
+  .dot { width:7px; height:7px; border-radius:50%; flex:none; }
+  .dot.run { background:#4caf50; box-shadow:0 0 6px #4caf50; } .dot.wait { background:#e6b450; box-shadow:0 0 6px #e6b450; } .dot.err { background:#e5534b; } .dot.idle { background:transparent; }
+  .grow { flex:1; }
+  .acct { border-top:1px solid var(--line); padding:10px 8px 2px; display:flex; gap:8px; align-items:center; font-size:13px; }
+  .av { width:28px; height:28px; border-radius:50%; background:#4caf50; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:600; }
+  .main { display:grid; grid-template-rows:46px 1fr auto; min-width:0; }
+  .tb { border-bottom:1px solid var(--line); display:flex; align-items:center; padding:0 14px; gap:10px; }
+  .tb .title { font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tb .chip { font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:2px 10px; }
+  .tb .chip.warn { color:#e6b450; border-color:#e6b45066; } .tb .chip.bad { color:#e5534b; border-color:#e5534b66; }
+  .tb button { background:transparent; border:1px solid var(--line); color:var(--muted); border-radius:8px; padding:3px 9px; cursor:pointer; }
+  .chat { padding:22px 44px; overflow:hidden; }
+  .mu { display:flex; justify-content:flex-end; margin-bottom:14px; } .mu div { background:var(--user); padding:9px 14px; border-radius:16px 16px 4px 16px; max-width:70%; }
+  .ma { margin-bottom:14px; max-width:88%; }
+  .tool { border:1px solid var(--line); background:var(--card); border-radius:10px; padding:8px 12px; font-family:Consolas, monospace; font-size:13px; margin-bottom:12px; max-width:88%; display:flex; justify-content:space-between; }
+  .comp { margin:0 44px 18px; border:1px solid var(--line); border-radius:16px; background:var(--card); padding:10px 12px 8px; position:relative; z-index:5; }
+  .comp textarea { width:100%; border:0; outline:0; background:transparent; color:var(--fg); font:inherit; resize:none; height:24px; overflow:hidden; }
+  .comp .row { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12.5px; }
+  .send { margin-left:auto; width:30px; height:30px; border-radius:50%; background:var(--acc); border:0; color:#fff; font-size:15px; }
+  .details { width:0; overflow:hidden; border-left:1px solid var(--line); background:var(--bg); transition:width .3s; }
+  .details.open { width:290px; }
+  .details .in { width:290px; padding:14px; }
+  .dc { border:1px solid var(--line); border-radius:12px; background:var(--card); padding:12px; margin-bottom:10px; font-size:13px; }
+  .dc h4 { margin:0 0 8px; font-size:13px; }
+  .dc .slot { height:96px; }
+  .lim { margin:6px 0 10px; } .lim .l { display:flex; justify-content:space-between; color:var(--muted); font-size:12px; }
+  .lim input { width:100%; accent-color:var(--acc); }
+  .bar { height:5px; border-radius:3px; background:var(--line); overflow:hidden; } .bar i { display:block; height:100%; background:var(--acc); transition:width .2s; }
+  .bar.warn i { background:#e6b450; } .bar.bad i { background:#e5534b; }
+  /* robot */
+  #wrap { position:absolute; left:0; top:0; transform-origin:0 0; z-index:7; transition: transform .6s cubic-bezier(.3,1.25,.45,1); touch-action:none; }
+  #wrap.drag { transition:none; }
+  #wrap.behind { z-index:4; }
+  .ghost { position:absolute; border:2px dashed #3ff2ff55; border-radius:12px; z-index:6; pointer-events:none; opacity:0; transition:opacity .2s, border-color .2s, background .2s; }
+  .dragging .ghost { opacity:1; }
+  .ghost.near { border-color:#3ff2ff; background:#3ff2ff18; }
+  .ghost span { position:absolute; left:50%; top:100%; transform:translateX(-50%); margin-top:3px; font-size:11px; color:#3ff2ff; white-space:nowrap; background:#0f1014cc; padding:0 6px; border-radius:5px; }
+  .tip { position:absolute; z-index:20; background:var(--fg); color:var(--bg); font-size:12.5px; padding:6px 10px; border-radius:9px; pointer-events:none; opacity:0; transition:opacity .15s; max-width:260px; box-shadow:0 6px 20px rgba(0,0,0,.3); }
+  .tip.show { opacity:1; }
+  .menu { position:absolute; z-index:30; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:4px; min-width:220px; box-shadow:0 10px 30px rgba(0,0,0,.4); font-size:13px; display:none; }
+  .menu div { padding:6px 10px; border-radius:7px; cursor:pointer; display:flex; justify-content:space-between; } .menu div:hover { background:color-mix(in srgb, var(--fg) 7%, transparent); }
+  .menu hr { border:0; border-top:1px solid var(--line); margin:4px 0; }
+  .menu .lbl { color:var(--faint); font-size:11.5px; cursor:default; } .menu .lbl:hover { background:none; }
+  .menu .chk::after { content:"✓"; color:var(--acc); }
+  .sidebub { font-size:12px; color:var(--muted); text-align:center; padding:0 10px 6px; min-height:34px; }
+</style>
+</head>
+<body>
+<div class="ctl">
+  <h1>Linh vật trong giao diện</h1>
+  <label>Vị trí <select id="pos"></select></label>
+  <label>Cỡ <select id="size"><option value=".8">Nhỏ</option><option value="1" selected>Vừa</option><option value="1.25">Lớn</option></select></label>
+  <label>Nhạc <button data-music="chill">♪ Chill</button><button data-music="edm">♫ EDM</button><button data-music="">⏹</button></label>
+  <label><input type="checkbox" id="light"> Theme sáng</label>
+  <button id="tour">▶ Diễn thử: đi qua mọi vị trí</button>
+</div>
+<div class="hint"><b>Kéo robot</b> đi đâu cũng được: các ô nét đứt là chỗ đặt, thả gần ô nào robot hít vào ô đó, thả chỗ khác thì nằm tự do. <b>Chuột phải</b> vào robot để đổi vị trí, cỡ hoặc ẩn. Rê chuột lên robot để xem nó đang báo gì. Bấm các phiên ở thanh trái, gõ vào ô chat, kéo thanh giới hạn trong bảng chi tiết (nút ☰) để xem biểu cảm đổi theo.</div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <div class="brand"><i>✳</i> Claude Code</div>
+    <div class="it" style="color:var(--muted)">＋ Phiên mới</div>
+    <div id="sess"></div>
+    <div class="grow"></div>
+    <div class="sidebub" id="sidebub"></div>
+    <div class="acct"><div class="av">S</div><div>sabodev001@gmail.com<div style="color:var(--faint);font-size:11.5px">Claude Max · CLI 2.1.311</div></div></div>
+  </aside>
+  <section class="main">
+    <div class="tb" id="tb"><span id="titleSlot" style="width:0;height:26px;flex:none"></span><div class="title" id="title"></div><span class="chip" id="limchip"></span><span class="chip">📁 ClaudeGUI</span><button id="detBtn" title="Bảng chi tiết">☰</button></div>
+    <div class="chat" id="chat"></div>
+    <div class="comp" id="comp"><textarea id="inp" placeholder="Nhắn tiếp cho Claude…"></textarea>
+      <div class="row"><span>＋</span><span>📁 ClaudeGUI</span><span>⚡ Tự sửa</span><span style="margin-left:auto">Opus · Cao</span><span id="compSlot" style="width:0;height:30px;flex:none"></span><button class="send" id="send" style="margin-left:0">↑</button></div></div>
+  </section>
+  <aside class="details" id="details"><div class="in">
+    <div class="dc"><h4>Trạng thái</h4><div class="slot" id="detSlot"></div><div style="text-align:center;color:var(--muted);font-size:12px" id="detText"></div></div>
+    <div class="dc"><h4>Sử dụng (kéo để thử)</h4>
+      <div class="lim"><div class="l"><span>Giới hạn 5 giờ</span><b id="v5"></b></div><div class="bar" id="b5"><i></i></div><input type="range" id="r5" min="0" max="100" value="35"></div>
+      <div class="lim"><div class="l"><span>Giới hạn tuần</span><b id="vw"></b></div><div class="bar" id="bw"><i></i></div><input type="range" id="rw" min="0" max="100" value="22"></div>
+      <button id="reset" style="width:100%;margin-top:4px;background:transparent;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:5px;cursor:pointer">Mô phỏng: giới hạn 5 giờ vừa hồi</button>
+    </div>
+  </div></aside>
+  <div id="wrap"></div>
+  <div class="tip" id="tip"></div>
+  <div class="menu" id="menu"></div>
+</div>
+
+<script src="emo.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+const app = $('#app'), wrap = $('#wrap');
+const BW = 120; // cỡ gốc của robot; mọi vị trí chỉ là phóng to/thu nhỏ
+const bot = Emo.create(wrap, { w: BW });
+
+// ----- phiên giả
+const SESS = [
+  { n: 'Thêm lịch chạy phiên', st: 'writing', dot: 'run', t: 'đang chạy', why: 'Đang sửa src/app.js · 2 phút', msgs: [['u', 'Thêm tính năng lập lịch mở session'], ['t', 'Read src/app.js'], ['a', 'Đã đọc cấu trúc Conv, giờ thêm bộ lập lịch…'], ['t', 'Edit main.js']] },
+  { n: 'Deploy bản 1.7.0', st: 'permission', dot: 'wait', t: 'chờ bạn', why: 'Chờ bạn cho phép: git push origin main', msgs: [['u', 'Build và đẩy bản 1.7.0'], ['t', 'Bash npm run release'], ['a', 'Build xong. Cần quyền để chạy git push.']] },
+  { n: 'Refactor network module', st: 'celebrate', dot: 'idle', t: 'vừa xong', why: 'Vừa xong lượt dài 6 phút 12 giây', msgs: [['u', 'Tách PacketHandler theo opcode'], ['t', 'Edit network/handlers/*.cs'], ['a', 'Xong! 14 file, build pass, 42 test pass.']] },
+  { n: 'Sửa build Unity', st: 'error', dot: 'err', t: 'lỗi', why: 'Claude CLI báo lỗi: hết thời gian chờ', msgs: [['u', 'Fix lỗi build Android'], ['a', 'Lỗi: Claude CLI đã thoát (mã 1).']] },
+  { n: 'Nghiên cứu shader', st: 'idle', dot: 'idle', t: '3 ngày', why: 'Rảnh', msgs: [['u', 'Giải thích URP render graph'], ['a', 'Render graph là cách URP 17 quản lý pass…']] },
+];
+let cur = 0;
+function renderSess() {
+  $('#sess').innerHTML = '';
+  SESS.forEach((s, i) => { const el = document.createElement('div'); el.className = 'it' + (i === cur ? ' on' : '');
+    el.innerHTML = `<span class="dot ${s.dot}"></span><span>${s.n}</span><small>${s.t}</small>`; el.onclick = () => pick(i); $('#sess').append(el); });
+}
+function renderChat() {
+  const s = SESS[cur]; $('#title').textContent = s.n;
+  $('#chat').innerHTML = s.msgs.map(([k, t]) => k === 'u' ? `<div class="mu"><div>${t}</div></div>` : k === 't' ? `<div class="tool"><span>${t}</span><span style="color:#4caf50">✓</span></div>` : `<div class="ma">${t}</div>`).join('');
+}
+function pick(i) { if (i === cur) return; cur = i; renderSess(); renderChat(); apply(true); }
+
+// ----- giới hạn → biểu cảm
+let p5 = 35, pw = 22, wasOut = false, recharging = 0;
+function apply(switching) {
+  const s = SESS[cur], typing = document.activeElement === $('#inp') && $('#inp').value.trim();
+  const out = p5 >= 100 || pw >= 100, tint = pw >= 80 ? 'week' : p5 >= 80 ? '5h' : null;
+  let st = s.st, why = s.why;
+  if (out) { st = 'limitOut'; why = p5 >= 100 ? 'Hết giới hạn 5 giờ · hồi lúc 19:05 (còn 2:35)' : 'Hết giới hạn tuần · hồi T3 03/11 05:59'; }
+  else if (Date.now() < recharging) { st = 'recharged'; why = 'Giới hạn đã hồi, làm tiếp thôi!'; }
+  else if (typing) { st = 'typing'; why = 'Đang nghe bạn gõ…'; }
+  else if (tint && ['idle', 'celebrate', 'done'].includes(st)) { st = tint === 'week' ? 'limitW' : 'limit5'; why = tint === 'week' ? `Giới hạn tuần đã dùng ${pw}%: dùng tiết kiệm nhé` : `Giới hạn 5 giờ đã dùng ${p5}% · hồi lúc 19:05`; }
+  else if (tint) why += tint === 'week' ? ` · ⚠ giới hạn tuần ${pw}%` : ` · ⚠ giới hạn 5 giờ ${p5}%`;
+  bot.tint(out ? null : tint);
+  if (switching) bot.switchTo(st, why, 'blink'); else if (st !== bot.s || why !== bot.why) bot.state(st, why);
+  $('#detText').textContent = why; $('#sidebub').textContent = anchor === 'sidebar' ? why : '';
+  $('#v5').textContent = p5 + '%'; $('#vw').textContent = pw + '%';
+  $('#b5 i').style.width = p5 + '%'; $('#bw i').style.width = pw + '%';
+  $('#b5').className = 'bar' + (p5 >= 100 ? ' bad' : p5 >= 80 ? ' warn' : ''); $('#bw').className = 'bar' + (pw >= 100 ? ' bad' : pw >= 80 ? ' warn' : '');
+  const lc = $('#limchip'); const worst = Math.max(p5, pw);
+  lc.textContent = out ? '⛔ Hết giới hạn' : worst >= 80 ? `⚠ ${pw >= 80 ? 'Tuần' : '5 giờ'} ${worst}%` : `5 giờ ${p5}%`;
+  lc.className = 'chip' + (out ? ' bad' : worst >= 80 ? ' warn' : '');
+  wasOut = out;
+}
+$('#r5').oninput = (e) => { const was = wasOut; p5 = +e.target.value; if (was && p5 < 100 && pw < 100) { recharging = Date.now() + 3300; setTimeout(apply, 3400); } apply(); };
+$('#rw').oninput = (e) => { const was = wasOut; pw = +e.target.value; if (was && p5 < 100 && pw < 100) { recharging = Date.now() + 3300; setTimeout(apply, 3400); } apply(); };
+$('#reset').onclick = () => { p5 = 4; $('#r5').value = 4; recharging = Date.now() + 3300; apply(); setTimeout(apply, 3400); };
+$('#inp').oninput = () => apply(); $('#inp').onblur = () => apply();
+$('#detBtn').onclick = () => { $('#details').classList.toggle('open'); setTimeout(() => place(anchor === 'details' && !$('#details').classList.contains('open') ? 'corner' : anchor), 320); };
+
+// ----- các vị trí đặt robot
+const A = {
+  corner:  { n: 'Góc khung chat (trên ô nhập)', w: 78 },
+  peek:    { n: 'Ló đầu sau ô nhập', w: 74, behind: true },
+  composer:{ n: 'Trong ô nhập, cạnh nút gửi', w: 38, fixed: true },
+  title:   { n: 'Thanh tiêu đề', w: 32, fixed: true },
+  sidebar: { n: 'Cuối thanh bên', w: 92 },
+  details: { n: 'Bảng chi tiết (thẻ Trạng thái)', w: 116 },
+  free:    { n: 'Tự do (kéo đến đâu nằm đó)', w: 78 },
+};
+const rel = (el) => { const a = app.getBoundingClientRect(), r = el.getBoundingClientRect(); return { x: r.left - a.left, y: r.top - a.top, w: r.width, h: r.height }; };
+let anchor = 'corner', size = 1, free = { x: 700, y: 300 };
+function target(k) {
+  const a = A[k], w = a.fixed ? a.w : a.w * size, h = w * .76;
+  const comp = rel($('#comp')), chat = rel($('#chat'));
+  if (k === 'corner') return { x: chat.x + chat.w - w - 26, y: comp.y - h - 14, w };
+  if (k === 'peek') return { x: comp.x + comp.w - w - 70, y: comp.y - h * .52, w };
+  if (k === 'composer') { const s = rel($('#compSlot')); return { x: s.x + (s.w - w) / 2, y: s.y + s.h / 2 - h / 2, w }; }
+  if (k === 'title') { const s = rel($('#titleSlot')); return { x: s.x + (s.w - w) / 2, y: s.y + s.h / 2 - h / 2, w }; }
+  if (k === 'sidebar') { const b = rel($('#sidebub')); return { x: b.x + b.w / 2 - w / 2, y: b.y - h - 6, w }; }
+  if (k === 'details') { const s = rel($('#detSlot')); return { x: s.x + s.w / 2 - w / 2, y: s.y + s.h / 2 - h / 2, w }; }
+  return { x: free.x, y: free.y, w };
+}
+function layoutSlots(k) {
+  $('#titleSlot').style.width = k === 'title' ? '36px' : '0';
+  $('#compSlot').style.width = k === 'composer' ? '46px' : '0';
+  $('#detSlot').style.height = k === 'details' ? '96px' : '0px';
+  if (k === 'details') $('#details').classList.add('open');
+}
+function place(k, opts = {}) {
+  const prev = wrap.getBoundingClientRect();
+  const wait = k === 'details' && !$('#details').classList.contains('open');
+  anchor = k; layoutSlots(k);
+  const t0 = performance.now();
+  const ready = (fn) => (!wait || $('#details').offsetWidth >= 289 || performance.now() - t0 > 900) ? fn() : requestAnimationFrame(() => ready(fn));
+  setTimeout(() => ready(() => {
+    const t = target(k);
+    wrap.classList.toggle('behind', !!A[k].behind);
+    wrap.style.transform = `translate(${t.x}px, ${t.y}px) scale(${t.w / BW})`;
+    const now = wrap.getBoundingClientRect();
+    if (!opts.silent) {
+      // nhìn theo hướng bay, nhảy một cái khi tới nơi
+      const dx = t.x - (prev.left - app.getBoundingClientRect().left), dy = t.y - (prev.top - app.getBoundingClientRect().top);
+      if (Math.hypot(dx, dy) > 20) { bot.look(Math.sign(dx) * Math.min(1, Math.abs(dx) / 300), Math.sign(dy) * Math.min(1, Math.abs(dy) / 300)); setTimeout(() => { bot.look(null); bot.hop(); }, 560); }
+    }
+    $('#pos').value = k; apply();
+  }), 16);
+}
+// ô nét đứt hiện khi kéo
+const ghosts = {};
+for (const k of Object.keys(A)) if (k !== 'free') { const g = document.createElement('div'); g.className = 'ghost'; g.innerHTML = `<span>${A[k].n}</span>`; app.append(g); ghosts[k] = g; }
+function showGhosts() {
+  for (const [k, g] of Object.entries(ghosts)) {
+    if (k === 'details' && !$('#details').classList.contains('open')) { g.style.display = 'none'; continue; }
+    g.style.display = ''; const t = target(k), h = t.w * .76;
+    Object.assign(g.style, { left: t.x - 6 + 'px', top: t.y - 6 + 'px', width: t.w + 12 + 'px', height: h + 12 + 'px' });
+  }
+}
+let drag = null;
+wrap.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  const r = wrap.getBoundingClientRect(), a = app.getBoundingClientRect();
+  drag = { ox: e.clientX - r.left, oy: e.clientY - r.top, x0: e.clientX, y0: e.clientY, lx: e.clientX, moved: false, sc: r.width / BW };
+  wrap.setPointerCapture(e.pointerId);
+});
+wrap.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 5) return;
+  if (!drag.moved) { drag.moved = true; wrap.classList.add('drag'); wrap.classList.remove('behind'); app.classList.add('dragging'); showGhosts(); hideTip(); }
+  const a = app.getBoundingClientRect(), x = e.clientX - a.left - drag.ox, y = e.clientY - a.top - drag.oy;
+  const sc = Math.max(drag.sc, (A.free.w * size) / BW);
+  wrap.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
+  const vx = e.clientX - drag.lx; drag.lx = e.clientX;
+  bot.extraTilt = Math.max(-18, Math.min(18, -vx * 1.4)); bot.look(Math.max(-1, Math.min(1, vx / 8)), -.4);
+  let best = null, bd = 80;
+  for (const [k, g] of Object.entries(ghosts)) { if (g.style.display === 'none') continue; const t = target(k), d = Math.hypot(t.x + t.w / 2 - (x + BW * sc / 2), t.y + t.w * .38 - (y + BW * sc * .38)); if (d < bd) { bd = d; best = k; } }
+  for (const [k, g] of Object.entries(ghosts)) g.classList.toggle('near', k === best);
+  drag.best = best; drag.x = x; drag.y = y;
+});
+wrap.addEventListener('pointerup', () => {
+  if (!drag) return;
+  const d = drag; drag = null; wrap.classList.remove('drag'); app.classList.remove('dragging'); bot.extraTilt = 0; bot.look(null);
+  if (!d.moved) return;
+  bot.el._dragged = true; setTimeout(() => bot.el._dragged = false, 50);
+  if (d.best) place(d.best, { silent: true }); else { free = { x: d.x, y: d.y }; place('free', { silent: true }); }
+  bot.hop();
+});
+// chú thích khi rê chuột
+const tip = $('#tip');
+function hideTip() { tip.classList.remove('show'); }
+wrap.addEventListener('mouseenter', () => { if (drag) return; const r = rel(wrap); tip.textContent = bot.why || Emo.STATES[bot.s].name; tip.classList.add('show');
+  const tw = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(app.clientWidth - tw - 8, r.x + r.w / 2 - tw / 2)) + 'px'; tip.style.top = (r.y > 60 ? r.y - tip.offsetHeight - 8 : r.y + r.h + 8) + 'px'; });
+wrap.addEventListener('mouseleave', hideTip);
+// menu chuột phải
+const menu = $('#menu');
+wrap.addEventListener('contextmenu', (e) => {
+  e.preventDefault(); hideTip();
+  const a = app.getBoundingClientRect();
+  menu.innerHTML = `<div class="lbl">Vị trí</div>${Object.entries(A).filter(([k]) => k !== 'free').map(([k, v]) => `<div data-k="${k}" class="${k === anchor ? 'chk' : ''}">${v.n}</div>`).join('')}
+    <hr><div class="lbl">Cỡ</div>${[['.8', 'Nhỏ'], ['1', 'Vừa'], ['1.25', 'Lớn']].map(([v, n]) => `<div data-s="${v}" class="${+v === size ? 'chk' : ''}">${n}</div>`).join('')}
+    <hr><div data-x="music" class="chk">Phản ứng theo nhạc</div><div data-x="hide">Ẩn linh vật</div>`;
+  menu.style.display = 'block';
+  menu.style.left = Math.min(e.clientX - a.left, app.clientWidth - 230) + 'px'; menu.style.top = Math.max(8, Math.min(e.clientY - a.top, app.clientHeight - menu.offsetHeight - 8)) + 'px';
+});
+menu.addEventListener('click', (e) => {
+  const d = e.target.dataset; if (!d) return;
+  if (d.k) place(d.k); if (d.s) { size = +d.s; $('#size').value = d.s; place(anchor); }
+  if (d.x === 'hide') { wrap.style.opacity = 0; setTimeout(() => { wrap.style.transition = 'opacity .4s'; wrap.style.opacity = 1; setTimeout(() => wrap.style.transition = '', 450); }, 1800); }
+  if (d.k || d.s || d.x) menu.style.display = 'none';
+});
+addEventListener('click', (e) => { if (!menu.contains(e.target)) menu.style.display = 'none'; });
+
+// ----- điều khiển
+for (const [k, v] of Object.entries(A)) { const o = document.createElement('option'); o.value = k; o.textContent = v.n; $('#pos').append(o); }
+$('#pos').onchange = (e) => place(e.target.value);
+$('#size').onchange = (e) => { size = +e.target.value; place(anchor); };
+document.querySelectorAll('[data-music]').forEach((b) => b.onclick = () => { Emo.music(b.dataset.music || null); document.querySelectorAll('[data-music]').forEach((x) => x.classList.toggle('on', x === b && !!b.dataset.music)); });
+$('#light').onchange = (e) => document.documentElement.classList.toggle('light', e.target.checked);
+let tourT = null;
+$('#tour').onclick = () => { clearTimeout(tourT); const ks = ['corner', 'peek', 'composer', 'title', 'sidebar', 'details', 'corner']; let i = 0;
+  const go = () => { if (i >= ks.length) return; place(ks[i++]); tourT = setTimeout(go, 2300); }; go(); };
+addEventListener('resize', () => place(anchor, { silent: true }));
+
+renderSess(); renderChat();
+const h = location.hash.slice(1);
+wrap.classList.add('drag');
+place(A[h] ? h : 'corner', { silent: true });
+setTimeout(() => wrap.classList.remove('drag'), 100);
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# phụ thuộc và bản build (tạo lại bằng npm install / npm run release)
+node_modules/
+dist/
+# cấu hình riêng từng máy
+.idea/
+.claude/settings.local.json
+*.log

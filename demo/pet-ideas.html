@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo: ý tưởng mới cho linh vật robot — Claude GUI</title>
+<style>
+  :root { --bg:#14161c; --card:#1d2029; --line:#2b2f3b; --fg:#e8eaf0; --muted:#9aa1b2; --acc:#d97757; --eye:#3ff2ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(1200px 600px at 30% 0%, #222634, var(--bg)); color:var(--fg); font:14px/1.5 "Segoe UI", system-ui, sans-serif; min-height:100vh; }
+  header { padding:18px 28px 0; }
+  h1 { margin:0; font-size:20px; } header p { margin:4px 0 0; color:var(--muted); }
+  nav { display:flex; gap:6px; padding:14px 28px 0; flex-wrap:wrap; position:sticky; top:0; z-index:50; background:linear-gradient(#1b1e27 70%, transparent); padding-bottom:10px; }
+  nav button { background:#232734; border:1px solid var(--line); color:var(--fg); border-radius:10px; padding:7px 13px; cursor:pointer; font:inherit; }
+  nav button.on { border-color:var(--eye); color:var(--eye); box-shadow:0 0 0 1px var(--eye) inset; }
+  .tab { display:none; padding:8px 28px 40px; } .tab.on { display:block; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .two { display:grid; grid-template-columns: 460px 1fr; gap:20px; align-items:start; }
+  .stage { position:relative; height:380px; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 60%, #262b3a, #171a22 70%); border-radius:12px; overflow:hidden; }
+  .stage canvas.fx { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:6; }
+  .cap { color:var(--muted); font-size:13px; text-align:center; margin-top:10px; min-height:40px; } .cap b { color:var(--fg); font-size:15px; }
+  h3 { margin:0 0 8px; font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+  .grp { margin-bottom:18px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .btn { background:#2a2f3d; border:1px solid var(--line); color:var(--fg); border-radius:9px; padding:7px 12px; cursor:pointer; font:inherit; text-align:left; }
+  .btn small { display:block; color:var(--muted); font-size:12px; }
+  .btn:hover { border-color:#566; } .btn.pri { background:var(--acc); border-color:var(--acc); color:#fff; } .btn.on { border-color:var(--eye); color:var(--eye); }
+  .grid-btn { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px; }
+  .note { color:var(--muted); font-size:13px; } .note b { color:var(--fg); }
+  .rule { border-left:3px solid var(--acc); padding:8px 12px; background:#232734; border-radius:0 10px 10px 0; margin:10px 0; font-size:13px; }
+  input[type=date], input[type=range] { accent-color:var(--eye); }
+  input[type=date] { background:#232734; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:5px 8px; font:inherit; color-scheme:dark; }
+
+  /* trang phục */
+  .cs { position:absolute; left:-25%; top:-49.34%; width:150%; height:180.92%; pointer-events:none; overflow:visible; }
+  .cs-back { z-index:-1; } .cs-front { z-index:5; }
+  .cs-wave, .cs-bob, .cs-swing, .cs-leaf, .cs-leaf2, .cs-wave-hand, .cs-tap, .cs-turn, .cs-scan { transform-box:fill-box; }
+  .cs-wave { transform-origin:0% 50%; animation:csWave 1.6s ease-in-out infinite; }
+  @keyframes csWave { 0%,100% { transform:skewY(0) scaleX(1) } 50% { transform:skewY(-5deg) scaleX(.94) } }
+  .cs-bob { animation:csBob 3s ease-in-out infinite; } @keyframes csBob { 50% { transform:translateY(-8px) } }
+  .cs-swing { transform-origin:50% 0%; animation:csSwing 2.4s ease-in-out infinite; } @keyframes csSwing { 0%,100% { transform:rotate(-6deg) } 50% { transform:rotate(6deg) } }
+  .cs-glow { animation:csGlow 1.8s ease-in-out infinite; } @keyframes csGlow { 50% { filter:drop-shadow(0 0 10px #ffd43b) } }
+  .cs-saber { filter:drop-shadow(0 0 6px #3dff6e) drop-shadow(0 0 14px #3dff6e); animation:csSaber .12s infinite alternate; } @keyframes csSaber { to { opacity:.88 } }
+  .cs-leaf { transform-origin:0% 100%; animation:csLeaf 3s ease-in-out infinite; } .cs-leaf2 { transform-origin:100% 100%; animation:csLeaf 3s ease-in-out infinite reverse; } @keyframes csLeaf { 50% { transform:rotate(-8deg) } }
+  .cs-wave-hand { transform-origin:30% 90%; animation:csHand .5s ease-in-out infinite alternate; } @keyframes csHand { from { transform:rotate(-24deg) } to { transform:rotate(18deg) } }
+  .cs-tap { transform-origin:80% 90%; animation:csTap .28s ease-in-out infinite alternate; } @keyframes csTap { to { transform:rotate(-10deg) translateY(-4px) } }
+  .cs-turn { transform-origin:50% 90%; animation:csTurn .9s ease-in-out infinite alternate; } @keyframes csTurn { from { transform:rotate(-20deg) } to { transform:rotate(25deg) } }
+  .cs-scan { animation:csScan 2.2s ease-in-out infinite; } @keyframes csScan { 0%,100% { transform:translate(-60px, 0) } 25% { transform:translate(-10px,-20px) } 50% { transform:translate(30px, 0) } 75% { transform:translate(-20px, 14px) } }
+  .cs-blink { animation:csBlink 1s steps(2) infinite; } @keyframes csBlink { 50% { opacity:.25 } }
+  .emo-face { transition:transform .5s cubic-bezier(.3,1.6,.5,1); }
+  .puff .emo-face { transform:scale(1.13, 1.06); } .puff2 .emo-face { transform:scale(1.22, 1.1); }
+
+  /* bóng nói */
+  .bub { position:absolute; z-index:20; max-width:280px; background:#f4f5f8; color:#16181d; font-size:13px; padding:8px 12px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.4); opacity:0; transform:translateY(6px) scale(.96); transition:.25s; pointer-events:none; }
+  .bub.on { opacity:1; transform:none; pointer-events:auto; }
+  .bub::after { content:""; position:absolute; bottom:-7px; left:var(--tail, 50%); width:14px; height:14px; background:inherit; transform:rotate(45deg); border-radius:2px; }
+  .bub .bb { display:flex; gap:6px; margin-top:6px; } .bub button { border:0; border-radius:7px; padding:4px 10px; font:inherit; font-size:12.5px; cursor:pointer; background:#e3e6ee; }
+  .bub button.p { background:var(--acc); color:#fff; } .bub code { background:#e3e6ee; border-radius:4px; padding:0 4px; font-size:12px; }
+  .bub.warn { background:#fff4dc; } .bub.err { background:#ffe3e3; }
+
+  /* bộ sưu tập */
+  .gal { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; }
+  .gc { background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; cursor:pointer; transition:border-color .15s; }
+  .gc:hover { border-color:#4a5166; } .gc.today { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .gc .stage { height:220px; border-radius:0; padding-right:44px; }
+  .gc .meta { padding:8px 12px 10px; } .gc .meta b { display:block; } .gc .meta span { color:var(--muted); font-size:12.5px; }
+  .gc .tag { float:right; font-size:11px; background:var(--acc); color:#fff; border-radius:6px; padding:0 6px; margin-top:2px; }
+
+  /* desktop giả lập */
+  .desk { position:relative; height:560px; border-radius:12px; overflow:hidden; background:linear-gradient(135deg, #1f3b73, #3b2766 55%, #6b2f5a); }
+  .desk::before { content:""; position:absolute; inset:0; background:radial-gradient(600px 300px at 70% 30%, rgba(255,255,255,.12), transparent); }
+  .taskbar { position:absolute; left:0; right:0; bottom:0; height:44px; background:rgba(20,22,30,.85); backdrop-filter:blur(10px); display:flex; justify-content:center; align-items:center; gap:6px; z-index:30; }
+  .tb { width:38px; height:38px; border-radius:7px; display:grid; place-items:center; font-size:18px; position:relative; cursor:pointer; }
+  .tb:hover { background:rgba(255,255,255,.08); } .tb.app::after { content:""; position:absolute; bottom:2px; width:16px; height:3px; border-radius:2px; background:#8ab4ff; }
+  .tb.flash { animation:tbFlash .6s ease-in-out 6 alternate; } @keyframes tbFlash { to { background:#d97757aa } }
+  .tb .badge { position:absolute; top:2px; right:2px; min-width:14px; height:14px; border-radius:7px; background:var(--acc); color:#fff; font-size:10px; display:none; place-items:center; padding:0 3px; }
+  .tb .badge.on { display:grid; }
+  .clock { position:absolute; right:12px; color:#dfe3ec; font-size:12px; text-align:right; line-height:1.25; }
+  .win { position:absolute; left:6%; top:5%; width:70%; height:78%; background:#191b22; border:1px solid #333847; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,.5); overflow:hidden; transition:transform .45s cubic-bezier(.5,0,.3,1), opacity .4s; transform-origin:52% 120%; display:grid; grid-template-rows:30px 1fr; }
+  .win.min { transform:scale(.05) translateY(400px); opacity:0; pointer-events:none; }
+  .win .tbar { background:#14161c; display:flex; align-items:center; padding:0 10px; gap:8px; font-size:12px; color:var(--muted); }
+  .win .tbar .x { margin-left:auto; display:flex; gap:12px; } .win .tbar .x span { cursor:pointer; padding:0 4px; } .win .tbar .x span:hover { color:#fff; }
+  .win .body { display:grid; grid-template-columns:150px 1fr; min-height:0; }
+  .win .sb { background:#15171d; border-right:1px solid #262a35; padding:8px; font-size:12px; }
+  .win .sb div { padding:5px 8px; border-radius:7px; color:var(--muted); margin-bottom:2px; } .win .sb div.on { background:#252a37; color:var(--fg); }
+  .win .sb div.glow { box-shadow:0 0 0 1px #ffbc46 inset; color:#ffbc46; }
+  .win .chat { position:relative; display:flex; flex-direction:column; padding:12px; gap:8px; font-size:12.5px; }
+  .win .msg { background:#20232d; border-radius:9px; padding:8px 10px; max-width:80%; } .win .msg.u { align-self:flex-end; background:#2c3242; }
+  .win .ask { border:1px solid #ffbc46; background:#2a2518; border-radius:9px; padding:8px 10px; display:none; } .win .ask.on { display:block; }
+  .win .ask button { background:#3a3424; color:#ffe1a1; border:1px solid #5a4b2a; border-radius:7px; padding:3px 9px; margin:6px 6px 0 0; font:inherit; font-size:12px; cursor:pointer; }
+  .win .comp { margin-top:auto; border:1px solid #333847; border-radius:10px; padding:10px; color:#666d7d; background:#1d2029; }
+  .win .wbot { position:absolute; right:18px; bottom:56px; }
+  .dpet { position:absolute; right:30px; bottom:58px; z-index:25; transition:transform .5s cubic-bezier(.3,1.5,.5,1), opacity .3s; cursor:grab; }
+  .dpet.off { transform:translateY(80px) scale(.4); opacity:0; pointer-events:none; }
+  .toast { position:absolute; right:14px; bottom:54px; width:300px; background:#202330; border:1px solid #3a3f50; border-radius:10px; padding:10px 12px; font-size:12.5px; z-index:40; transform:translateX(330px); transition:.35s; }
+  .toast.on { transform:none; } .toast b { display:block; margin-bottom:2px; }
+
+  /* menu nhanh */
+  .qm { position:absolute; z-index:30; background:#232734; border:1px solid #3a3f50; border-radius:10px; padding:5px; min-width:210px; box-shadow:0 10px 30px rgba(0,0,0,.5); display:none; }
+  .qm.on { display:block; } .qm div { padding:6px 10px; border-radius:7px; font-size:13px; cursor:pointer; } .qm div:hover { background:#2f3546; } .qm small { color:var(--muted); float:right; }
+  .meter { height:8px; background:#2a2f3d; border-radius:4px; overflow:hidden; } .meter i { display:block; height:100%; background:linear-gradient(90deg, #3ff2ff, #8b5cf6); border-radius:4px; }
+  .acc { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px; }
+  .acc .btn { position:relative; } .acc .btn.lock { opacity:.45; cursor:not-allowed; } .acc .btn.lock::after { content:"🔒"; position:absolute; right:8px; top:7px; }
+  table.ev { width:100%; border-collapse:collapse; font-size:13px; } table.ev td { padding:5px 8px; border-bottom:1px solid var(--line); } table.ev td:first-child { color:var(--muted); white-space:nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ý tưởng mới cho linh vật robot</h1>
+  <p>Mỗi tab là một nhóm tính năng. Mọi thứ ở đây chỉ là demo (giả lập), chưa đụng vào app. Rê chuột để robot nhìn theo.</p>
+</header>
+<nav id="nav">
+  <button data-t="t-season" class="on">🎃 Trang phục theo ngày</button>
+  <button data-t="t-tools">🔧 Đạo cụ theo việc Claude làm</button>
+  <button data-t="t-call">🔔 Gọi bạn + Desktop pet</button>
+  <button data-t="t-ctx">🔋 Ngữ cảnh · giới hạn · lịch</button>
+  <button data-t="t-health">🌙 Giờ giấc & sức khoẻ</button>
+  <button data-t="t-touch">👆 Tương tác & âm thanh</button>
+  <button data-t="t-level">⭐ Lên cấp & phụ kiện</button>
+</nav>
+
+<!-- ================= 1. Trang phục ================= -->
+<section class="tab on" id="t-season">
+  <div class="two">
+    <div class="card">
+      <div class="stage" id="s-today"></div>
+      <div class="cap" id="s-cap"></div>
+      <div class="row" style="justify-content:center;margin-top:6px">
+        <button class="btn" id="d-prev">◀</button>
+        <input type="date" id="d-pick">
+        <button class="btn" id="d-next">▶</button>
+        <button class="btn" id="d-jump">Tới ngày lễ kế tiếp ⏭</button>
+        <button class="btn" id="d-real">Hôm nay thật</button>
+      </div>
+      <div class="note" style="text-align:center;margin-top:6px">Ô chọn ngày chỉ để <b>giả lập</b> trong demo này.</div>
+    </div>
+    <div>
+      <div class="rule"><b>Quy tắc:</b> robot <b>tự mặc</b> đúng ngày lễ (theo giờ máy, ngày âm tính theo lịch Việt Nam múi giờ +7), hết ngày tự cởi. <b>Không có nút chọn</b> trong app. Ngày lễ: rê chuột vào robot sẽ có thêm lời chúc; "Giảm hiệu ứng" thì tắt pháo hoa/tuyết rơi, vẫn giữ trang phục.</div>
+      <div class="rule">Cố ý <b>không</b> làm trang phục cho các ngày tưởng niệm trang nghiêm (27/7, 22/12, 19/5…) để tránh phản cảm.</div>
+      <div class="card"><h3>Lịch 21 dịp (kế tiếp tính từ hôm nay)</h3><table class="ev" id="ev-table"></table></div>
+    </div>
+  </div>
+  <h3 style="margin-top:22px">Toàn bộ trang phục (bấm một thẻ để xem lớn)</h3>
+  <div class="gal" id="gal"></div>
+</section>
+
+<!-- ================= 2. Đạo cụ ================= -->
+<section class="tab" id="t-tools">
+  <div class="two">
+    <div class="card"><div class="stage" id="s-tools"></div><div class="cap" id="tools-cap"></div></div>
+    <div>
+      <div class="grp"><h3>Tự diễn</h3><button class="btn pri" id="tools-auto">▶ Kịch bản: đọc → sửa → chạy test (fail, con bọ bò) → sửa lại → test pass → commit</button></div>
+      <div class="grp"><h3>Cầm đạo cụ theo công cụ đang chạy</h3><div class="grid-btn" id="tools-btns"></div></div>
+      <div class="grp"><h3>Phản ứng với kết quả</h3><div class="grid-btn" id="tools-res"></div></div>
+      <div class="note">Nhận biết test/build bằng cách đọc lệnh Bash (<code>npm test</code>, <code>pytest</code>, <code>go test</code>, <code>dotnet test</code>, <code>cargo build</code>…) và kết quả trả về (mã thoát, "passed/failed"). Biểu cảm mắt cũ vẫn giữ, đạo cụ chỉ là lớp thêm.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 3. Gọi bạn + desktop ================= -->
+<section class="tab" id="t-call">
+  <div class="grp row">
+    <button class="btn pri" id="c-min">🗕 Thu nhỏ app (robot ra desktop)</button>
+    <button class="btn" id="c-done">✓ Claude xong việc</button>
+    <button class="btn" id="c-ask">? Claude hỏi bạn (AskUserQuestion)</button>
+    <button class="btn" id="c-perm">🔐 Xin quyền chạy lệnh</button>
+    <button class="btn" id="c-err">✕ Gặp lỗi</button>
+    <button class="btn" id="c-other">↗ Phiên khác cần bạn (app đang mở)</button>
+  </div>
+  <div class="desk" id="desk">
+    <div class="win" id="win">
+      <div class="tbar">◆ Claude GUI<div class="x"><span id="w-min">🗕</span><span>🗖</span><span>✕</span></div></div>
+      <div class="body">
+        <div class="sb" id="w-sb"><div class="on">Sửa lỗi font tiếng Việt</div><div id="w-s2">Viết test cho sched.js</div><div>Báo cáo tuần</div></div>
+        <div class="chat" id="w-chat">
+          <div class="msg u">sửa lỗi vỡ font tên bài hát giúp tôi</div>
+          <div class="msg">Đang xem <code>media-watch.ps1</code>…</div>
+          <div class="ask" id="w-ask">❓ <b>Claude hỏi:</b> Phát hành luôn bản 1.7.1 không?<br><button>Có, phát hành</button><button>Chưa, để tôi xem</button></div>
+          <div class="comp">Nhắn cho Claude…</div>
+          <div class="wbot" id="w-bot"></div>
+        </div>
+      </div>
+    </div>
+    <div class="dpet off" id="dpet"></div>
+    <div class="toast" id="toast"></div>
+    <div class="taskbar">
+      <div class="tb">🪟</div><div class="tb">📁</div><div class="tb">🌐</div>
+      <div class="tb app" id="tb-app">◆<span class="badge" id="tb-badge">1</span></div>
+      <div class="tb">🎵</div>
+      <div class="clock" id="clock"></div>
+    </div>
+  </div>
+  <div class="note" style="margin-top:10px">
+    <b>Desktop pet:</b> khi thu nhỏ app (hoặc app nằm dưới cửa sổ khác), robot ra ngồi trên thanh taskbar trong một cửa sổ nhỏ trong suốt, luôn nổi trên cùng. Kéo đi đâu cũng được. Bấm vào robot (hoặc bóng nói) để mở lại app <b>đúng phiên đó</b>. Trả lời nhanh / cấp quyền ngay trong bóng nói, không cần mở app. Có tuỳ chọn tắt trong Cài đặt.<br>
+    <b>Trong app:</b> phiên khác đang chờ bạn thì robot quay về phía thanh bên, vẫy tay, phiên đó viền vàng.
+  </div>
+</section>
+
+<!-- ================= 4. Ngữ cảnh / giới hạn / lịch ================= -->
+<section class="tab" id="t-ctx">
+  <div class="two">
+    <div class="card"><div class="stage" id="s-ctx"></div><div class="cap" id="ctx-cap"></div></div>
+    <div>
+      <div class="grp"><h3>Ngữ cảnh (context window) đang dùng: <span id="ctx-v">40</span>%</h3>
+        <input type="range" id="ctx-r" min="0" max="100" value="40" style="width:100%">
+        <div class="note">≥ 80%: robot phình má, toát mồ hôi. ≥ 92%: "no căng", gợi ý <code>/compact</code> (bấm nút trong bóng nói là chạy luôn).</div></div>
+      <div class="grp"><h3>Giới hạn dùng</h3><div class="row">
+        <button class="btn" id="l-out">Hết giới hạn 5 giờ</button><button class="btn" id="l-back">⏩ Tới giờ hồi</button></div>
+        <div class="note" style="margin-top:6px">Lúc hồi: robot sạc pin, nhảy lên, bóng nói + thông báo Windows "Giới hạn đã hồi · 2 lịch đang chờ sẽ chạy" (kể cả khi app đang thu nhỏ).</div></div>
+      <div class="grp"><h3>Lịch sắp chạy</h3><div class="row">
+        <button class="btn" id="sch-go">⏰ Lịch "Báo cáo sáng" chạy sau 10 giây</button></div>
+        <div class="note" style="margin-top:6px">Còn ≤ 5 phút (demo rút còn 10 giây): màn LED đếm ngược, robot cầm đồng hồ báo thức; tới giờ thì reo, nhảy rồi chuyển sang "đang làm".</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 5. Giờ giấc ================= -->
+<section class="tab" id="t-health">
+  <div class="two">
+    <div class="card"><div class="stage" id="s-health"></div><div class="cap" id="h-cap"></div></div>
+    <div>
+      <div class="grp"><h3>Giờ trên máy: <span id="h-v">14:00</span></h3>
+        <input type="range" id="h-r" min="0" max="47" value="28" style="width:100%">
+        <div class="note">06:00–09:00 lần mở app đầu tiên: chào buổi sáng ☀. Sau 23:00: đội mũ ngủ, ngáp, nhắc nghỉ (1 lần mỗi đêm). 00:00–05:00: ngủ gật giữa chừng.</div></div>
+      <div class="grp"><h3>Làm liên tục</h3><div class="row"><button class="btn" id="h-water">Giả lập: đã làm 2 tiếng liền</button></div>
+        <div class="note" style="margin-top:6px">Tính theo thời gian bạn có thao tác (gõ, bấm) liên tục, nghỉ quá 10 phút thì đếm lại. Bấm "Nhắc lại sau" hoặc tắt hẳn trong Cài đặt.</div></div>
+      <div class="grp"><h3>Pomodoro (tuỳ chọn)</h3><div class="row"><button class="btn" id="h-pomo">🍅 Bắt đầu 25 phút (demo: 12 giây)</button></div>
+        <div class="note" style="margin-top:6px">Thanh tiến độ chạy dưới mắt robot. Hết giờ: robot vươn vai, nhắc nghỉ 5 phút. Bật từ menu chuột phải của robot.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 6. Tương tác ================= -->
+<section class="tab" id="t-touch">
+  <div class="two">
+    <div class="card"><div class="stage" id="s-touch"></div><div class="cap" id="t-cap">Thử với robot ở trên 👆</div></div>
+    <div>
+      <div class="grp"><h3>Thử trực tiếp</h3>
+        <table class="ev">
+          <tr><td>Rê chuột quanh</td><td>Mắt nhìn theo chuột (đã có).</td></tr>
+          <tr><td>Giữ chuột trên robot 1,5 giây</td><td><b>Được vuốt ve:</b> nheo mắt sung sướng, má hồng, nghiêng đầu.</td></tr>
+          <tr><td>Bấm 1 lần</td><td>Thả tim (đã có).</td></tr>
+          <tr><td>Bấm liên tục 5 lần</td><td><b>Chóng mặt:</b> mắt xoáy, "đừng chọc nữa!".</td></tr>
+          <tr><td>Bấm đúp</td><td><b>Menu nhanh:</b> giới hạn còn lại, mở Lịch & hàng đợi, nhảy tới phiên đang chạy, đổi vị trí.</td></tr>
+          <tr><td>Kéo lắc mạnh qua lại</td><td>Say xe: mắt xoáy rồi lảo đảo.</td></tr>
+        </table></div>
+      <div class="grp"><h3>Âm thanh bíp (kiểu R2-D2, mặc định TẮT)</h3>
+        <div class="row"><button class="btn" id="snd-on">🔇 Đang tắt — bấm để bật</button>
+        <button class="btn" data-snd="done">Xong việc</button><button class="btn" data-snd="ask">Cần bạn</button><button class="btn" data-snd="err">Lỗi</button><button class="btn" data-snd="love">Được vuốt ve</button></div>
+        <div class="note" style="margin-top:6px">Âm tổng hợp, rất nhỏ, chỉ kêu cho: xong việc dài, cần bạn trả lời, lỗi. Không kêu khi đang nghe nhạc.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 7. Lên cấp ================= -->
+<section class="tab" id="t-level">
+  <div class="two">
+    <div class="card"><div class="stage" id="s-level"></div><div class="cap"><b>Cấp <span id="lv">7</span></b> · <span id="lv-xp">340 / 500 XP</span><div class="meter" style="margin:6px auto 0;width:260px"><i id="lv-bar" style="width:68%"></i></div></div></div>
+    <div>
+      <div class="grp"><h3>Cách lên cấp</h3><div class="note">+1 XP mỗi lượt xong · +5 cho lượt dài thành công · +10 khi test pass · +20 mỗi lịch chạy xong. Không trừ điểm. Hiện trong menu chuột phải → "Robot của tôi".</div>
+        <div class="row" style="margin-top:8px"><button class="btn" id="lv-up">+ Giả lập lên cấp</button></div></div>
+      <div class="grp"><h3>Phụ kiện đã mở (bấm để đeo / tháo)</h3><div class="acc" id="acc"></div></div>
+      <div class="grp"><h3>Màu mắt LED</h3><div class="acc" id="acc-col"></div></div>
+      <div class="rule">Phụ kiện thì người dùng <b>tự chọn</b>. Vào ngày lễ, trang phục lễ <b>tự đè lên</b> phụ kiện cho hết ngày (phụ kiện nhỏ như nơ vẫn giữ nếu không vướng). Màu mắt cảnh báo (vàng/cam/đỏ khi sắp hết giới hạn) luôn ưu tiên hơn màu tự chọn.</div>
+    </div>
+  </div>
+</section>
+
+<script src="emo.js"></script>
+<script src="seasons.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const ST = Emo.STATES;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fmtD = (d) => d.toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' });
+
+// ---------- trạng thái mới cho bộ vẽ ----------
+const pix = (c, pts) => pts.forEach(([x, y, w = 1, h = 1]) => c.fillRect(x, y, w, h));
+Object.assign(ST, {
+  costume: { sp: 8, set(b, t) { b.ev && b.ev.face ? b.ev.face(b, t, b.evDate) : ST.idle.set(b, t); } },
+  petted: { sp: 9, noBlink: true, set(b, t) { b.eyes({ happy: 1, h: 10, w: 12 }); b.T.tilt = Math.sin(t * 2.2) * .12; b.glyph({ k: 'blush', draw: (c) => { c.globalAlpha *= .8; pix(c, [[7, 22, 6, 2], [35, 22, 6, 2]]); } }); } },
+  dizzy: { sp: 9, noBlink: true, set(b, t) { b.eyes({ spiral: 1 }); b.T.tilt = Math.sin(t * 5) * .15; } },
+  call: { sp: 9, set(b, t) { b.T.col = [255, 188, 70]; b.eyes({ w: 12.5, h: 14, r: .9 }); b.T.tilt = Math.sin(t * 5) * .08; b.T.gx = b.callDir || 0; if (Math.floor(t * 3) % 2) b.glyph({ k: 'text', s: '!' }); } },
+  yawn: { sp: 4, set(b, t) { const k = t % 6; if (k > 4.4) { b.eyes({ happy: 1, h: 7, w: 12 }); b.glyph({ k: 'text', s: '~', dy: 1 }); } else b.eyes({ lid: .5, h: 9, bright: .75 }); b.T.gy = 2; } },
+  nod: { sp: 3, set(b, t) { const k = t % 5; if (k < 3.2) { b.eyes({ h: 1.6, w: 10, r: .5, bright: .55 }); b.T.gy = 2 + k * 1.2; } else { b.eyes({ w: 13, h: 15, r: .8 }); b.T.gy = -1; } } },
+  puff: { sp: 7, set(b, t) { b.eyes({ w: 12.5, h: 9, lid: .15, happy: .25 }); b.T.gy = 1; b.glyph({ k: 'drop', p: (t % 1.6) / 1.6 }); } },
+  stuffed: { sp: 7, set(b, t) { b.T.col = [255, 188, 70]; b.eyes({ w: 13, h: 7, happy: .45 }); b.T.gx = Math.sin(t * 9) * .4; b.glyph({ k: 'drop', p: (t % 1.1) / 1.1 }); } },
+  relief: { sp: 8, set(b) { b.eyes({ happy: 1, h: 10, w: 12 }); b.glyph({ k: 'text', s: '~', dy: -1 }); } },
+  countdown: { sp: 10, noBlink: true, set(b, t) { b.eyes({ h: 0, w: 0 }); const s = Math.max(0, Math.ceil(b.cdEnd - performance.now() / 1000)); b.glyph({ k: 'cd', draw: (c) => { if (s <= 3 && Math.floor(t * 4) % 2) return; Seasons.ledDigits(c, '00:' + String(s).padStart(2, '0')); } }); } },
+  ring: { sp: 12, set(b, t) { b.eyes({ w: 13, h: 15, r: .9 }); b.T.gx = Math.sin(t * 40) * 1.2; } },
+  pomo: { sp: 6, set(b, t) { b.eyes({ lid: .12, h: 10.5 }); b.T.gy = -2; const p = Math.min(1, (performance.now() / 1000 - b.pomoT0) / b.pomoLen); b.glyph({ k: 'pomo', draw: (c) => { c.globalAlpha *= .9; c.fillRect(8, 27, Math.max(1, 32 * (1 - p)), 2); c.globalAlpha *= .25; c.fillRect(8, 27, 32, 2); } }); } },
+  stretch: { sp: 5, set(b, t) { b.eyes({ happy: 1, h: 9, w: 12.5 }); b.T.tilt = Math.sin(t * 1.6) * .22; b.T.gy = -2; } },
+  water: { sp: 7, set(b, t) { b.eyes({ happy: .5, w: 12, h: 12 }); b.T.gx = 3; b.T.gy = 1; } },
+  sun: { sp: 6, set(b, t) { b.eyes(t < 1.2 ? { h: 1.6, w: 10 } : { happy: 1, h: 11 }); b.T.gy = -2; } },
+  bug: { sp: 9, set(b, t) { b.eyes({ lid: .42, lidAng: -.38, h: 10, bright: .8 }); b.T.gx = Math.sin(t * 2.4) * 4; b.T.gy = 2; const x = 3 + ((t * 7) % 34), y = 2 + Math.abs(Math.sin(t * .9)) * 17, f = Math.floor(t * 8) % 2;
+    b.glyph({ k: 'bugg', draw: (c) => { const B = ['0' + (f ? '1' : '0') + '0' + (f ? '0' : '1'), '11110', '01111', '11110', '0' + (f ? '0' : '1') + '0' + (f ? '1' : '0')]; B.forEach((r, j) => [...r].forEach((v, i) => v === '1' && c.fillRect(Math.round(x) + i * 2, Math.round(y) + j * 2, 2, 2))); } }); } },
+  pass: { sp: 10, noBlink: true, set(b, t) { if (t < 1.6) { b.eyes({ h: 0, w: 0 }); b.glyph({ k: 'chk', draw: (c) => { c.lineWidth = 2.6; c.lineCap = 'round'; c.beginPath(); c.moveTo(16, 15); c.lineTo(22, 21); c.lineTo(33, 8); c.stroke(); } }); } else b.eyes((t % 2) < 1 ? { star: 1 } : { happy: 1, h: 11 }); } },
+  commit: { sp: 10, set(b, t) { b.eyes({ happy: 1, h: 11 }); if (t < 2) b.glyph({ k: 'text', s: '✓' }); } },
+});
+
+// ---------- dàn dựng: sân khấu + trang phục + hạt ----------
+const FX = new Set();
+function stage(el, w, o = {}) {
+  const cv = document.createElement('canvas'); cv.className = 'fx'; el.append(cv);
+  const bot = Emo.create(el, { w, follow: o.follow, click: o.click });
+  const fx = { cv, kind: null, ps: [], el };
+  FX.add(fx);
+  const host = o.host || el;
+  const bub = document.createElement('div'); bub.className = 'bub'; host.append(bub);
+  return { el, host, bot, fx, bub };
+}
+function svgLayer(cls, inner) { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('class', 'cs ' + cls); s.setAttribute('viewBox', '-60 -90 360 330'); s.innerHTML = inner || ''; return s; }
+function dress(bot, front, back) {
+  bot.el.querySelectorAll('.cs').forEach((n) => n.remove());
+  if (back) bot.el.prepend(svgLayer('cs-back', back));
+  if (front) bot.el.append(svgLayer('cs-front', front));
+}
+function wearEvent(S, ev, date) {
+  dress(S.bot, ev && ev.front, ev && ev.back);
+  S.bot.base = ev ? ev.color : [63, 242, 255];
+  S.bot.ev = ev; S.bot.evDate = date;
+  S.fx.kind = ev ? ev.fx || null : null; S.fx.ps = [];
+  S.bot.state(ev ? 'costume' : 'idle');
+}
+function say(S, html, o = {}) {
+  const b = S.bub; clearTimeout(b._t);
+  if (!html) { b.classList.remove('on'); return; }
+  b.className = 'bub ' + (o.cls || ''); b.innerHTML = html;
+  const sr = S.host.getBoundingClientRect(), r = S.bot.el.getBoundingClientRect();
+  requestAnimationFrame(() => {
+    const bw = b.offsetWidth, bh = b.offsetHeight;
+    let x = r.left - sr.left + r.width / 2 - bw / 2; x = Math.max(8, Math.min(sr.width - bw - 8, x));
+    b.style.left = x + 'px'; b.style.top = Math.max(6, r.top - sr.top - bh - (o.up || 46)) + 'px';
+    b.style.setProperty('--tail', (r.left - sr.left + r.width / 2 - x - 7) + 'px');
+    b.classList.add('on');
+  });
+  if (o.ms !== 0) b._t = setTimeout(() => b.classList.remove('on'), o.ms || 3800);
+  if (o.on) b.querySelectorAll('button').forEach((btn, i) => btn.onclick = () => o.on(i, btn));
+}
+
+// hạt: tuyết, pháo hoa, cánh hoa, tim, giấy màu, dơi
+function spawn(fx, W, H) {
+  const k = fx.kind, R = Math.random;
+  if (k === 'snow') return { x: R() * W, y: -5, vx: (R() - .5) * 12, vy: 18 + R() * 22, r: 1 + R() * 2.4, life: 99, c: '#fff' };
+  if (k === 'petals') return { x: R() * W, y: -8, vx: 8 + R() * 14, vy: 16 + R() * 18, r: 3 + R() * 2, life: 99, c: R() < .8 ? '#ffd21f' : '#ff6b3d', rot: R() * 6, petal: 1 };
+  if (k === 'petals-pink') return { x: R() * W, y: -8, vx: 8 + R() * 14, vy: 16 + R() * 18, r: 3 + R() * 2, life: 99, c: R() < .6 ? '#ff8fb1' : '#fff', rot: R() * 6, petal: 1 };
+  if (k === 'hearts') return { x: R() * W, y: H + 8, vx: (R() - .5) * 10, vy: -(18 + R() * 16), r: 4 + R() * 4, life: 99, c: '#ff4d7a', heart: 1 };
+  if (k === 'confetti') return { x: R() * W, y: -6, vx: (R() - .5) * 30, vy: 30 + R() * 30, r: 2 + R() * 2, life: 99, c: ['#ff5a5f', '#ffd43b', '#5ac8fa', '#8b5cf6', '#58c95f'][Math.floor(R() * 5)], rot: R() * 6, rect: 1 };
+  if (k === 'bats') return { x: -20, y: 20 + R() * H * .5, vx: 50 + R() * 40, vy: (R() - .5) * 10, r: 6 + R() * 4, life: 99, c: '#14101c', bat: 1, ph: R() * 6 };
+  return null;
+}
+function burst(fx, W, H) {
+  const x = W * (.15 + Math.random() * .7), y = H * (.1 + Math.random() * .35), col = ['#ffd43b', '#ff5a5f', '#5ac8fa', '#fff', '#ff8a1f'][Math.floor(Math.random() * 5)];
+  for (let i = 0; i < 34; i++) { const a = i / 34 * Math.PI * 2, s = 40 + Math.random() * 50; fx.ps.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, r: 1.6, life: 1.3, c: col, g: 1 }); }
+}
+let lastFx = performance.now();
+function fxLoop(now) {
+  const dt = Math.min(.05, (now - lastFx) / 1000); lastFx = now;
+  for (const fx of FX) {
+    if (!fx.el.isConnected || !fx.el.offsetParent) continue;
+    const cv = fx.cv, W = cv.clientWidth, H = cv.clientHeight; if (cv.width !== W) { cv.width = W; cv.height = H; }
+    const c = cv.getContext('2d'); c.clearRect(0, 0, W, H);
+    if (!fx.kind && !fx.ps.length) continue;
+    if (fx.kind === 'fireworks') { if (Math.random() < dt * .9) burst(fx, W, H); }
+    else if (fx.kind && fx.ps.length < (fx.kind === 'bats' ? 4 : 46) && Math.random() < dt * (fx.kind === 'bats' ? .6 : 14)) { const p = spawn(fx, W, H); p && fx.ps.push(p); }
+    fx.ps = fx.ps.filter((p) => p.life > 0 && p.y < H + 20 && p.y > -30 && p.x < W + 30);
+    for (const p of fx.ps) {
+      p.x += p.vx * dt; p.y += p.vy * dt; if (p.g) { p.vy += 40 * dt; p.vx *= .98; p.life -= dt; } if (p.rot != null) p.rot += dt * 3;
+      c.save(); c.globalAlpha = p.g ? Math.max(0, p.life) : .9; c.fillStyle = p.c; c.translate(p.x, p.y);
+      if (p.petal) { c.rotate(p.rot); c.beginPath(); c.ellipse(0, 0, p.r, p.r * .55, 0, 0, 7); c.fill(); }
+      else if (p.rect) { c.rotate(p.rot); c.fillRect(-p.r, -p.r / 2, p.r * 2, p.r); }
+      else if (p.heart) { const s = p.r; c.beginPath(); c.moveTo(0, s * .9); c.bezierCurveTo(-s * 1.6, -s * .1, -s * .9, -s * 1.3, 0, -s * .45); c.bezierCurveTo(s * .9, -s * 1.3, s * 1.6, -s * .1, 0, s * .9); c.fill(); }
+      else if (p.bat) { const f = Math.sin(now / 90 + p.ph) * p.r * .6; c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(-p.r, -f - 2, -p.r * 2, -f); c.quadraticCurveTo(-p.r, 2, 0, 3); c.quadraticCurveTo(p.r, 2, p.r * 2, -f); c.quadraticCurveTo(p.r, -f - 2, 0, 0); c.fill(); }
+      else { c.beginPath(); c.arc(0, 0, p.r, 0, 7); c.fill(); }
+      c.restore();
+    }
+  }
+  requestAnimationFrame(fxLoop);
+}
+requestAnimationFrame(fxLoop);
+
+// ---------- tabs ----------
+$('#nav').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; $$('#nav button').forEach((x) => x.classList.toggle('on', x === b)); $$('.tab').forEach((t) => t.classList.toggle('on', t.id === b.dataset.t)); };
+
+// =================== 1. Trang phục ===================
+const SS = stage($('#s-today'), 230);
+let simDate = new Date(); simDate.setHours(12, 0, 0, 0);
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function showDate(d) {
+  simDate = d; $('#d-pick').value = iso(d);
+  const ev = Seasons.today(d), [ad, am, , al] = Seasons.lunar(d);
+  wearEvent(SS, ev, d);
+  $('#s-cap').innerHTML = `<b>${fmtD(d)}</b> · âm lịch ${ad}/${am}${al ? ' (nhuận)' : ''}<br>${ev ? `🎉 <b>${ev.name}</b>: robot tự mặc trang phục` : 'Ngày thường: không có trang phục'}`;
+  if (ev) setTimeout(() => say(SS, ev.say, { ms: 3000 }), 400); else say(SS, '');
+  $$('.gc').forEach((g) => g.classList.toggle('today', !!ev && g.dataset.id === ev.id));
+}
+const shift = (n) => { const d = new Date(simDate); d.setDate(d.getDate() + n); showDate(d); };
+$('#d-prev').onclick = () => shift(-1); $('#d-next').onclick = () => shift(1);
+$('#d-pick').onchange = (e) => { const [y, m, dd] = e.target.value.split('-').map(Number); if (y) showDate(new Date(y, m - 1, dd, 12)); };
+$('#d-real').onclick = () => { const d = new Date(); d.setHours(12); showDate(d); };
+$('#d-jump').onclick = () => { const from = new Date(simDate); from.setDate(from.getDate() + 1); let best = null; for (const e of Seasons.EVENTS) { const d = Seasons.nextDate(e, from); if (d && (!best || d < best)) best = d; } if (best) showDate(best); };
+SS.bot.el.addEventListener('mouseenter', () => SS.bot.ev && say(SS, SS.bot.ev.say + `<br><span style="opacity:.6;font-size:12px">${SS.bot.ev.name} · ${SS.bot.ev.date}</span>`, { ms: 2600 }));
+
+const today0 = new Date(); today0.setHours(12, 0, 0, 0);
+const rows = Seasons.EVENTS.map((e) => ({ e, d: Seasons.nextDate(e, today0) })).sort((a, b) => a.d - b.d);
+$('#ev-table').innerHTML = rows.map(({ e, d }) => `<tr><td>${d.toLocaleDateString('vi-VN')}</td><td><b>${e.name}</b> <span class="note">· ${e.date}</span></td></tr>`).join('');
+for (const e of Seasons.EVENTS) {
+  const d = Seasons.nextDate(e, today0);
+  const card = document.createElement('div'); card.className = 'gc'; card.dataset.id = e.id;
+  card.innerHTML = `<div class="stage"></div><div class="meta"><b>${e.name}</b><span>${e.date} · lần tới ${d.toLocaleDateString('vi-VN')}</span></div>`;
+  $('#gal').append(card);
+  const S = stage($('.stage', card), 140, { click: false });
+  wearEvent(S, e, d);
+  if (Math.abs(d - today0) < 864e5 * 4 && d >= today0) $('.meta b', card).insertAdjacentHTML('afterbegin', '<span class="tag">sắp tới</span>');
+  card.onclick = () => { showDate(new Date(d)); scrollTo({ top: 0, behavior: 'smooth' }); };
+}
+showDate(new Date(today0));
+
+// =================== 2. Đạo cụ ===================
+const TS = stage($('#s-tools'), 230);
+const hand = (x, y) => `<circle cx="${x}" cy="${y}" r="13" fill="#2b313c" stroke="#454d5c" stroke-width="2"/>`;
+const PROPS = {
+  reading: { name: 'Read / Grep: đeo kính đọc', svg: `<g><circle cx="70" cy="91" r="35" fill="rgba(160,220,255,.06)" stroke="#c9a86a" stroke-width="6"/><circle cx="170" cy="91" r="35" fill="rgba(160,220,255,.06)" stroke="#c9a86a" stroke-width="6"/><path d="M105 88 q15 -10 30 0" stroke="#c9a86a" stroke-width="6" fill="none"/><path d="M35 86 L4 76 M205 86 L236 76" stroke="#c9a86a" stroke-width="5"/></g>` },
+  writing: { name: 'Edit / Write: cầm bút gõ gõ', svg: `<g class="cs-tap"><g transform="translate(236 70) rotate(28)"><rect x="0" y="0" width="14" height="86" rx="3" fill="#ffc21a"/><rect x="0" y="0" width="14" height="12" fill="#ff8fb1"/><rect x="0" y="12" width="14" height="5" fill="#b9bec8"/><path d="M0 86 L7 104 L14 86Z" fill="#f2d7a6"/><path d="M5 98 L7 104 L9 98Z" fill="#222"/></g></g>${hand(252, 150)}` },
+  bash: { name: 'Bash: vặn cờ lê', svg: `<g class="cs-turn"><g transform="translate(262 96) rotate(-30)"><rect x="-6" y="-4" width="12" height="70" rx="5" fill="#aab4c3"/><path d="M-20 -14 a20 20 0 1 1 40 0 l-10 0 l0 -12 l-20 0 l0 12 z" fill="#aab4c3"/></g></g>${hand(252, 150)}` },
+  web: { name: 'WebSearch: kính lúp soi quanh', svg: `<g class="cs-scan"><g transform="translate(130 70)"><circle r="34" fill="rgba(170,230,255,.13)" stroke="#9aa6b8" stroke-width="7"/><path d="M24 24 L60 62" stroke="#6b4a2b" stroke-width="12" stroke-linecap="round"/></g></g>` },
+  agents: { name: 'Task / Agent: cầm loa chỉ huy', svg: `<g transform="translate(240 40) rotate(-20)"><path d="M0 20 L60 -6 L60 62 L0 36 Z" fill="#ff5a5f"/><rect x="-14" y="16" width="16" height="24" rx="3" fill="#d9434a"/><path d="M76 4 q12 24 0 48 M88 -6 q18 34 0 68" stroke="#fff" stroke-width="3" fill="none" class="cs-blink"/></g>${hand(246, 130)}` },
+  thinking: { name: 'Lập kế hoạch: bảng kẹp giấy', svg: `<g transform="translate(232 76) rotate(8)"><rect width="58" height="76" rx="5" fill="#a5794a"/><rect x="5" y="9" width="48" height="62" fill="#f4f1e8"/><rect x="18" y="-4" width="22" height="12" rx="3" fill="#8b929e"/><path d="M11 24 h30 M11 36 h36 M11 48 h24" stroke="#9aa1b2" stroke-width="3"/><path d="M10 22 l3 3 l5 -6" stroke="#2fa84f" stroke-width="2.5" fill="none"/></g>${hand(246, 150)}` },
+};
+const RES = {
+  pass: { name: '✔ Test pass', small: 'Dấu tích trên màn LED, mắt sao, pháo giấy', run: () => { dress(TS.bot, ''); TS.bot.state('pass'); TS.bot.hop(); confettiOnce(TS); say(TS, '42/42 test pass 🎉'); } },
+  fail: { name: '🐞 Test fail', small: 'Con bọ bò trên màn hình, mắt buồn', run: () => { dress(TS.bot, ''); TS.bot.state('bug'); say(TS, '3 test fail · có bọ rồi 🐞', { cls: 'err' }); } },
+  build: { name: '🔨 Build xong', small: 'Cười tít, nhún một cái', run: () => { dress(TS.bot, ''); TS.bot.state('done'); say(TS, 'Build xong trong 12 giây'); } },
+  commit: { name: '📦 git commit / push', small: 'Mắt cười + dấu ✓ nhỏ', run: () => { dress(TS.bot, ''); TS.bot.state('commit'); TS.bot.hop(); say(TS, 'Đã commit <code>a1b2c3d</code>'); } },
+};
+function confettiOnce(S) { S.fx.kind = 'confetti'; setTimeout(() => { if (S.fx.kind === 'confetti') S.fx.kind = null; }, 2200); }
+function prop(k) { dress(TS.bot, PROPS[k].svg); TS.bot.state(k); $('#tools-cap').innerHTML = `<b>${PROPS[k].name}</b>`; }
+for (const [k, p] of Object.entries(PROPS)) { const b = document.createElement('button'); b.className = 'btn'; b.textContent = p.name; b.onclick = () => { say(TS, ''); prop(k); }; $('#tools-btns').append(b); }
+for (const [k, p] of Object.entries(RES)) { const b = document.createElement('button'); b.className = 'btn'; b.innerHTML = `${p.name}<small>${p.small}</small>`; b.onclick = () => { $('#tools-cap').innerHTML = `<b>${p.name}</b>`; p.run(); }; $('#tools-res').append(b); }
+let toolsRun = 0;
+$('#tools-auto').onclick = async () => {
+  const id = ++toolsRun, go = async (fn, ms) => { if (id !== toolsRun) throw 0; fn(); await sleep(ms); };
+  try {
+    await go(() => prop('thinking'), 2200); await go(() => prop('reading'), 2600); await go(() => prop('writing'), 2600);
+    await go(() => { prop('bash'); say(TS, '<code>npm test</code>'); }, 2200); await go(() => { $('#tools-cap').innerHTML = '<b>Test fail</b>'; RES.fail.run(); }, 3200);
+    await go(() => prop('writing'), 2200); await go(() => { prop('bash'); say(TS, '<code>npm test</code>'); }, 2000);
+    await go(() => { $('#tools-cap').innerHTML = '<b>Test pass</b>'; RES.pass.run(); }, 3400); await go(() => { $('#tools-cap').innerHTML = '<b>Commit</b>'; RES.commit.run(); }, 2600);
+    await go(() => { dress(TS.bot, ''); TS.bot.state('idle'); $('#tools-cap').textContent = ''; }, 0);
+  } catch (e) {}
+};
+prop('writing');
+
+// =================== 3. Gọi bạn + desktop ===================
+const WB = stage($('#w-bot'), 70, { click: false, host: $('#w-chat') }), DP = stage($('#dpet'), 96, { host: $('#desk') });
+const WAVE = `<g class="cs-wave-hand"><circle cx="262" cy="40" r="15" fill="#2b313c" stroke="#454d5c" stroke-width="2"/><path d="M252 30 l-4 -12 M262 26 l0 -13 M272 30 l4 -12" stroke="#454d5c" stroke-width="5" stroke-linecap="round"/></g>`;
+let minimized = false;
+const desk = $('#desk');
+function tick() { const d = new Date(); $('#clock').innerHTML = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + '<br>' + d.toLocaleDateString('vi-VN'); }
+tick(); setInterval(tick, 10000);
+function setMin(v) {
+  minimized = v; $('#win').classList.toggle('min', v);
+  $('#dpet').classList.toggle('off', !v);
+  if (v) setTimeout(() => { DP.bot.hop(); say(DP, 'Mình ra đây canh giúp bạn nhé 👀', { ms: 2500 }); }, 500);
+  else { say(DP, ''); $('#tb-badge').classList.remove('on'); $('#tb-app').classList.remove('flash'); }
+  $('#c-min').textContent = v ? '🗖 Mở lại app' : '🗕 Thu nhỏ app (robot ra desktop)';
+}
+$('#c-min').onclick = () => setMin(!minimized);
+$('#w-min').onclick = () => setMin(true);
+$('#tb-app').onclick = () => setMin(!minimized);
+DP.bot.el.addEventListener('dblclick', () => setMin(false));
+function calm(S) { dress(S.bot, ''); S.bot.state('idle'); }
+function attention(kind) {
+  $('#tb-badge').classList.add('on'); const tb = $('#tb-app'); tb.classList.remove('flash'); void tb.offsetWidth; tb.classList.add('flash');
+}
+function event(kind) {
+  $('#w-ask').classList.remove('on'); $$('#w-sb div').forEach((d) => d.classList.remove('glow')); calm(WB);
+  const S = minimized ? DP : WB;
+  if (kind === 'done') {
+    S.bot.state('celebrate'); S.bot.hop();
+    if (minimized) { attention(); say(DP, '✓ <b>Xong rồi!</b> "Sửa lỗi font tiếng Việt" · 2 phút 14 giây<div class="bb"><button class="p">Mở phiên</button><button>Để sau</button></div>', { ms: 0, on: (i) => { say(DP, ''); if (!i) setMin(false); calm(DP); } }); }
+    else say(WB, '✓ Xong rồi!', { ms: 2000, up: 30 });
+  } else if (kind === 'ask') {
+    dress(S.bot, WAVE); S.bot.state('call');
+    if (minimized) { attention(); say(DP, '❓ <b>Claude hỏi:</b> Phát hành luôn bản 1.7.1 không?<div class="bb"><button class="p">Có, phát hành</button><button>Chưa</button><button>Mở app</button></div>', { cls: 'warn', ms: 0, on: (i) => { say(DP, ''); calm(DP); if (i === 2) { setMin(false); event('ask'); } else say(DP, i ? 'Đã trả lời "Chưa" ✓' : 'Đã trả lời "Có" ✓, Claude làm tiếp', { ms: 2200 }); } }); }
+    else { $('#w-ask').classList.add('on'); WB.bot.callDir = -3; say(WB, 'Claude đang hỏi bạn ⬅', { cls: 'warn', ms: 3000, up: 30 }); }
+  } else if (kind === 'perm') {
+    dress(S.bot, WAVE); S.bot.state('call');
+    if (minimized) { attention(); say(DP, '🔐 <b>Xin quyền chạy lệnh</b><br><code>npm run release -- "1.7.2"</code><div class="bb"><button class="p">Cho phép</button><button>Từ chối</button><button>Mở app</button></div>', { cls: 'warn', ms: 0, on: (i) => { say(DP, ''); calm(DP); if (i === 2) setMin(false); else say(DP, i ? 'Đã từ chối' : 'Đã cho phép ✓', { ms: 2000 }); } }); }
+    else say(WB, '🔐 Cần bạn cấp quyền', { cls: 'warn', ms: 3000, up: 30 });
+  } else if (kind === 'err') {
+    S.bot.state('error');
+    if (minimized) { attention(); say(DP, '✕ <b>Lỗi:</b> API Error 529 · Overloaded<div class="bb"><button class="p">Thử lại</button><button>Mở app</button></div>', { cls: 'err', ms: 0, on: (i) => { say(DP, ''); calm(DP); if (i) setMin(false); } }); }
+    else say(WB, 'Vừa gặp lỗi 😵', { cls: 'err', ms: 2500, up: 30 });
+  } else if (kind === 'other') {
+    if (minimized) setMin(false);
+    $('#w-s2').classList.add('glow'); dress(WB.bot, WAVE); WB.bot.callDir = -6; WB.bot.state('call');
+    say(WB, 'Phiên "Viết test cho sched.js" đang chờ bạn ⬅', { cls: 'warn', ms: 4000, up: 30 });
+  }
+}
+['done', 'ask', 'perm', 'err', 'other'].forEach((k) => $('#c-' + k).onclick = () => event(k));
+// kéo robot trên desktop
+(() => { const el = $('#dpet'); let d = null;
+  el.addEventListener('pointerdown', (e) => { if (e.target.closest('.bub')) return; const r = el.getBoundingClientRect(), dr = desk.getBoundingClientRect(); d = { ox: e.clientX - r.left, oy: e.clientY - r.top, dr }; el.setPointerCapture(e.pointerId); });
+  el.addEventListener('pointermove', (e) => { if (!d) return; el.style.right = 'auto'; el.style.bottom = 'auto'; el.style.left = Math.max(0, Math.min(d.dr.width - 100, e.clientX - d.dr.left - d.ox)) + 'px'; el.style.top = Math.max(0, Math.min(d.dr.height - 120, e.clientY - d.dr.top - d.oy)) + 'px'; });
+  el.addEventListener('pointerup', () => { d = null; });
+})();
+
+// =================== 4. Ngữ cảnh / giới hạn / lịch ===================
+const CS = stage($('#s-ctx'), 230);
+let ctxMode = 'idle';
+function ctx(v) {
+  $('#ctx-v').textContent = v;
+  CS.bot.el.classList.toggle('puff', v >= 80 && v < 92); CS.bot.el.classList.toggle('puff2', v >= 92);
+  const m = v >= 92 ? 'stuffed' : v >= 80 ? 'puff' : 'idle';
+  if (m === ctxMode) return; ctxMode = m; dress(CS.bot, ''); CS.bot.state(m);
+  $('#ctx-cap').innerHTML = m === 'idle' ? '' : `<b>Ngữ cảnh ${v}%</b>`;
+  if (m === 'stuffed') say(CS, `Ngữ cảnh đầy ${v}% rồi, no quá 😵<div class="bb"><button class="p">Chạy /compact</button><button>Để sau</button></div>`, { cls: 'warn', ms: 0, on: (i) => { say(CS, ''); if (!i) compact(); } });
+  else if (m === 'puff') say(CS, `Ngữ cảnh đã dùng ${v}%`, { ms: 2200 }); else say(CS, '');
+}
+async function compact() {
+  CS.bot.state('compact'); $('#ctx-cap').innerHTML = '<b>Đang nén ngữ cảnh…</b>';
+  for (let v = +$('#ctx-r').value; v > 18; v -= 4) { $('#ctx-r').value = v; $('#ctx-v').textContent = v; await sleep(70); }
+  CS.bot.el.classList.remove('puff', 'puff2'); ctxMode = 'idle'; CS.bot.state('relief'); CS.bot.hop(); say(CS, 'Phù~ nhẹ cả người', { ms: 2200 }); $('#ctx-cap').innerHTML = '<b>Ngữ cảnh 18%</b>';
+  setTimeout(() => ctxMode === 'idle' && CS.bot.state('idle'), 2600);
+}
+$('#ctx-r').oninput = (e) => ctx(+e.target.value);
+$('#l-out').onclick = () => { CS.bot.el.classList.remove('puff', 'puff2'); dress(CS.bot, ''); CS.bot.state('limitOut'); ctxMode = 'x'; say(CS, 'Hết giới hạn 5 giờ · hồi lúc 15:40', { cls: 'err', ms: 3000 }); $('#ctx-cap').innerHTML = '<b>Hết giới hạn</b>'; };
+$('#l-back').onclick = () => { CS.bot.state('recharged'); ctxMode = 'x'; $('#ctx-cap').innerHTML = '<b>Giới hạn vừa hồi</b>'; setTimeout(() => say(CS, '🔋 Giới hạn đã hồi, làm tiếp thôi!<br><span style="opacity:.7">2 lịch đang chờ sẽ tự chạy</span>', { ms: 3500 }), 1600); };
+const CLOCK = `<g class="cs-ring-g"><g transform="translate(246 96)"><circle cx="26" cy="30" r="26" fill="#e8e9ee" stroke="#d6262f" stroke-width="5"/><circle cx="8" cy="6" r="8" fill="#d6262f"/><circle cx="44" cy="6" r="8" fill="#d6262f"/><path d="M26 30 v-15 M26 30 l10 6" stroke="#222" stroke-width="3" stroke-linecap="round"/></g></g>${hand(252, 150)}`;
+$('#sch-go').onclick = async () => {
+  CS.bot.el.classList.remove('puff', 'puff2'); ctxMode = 'x';
+  dress(CS.bot, CLOCK); CS.bot.cdEnd = performance.now() / 1000 + 10; CS.bot.state('countdown');
+  say(CS, '⏰ Lịch "Báo cáo sáng" sắp chạy', { ms: 2600 }); $('#ctx-cap').innerHTML = '<b>Đếm ngược tới lịch</b>';
+  await sleep(10000);
+  dress(CS.bot, CLOCK.replace('class="cs-ring-g"', 'class="cs-ring-g cs-turn"')); CS.bot.state('ring'); say(CS, 'Reng reng! Bắt đầu chạy lịch 🚀', { ms: 2200 });
+  await sleep(1400); dress(CS.bot, PROPS.thinking.svg); CS.bot.state('thinking'); $('#ctx-cap').innerHTML = '<b>Lịch đang chạy</b>';
+};
+
+// =================== 5. Giờ giấc ===================
+const HS = stage($('#s-health'), 230);
+const NIGHTCAP = `<path d="M30 0 C 60 -60, 170 -70, 214 -22 C 236 0, 250 30, 262 66 L 244 70 C 232 36, 210 8, 190 -2 Z" fill="#4b5fb3"/><path d="M60 -40 l4 4 M120 -54 l4 4 M170 -40 l4 4 M90 -20 l4 4 M200 -14 l4 4" stroke="#ffd43b" stroke-width="4" stroke-linecap="round"/><rect x="18" y="-12" width="206" height="26" rx="13" fill="#e8e9ee"/><circle cx="256" cy="74" r="14" fill="#e8e9ee"/>`;
+const GLASS = `<g transform="translate(236 92) rotate(-6)"><path d="M0 0 h40 l-5 64 h-30 z" fill="rgba(170,220,255,.35)" stroke="#cfe6ff" stroke-width="3"/><path d="M3 24 h34 l-3 38 h-28 z" fill="#5ab0ff" opacity=".7"/></g>${hand(250, 156)}`;
+const SUN = `<g class="cs-bob"><circle cx="-26" cy="-46" r="22" fill="#ffd43b"/>${[...Array(8)].map((_, i) => { const a = i * Math.PI / 4; return `<path d="M${-26 + Math.cos(a) * 30} ${-46 + Math.sin(a) * 30} L${-26 + Math.cos(a) * 40} ${-46 + Math.sin(a) * 40}" stroke="#ffd43b" stroke-width="5" stroke-linecap="round"/>`; }).join('')}</g>`;
+let hMode = '';
+function hour(v) {
+  const hh = Math.floor(v / 2) % 24, mm = v % 2 ? '30' : '00'; $('#h-v').textContent = `${String(hh).padStart(2, '0')}:${mm}`;
+  const m = hh >= 23 ? 'late' : hh < 5 ? 'deep' : hh >= 6 && hh < 9 ? 'morning' : 'day';
+  if (m === hMode) return; hMode = m; HS.bot.base = [63, 242, 255];
+  if (m === 'late') { dress(HS.bot, NIGHTCAP); HS.bot.state('yawn'); say(HS, `Khuya rồi (${$('#h-v').textContent}) 🌙 Mai làm tiếp nhé?<div class="bb"><button>Ừ, tí nữa</button><button>Đừng nhắc đêm nay</button></div>`, { ms: 0, on: () => say(HS, '') }); $('#h-cap').innerHTML = '<b>Sau 23h:</b> mũ ngủ, ngáp, nhắc nghỉ'; }
+  else if (m === 'deep') { dress(HS.bot, NIGHTCAP); HS.bot.state('nod'); say(HS, ''); $('#h-cap').innerHTML = '<b>0h–5h:</b> ngủ gật rồi giật mình tỉnh'; }
+  else if (m === 'morning') { dress(HS.bot, SUN); HS.bot.state('sun'); say(HS, 'Chào buổi sáng ☀ Hôm nay giới hạn tuần còn 64%', { ms: 3500 }); $('#h-cap').innerHTML = '<b>Sáng:</b> chào buổi sáng (lần mở app đầu tiên)'; }
+  else { dress(HS.bot, ''); HS.bot.state('idle'); say(HS, ''); $('#h-cap').textContent = ''; }
+}
+$('#h-r').oninput = (e) => hour(+e.target.value);
+$('#h-water').onclick = () => { hMode = 'x'; dress(HS.bot, GLASS); HS.bot.state('water'); $('#h-cap').innerHTML = '<b>Làm 2 tiếng liền</b>'; say(HS, 'Bạn làm 2 tiếng liền rồi đó 💧 Uống miếng nước, đứng dậy vươn vai nhé!<div class="bb"><button class="p">Đã uống ✓</button><button>Nhắc lại sau 30 phút</button></div>', { ms: 0, on: (i) => { say(HS, i ? 'OK, 30 phút nữa mình nhắc' : 'Giỏi quá! 💙', { ms: 2000 }); if (!i) { HS.bot.state('love'); HS.bot.hop(); } setTimeout(() => { dress(HS.bot, ''); HS.bot.state('idle'); }, 2000); } }); };
+$('#h-pomo').onclick = async () => {
+  hMode = 'x'; dress(HS.bot, ''); say(HS, '🍅 Tập trung 25 phút nào', { ms: 2000 });
+  HS.bot.pomoT0 = performance.now() / 1000; HS.bot.pomoLen = 12; HS.bot.state('pomo'); $('#h-cap').innerHTML = '<b>Pomodoro:</b> thanh đếm ngược dưới mắt';
+  await sleep(12000); HS.bot.state('stretch'); HS.bot.hop(); $('#h-cap').innerHTML = '<b>Hết 25 phút:</b> vươn vai';
+  say(HS, 'Hết 25 phút! Nghỉ 5 phút nha 🙆<div class="bb"><button class="p">Nghỉ</button><button>Làm thêm 1 lượt</button></div>', { ms: 0, on: () => { say(HS, ''); HS.bot.state('idle'); } });
+};
+hour(28);
+
+// =================== 6. Tương tác ===================
+const IS = stage($('#s-touch'), 240, { click: false });
+let sndOn = false, AC2 = null;
+function beep(kind) {
+  if (!sndOn) return; AC2 = AC2 || new AudioContext(); const t0 = AC2.currentTime;
+  const seq = { done: [[880, .07], [1320, .07], [1760, .12]], ask: [[1200, .06], [900, .06], [1400, .1]], err: [[420, .12], [300, .18]], love: [[1500, .05], [2000, .05], [1700, .05], [2300, .09]], dizzy: [[1800, .05], [600, .05], [1500, .05], [500, .08]] }[kind] || [];
+  let t = t0; for (const [f, d] of seq) { const o = AC2.createOscillator(), g = AC2.createGain(); o.type = 'square'; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.15, t + d); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.05, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + d); o.connect(g); g.connect(AC2.destination); o.start(t); o.stop(t + d + .02); t += d + .025; }
+}
+$('#snd-on').onclick = (e) => { sndOn = !sndOn; e.target.textContent = sndOn ? '🔊 Đang bật — bấm để tắt' : '🔇 Đang tắt — bấm để bật'; e.target.classList.toggle('on', sndOn); if (sndOn) beep('love'); };
+$$('[data-snd]').forEach((b) => b.onclick = () => { if (!sndOn) { $('#snd-on').click(); } beep(b.dataset.snd); });
+(() => {
+  const el = IS.bot.el; let hoverT = 0, clicks = [], back = 0, qm = document.createElement('div'); qm.className = 'qm';
+  qm.innerHTML = '<div>📊 Giới hạn: 5 giờ 42% · tuần 67%</div><div>🗓 Mở Lịch & hàng đợi <small>2 lịch</small></div><div>▶ Tới phiên đang chạy <small>"Viết test…"</small></div><div>📍 Đổi vị trí…</div><div>🍅 Bắt đầu Pomodoro</div>';
+  IS.el.append(qm); qm.onclick = () => qm.classList.remove('on');
+  const set = (s, why, ms) => { clearTimeout(back); IS.bot.state(s); $('#t-cap').innerHTML = why; if (ms) back = setTimeout(() => { IS.bot.state('idle'); $('#t-cap').textContent = 'Thử với robot ở trên 👆'; }, ms); };
+  el.addEventListener('mouseenter', () => { hoverT = setTimeout(() => { set('petted', '<b>Được vuốt ve</b> 🥰'); beep('love'); }, 1500); });
+  el.addEventListener('mouseleave', () => { clearTimeout(hoverT); if (IS.bot.s === 'petted') set('done', 'Hết vuốt ve rồi à…', 1200); });
+  el.addEventListener('click', () => {
+    const now = Date.now(); clicks = clicks.filter((x) => now - x < 1600); clicks.push(now);
+    if (clicks.length >= 5) { clicks = []; set('dizzy', '<b>Chọc nhiều quá</b> → chóng mặt', 2600); say(IS, 'Đừng chọc nữa mà 😵‍💫', { ms: 2200 }); beep('dizzy'); return; }
+    if (IS.bot.s !== 'dizzy') { set('love', 'Bấm 1 lần → thả tim', 1400); IS.bot.hop(); }
+  });
+  el.addEventListener('dblclick', (e) => { const r = IS.el.getBoundingClientRect(); qm.style.left = Math.min(r.width - 230, e.clientX - r.left + 10) + 'px'; qm.style.top = (e.clientY - r.top - 20) + 'px'; qm.classList.add('on'); $('#t-cap').innerHTML = '<b>Bấm đúp</b> → menu nhanh'; });
+  document.addEventListener('pointerdown', (e) => { if (!qm.contains(e.target) && !el.contains(e.target)) qm.classList.remove('on'); });
+  // kéo lắc
+  let drag = null;
+  el.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, lx: e.clientX, dir: 0, flips: 0, t: Date.now() }; el.setPointerCapture(e.pointerId); });
+  el.addEventListener('pointermove', (e) => { if (!drag) return; const dx = e.clientX - drag.lx; drag.lx = e.clientX; const s = Math.sign(dx); if (Math.abs(dx) > 6 && s && s !== drag.dir) { drag.dir = s; drag.flips++; } el.style.translate = `${(e.clientX - drag.x) * .6}px ${(e.clientY - drag.y) * .6}px`; IS.bot.extraTilt = Math.max(-20, Math.min(20, -dx * 1.5)); });
+  el.addEventListener('pointerup', () => { if (!drag) return; el.style.transition = 'translate .4s cubic-bezier(.3,1.6,.5,1)'; el.style.translate = '0 0'; setTimeout(() => el.style.transition = '', 400); IS.bot.extraTilt = 0; if (drag.flips >= 6) { set('dizzy', '<b>Bị lắc mạnh</b> → say xe', 2800); say(IS, 'Ối… chóng mặt quá 🌀', { ms: 2400 }); beep('dizzy'); } drag = null; });
+})();
+
+// =================== 7. Lên cấp ===================
+const LS = stage($('#s-level'), 230);
+const ACC = [
+  { id: 'bow', name: '🎀 Nơ', lv: 2, svg: `<g transform="translate(196 -6) rotate(18)"><path d="M0 0 L-26 -16 L-26 16 Z M0 0 L26 -16 L26 16 Z" fill="#ff5a8a"/><circle r="7" fill="#e0386e"/></g>` },
+  { id: 'ears', name: '🐱 Tai mèo', lv: 3, back: 1, svg: `<path d="M28 20 L44 -42 L94 4 Z M146 4 L196 -42 L212 20 Z" fill="#2f3542"/><path d="M44 8 L50 -24 L76 2 Z M164 2 L190 -24 L196 8 Z" fill="#ff8fb1"/>` },
+  { id: 'antenna', name: '📡 Ăng-ten', lv: 4, back: 1, svg: `<path d="M120 2 L120 -46" stroke="#8b929e" stroke-width="5"/><circle class="cs-blink" cx="120" cy="-52" r="10" fill="#ff5a5f"/>` },
+  { id: 'beanie', name: '🧶 Mũ len', lv: 5, svg: `<path d="M18 16 C 20 -66, 220 -66, 222 16 Z" fill="#4a7bd6"/>${[40, 70, 100, 130, 160, 190].map((x) => `<path d="M${x} -20 v30" stroke="#3a64b8" stroke-width="5"/>`).join('')}<rect x="10" y="2" width="220" height="24" rx="10" fill="#e8e9ee"/><circle cx="120" cy="-56" r="16" fill="#e8e9ee"/>` },
+  { id: 'shades', name: '😎 Kính râm', lv: 6, svg: `<path d="M30 70 h80 v20 q0 26 -40 26 q-40 0 -40 -26z M130 70 h80 v20 q0 26 -40 26 q-40 0 -40 -26z" fill="rgba(10,10,14,.72)" stroke="#111" stroke-width="5"/><path d="M110 76 h20" stroke="#111" stroke-width="6"/><path d="M40 78 l18 -4" stroke="#fff" stroke-width="3" opacity=".4"/>` },
+  { id: 'scarf', name: '🧣 Khăn len', lv: 8, svg: `<path d="M18 168 Q 120 200 222 168 L 226 186 Q 120 220 14 186 Z" fill="#2fa84f"/><path d="M178 186 l14 40 l22 -8 l-16 -38z" fill="#258a40"/>` },
+  { id: 'crown', name: '👑 Vương miện', lv: 15, svg: `<path d="M70 4 L76 -40 L100 -14 L120 -48 L140 -14 L164 -40 L170 4 Z" fill="#ffd43b" stroke="#e0a800" stroke-width="3"/>` },
+];
+const COLS = [['Xanh ngọc', [63, 242, 255], 1], ['Tím', [178, 140, 255], 3], ['Xanh lá', [110, 240, 140], 5], ['Hồng', [255, 140, 190], 7], ['Trắng', [240, 244, 255], 10], ['Cầu vồng', 'rainbow', 20]];
+let lv = 7, worn = new Set(['bow']), col = [63, 242, 255];
+function renderLv() {
+  $('#lv').textContent = lv; $('#acc').innerHTML = ''; $('#acc-col').innerHTML = '';
+  for (const a of ACC) { const b = document.createElement('button'); const lock = a.lv > lv; b.className = 'btn' + (lock ? ' lock' : '') + (worn.has(a.id) ? ' on' : ''); b.innerHTML = `${a.name}<small>${lock ? 'mở ở cấp ' + a.lv : worn.has(a.id) ? 'đang đeo' : 'bấm để đeo'}</small>`; b.onclick = () => { if (lock) return; worn.has(a.id) ? worn.delete(a.id) : worn.add(a.id); renderLv(); }; $('#acc').append(b); }
+  for (const [n, c, l] of COLS) { const b = document.createElement('button'); const lock = l > lv; b.className = 'btn' + (lock ? ' lock' : '') + (String(col) === String(c) ? ' on' : ''); b.innerHTML = `${n}<small>${lock ? 'mở ở cấp ' + l : '●'}</small>`; if (!lock && c !== 'rainbow') b.querySelector('small').style.color = `rgb(${c})`; b.onclick = () => { if (!lock) { col = c; renderLv(); } }; $('#acc-col').append(b); }
+  const on = ACC.filter((a) => worn.has(a.id));
+  dress(LS.bot, on.filter((a) => !a.back).map((a) => a.svg).join(''), on.filter((a) => a.back).map((a) => a.svg).join(''));
+  LS.bot.base = col === 'rainbow' ? [255, 255, 255] : col; LS.bot.rainbow = col === 'rainbow';
+}
+setInterval(() => { if (LS.bot.rainbow) { const h = (performance.now() / 20) % 360, c = (n) => { const k = (n + h / 30) % 12; return Math.round(255 * (.6 - .4 * Math.max(-1, Math.min(k - 3, 9 - k, 1)))); }; LS.bot.base = [c(0), c(8), c(4)]; } }, 50);
+$('#lv-up').onclick = () => { lv++; const xp = 100 + lv * 60; $('#lv-xp').textContent = `0 / ${xp} XP`; $('#lv-bar').style.width = '2%'; LS.bot.state('celebrate'); LS.bot.hop(); confettiOnce(LS); const got = [...ACC.filter((a) => a.lv === lv).map((a) => a.name), ...COLS.filter((c) => c[2] === lv).map((c) => 'màu mắt ' + c[0])]; say(LS, `⭐ Lên cấp ${lv}!${got.length ? '<br>Mở khoá: ' + got.join(', ') : ''}`, { ms: 3000 }); renderLv(); setTimeout(() => LS.bot.state('idle'), 3000); };
+renderLv();
+</script>
+</body>
+</html>

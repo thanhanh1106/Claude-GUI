@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo: Sổ tài liệu theo phiên — Claude GUI</title>
+<style>
+  :root {
+    --bg:#f6f8f1; --sidebar:#ecf0e2; --surface:#fff; --surface-2:#eef2e6; --hover:rgba(47,58,40,.06);
+    --text:#2f3a28; --text-2:#43503a; --muted:#6c7a61; --faint:#9fac93; --border:#dde5cf; --border-strong:#c9d4b6;
+    --accent:#5b8a3a; --accent-soft:rgba(91,138,58,.12); --user-bg:#e5ecd6;
+    --add-fg:#3f7a24; --del-bg:rgba(196,69,60,.1); --del-fg:#c4453c; --warn:#b07d1a; --warn-bg:rgba(176,125,26,.1); --blue:#3f7f8f;
+    --haiku:#3f9f8f; --sonnet:#6a7fdb; --opus:#c96442;
+    --mono:"Cascadia Code",Consolas,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#e3e8d8; color:var(--text); font:13.5px/1.5 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; }
+  header { max-width:1360px; margin:0 auto; padding:16px 8px 6px; }
+  h1 { margin:0; font-size:20px; } header p { margin:4px 0 0; color:var(--muted); max-width:1150px; }
+  .steps { max-width:1360px; margin:10px auto 0; display:flex; gap:6px; flex-wrap:wrap; padding:0 8px; }
+  .steps button { border:1px solid var(--border-strong); background:var(--surface); color:var(--text-2); border-radius:10px; padding:7px 13px; cursor:pointer; font:inherit; display:flex; gap:7px; align-items:center; }
+  .steps button b { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--surface-2); font-size:12px; }
+  .steps button.on { background:var(--accent); border-color:var(--accent); color:#fff; } .steps button.on b { background:rgba(255,255,255,.25); }
+  .cap { max-width:1360px; margin:8px auto 0; padding:9px 14px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:10px; color:var(--text-2); }
+  .win { max-width:1360px; height:760px; margin:10px auto 28px; background:var(--bg); border:1px solid var(--border-strong); border-radius:14px; overflow:hidden; display:grid; grid-template-columns:220px 1fr auto; box-shadow:0 18px 50px rgba(47,58,40,.18); }
+  /* sidebar */
+  .sb { background:var(--sidebar); border-right:1px solid var(--border); padding:12px 8px; font-size:13px; }
+  .sb .logo { font-weight:700; padding:2px 8px 12px; display:flex; gap:7px; align-items:center; } .sb .logo i { color:#6f9e4a; font-style:normal; font-size:18px; }
+  .sb .it { padding:6px 9px; border-radius:8px; color:var(--text-2); display:flex; gap:7px; align-items:center; }
+  .sb h5 { margin:12px 9px 3px; color:var(--faint); font-weight:500; font-size:11.5px; }
+  .sb .s { padding:5px 9px; color:var(--text-2); font-size:12.8px; border-radius:7px; cursor:pointer; display:flex; gap:6px; align-items:center; }
+  .sb .s:hover { background:var(--hover); } .sb .s.on { background:var(--surface); box-shadow:0 1px 2px rgba(0,0,0,.05); color:var(--text); }
+  .sb .s span { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sb .s .nb { font-size:11px; opacity:.8; } .sb .s .mdot { width:7px; height:7px; border-radius:50%; flex:none; }
+  .sb .s.new { color:var(--accent); }
+  /* main */
+  .main { overflow:hidden; display:flex; flex-direction:column; min-width:0; }
+  .top { padding:10px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:9px; background:var(--bg); }
+  .top b { font-size:14.5px; } .top .sp { flex:1; }
+  .pill { font-size:11.5px; border-radius:9px; padding:1px 8px; border:1px solid var(--border-strong); color:var(--text-2); background:var(--surface); white-space:nowrap; }
+  .m-haiku { color:var(--haiku); border-color:color-mix(in srgb,var(--haiku) 45%,transparent); background:color-mix(in srgb,var(--haiku) 9%,#fff); }
+  .m-sonnet { color:var(--sonnet); border-color:color-mix(in srgb,var(--sonnet) 45%,transparent); background:color-mix(in srgb,var(--sonnet) 9%,#fff); }
+  .m-opus { color:var(--opus); border-color:color-mix(in srgb,var(--opus) 45%,transparent); background:color-mix(in srgb,var(--opus) 9%,#fff); }
+  .tbtn { border:1px solid var(--border-strong); background:var(--surface); border-radius:8px; padding:4px 10px; cursor:pointer; font:inherit; font-size:12.5px; display:flex; gap:6px; align-items:center; color:var(--text-2); }
+  .tbtn.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .tbtn .dot { width:7px; height:7px; border-radius:50%; background:var(--warn); }
+  .body { flex:1; overflow:auto; }
+  .chat { max-width:760px; margin:0 auto; padding:16px 20px 24px; display:flex; flex-direction:column; gap:9px; }
+  .u { align-self:flex-end; background:var(--user-bg); border-radius:14px; padding:9px 13px; max-width:80%; }
+  .a p { margin:4px 0; }
+  .tl { border:1px solid var(--border); background:var(--surface); border-radius:9px; padding:5px 10px; font-size:12.5px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+  .tl b { color:var(--text); font-weight:600; } .tl .ok { margin-left:auto; color:var(--add-fg); }
+  .hl { background:rgba(91,138,58,.22); border-radius:3px; padding:0 1px; outline:1.5px solid var(--accent); }
+  .selpop { position:absolute; background:var(--text); color:#fff; border-radius:8px; padding:4px 9px; font-size:12px; display:flex; gap:10px; box-shadow:0 6px 18px rgba(0,0,0,.2); animation:pop .3s ease both; white-space:nowrap; }
+  .selpop span { cursor:pointer; opacity:.9; } .selpop span:hover { opacity:1; text-decoration:underline; }
+  .composer { border-top:1px solid var(--border); padding:10px 16px 12px; background:var(--bg); }
+  .cbox { max-width:760px; margin:0 auto; border:1px solid var(--border-strong); background:var(--surface); border-radius:12px; padding:8px 10px; }
+  .cbox .ph { color:var(--faint); min-height:38px; }
+  .cbox .row { display:flex; gap:7px; align-items:center; margin-top:4px; font-size:12px; color:var(--muted); }
+  .chipatt { display:inline-flex; gap:6px; align-items:center; border:1px solid color-mix(in srgb,var(--haiku) 45%,transparent); background:color-mix(in srgb,var(--haiku) 8%,#fff); color:var(--text-2); border-radius:8px; padding:3px 9px; font-size:12px; margin-bottom:6px; animation:pop .35s ease both; }
+  .chipatt b { color:var(--haiku); }
+  /* doc panel */
+  .dp { width:0; overflow:hidden; border-left:1px solid var(--border); background:var(--surface); display:flex; flex-direction:column; transition:width .35s ease; }
+  .dp.open { width:420px; }
+  .dp-in { width:420px; display:flex; flex-direction:column; height:100%; }
+  .dp-h { padding:9px 12px; border-bottom:1px solid var(--border); display:flex; gap:7px; align-items:center; }
+  .dp-h b { font-size:14px; } .dp-h .sp { flex:1; }
+  .ib { border:none; background:none; cursor:pointer; color:var(--muted); font-size:14px; padding:2px 5px; border-radius:6px; } .ib:hover { background:var(--hover); color:var(--text); }
+  .dp-sub { padding:5px 12px 7px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--border); display:flex; gap:6px; align-items:center; }
+  .dp-sub .sp { flex:1; }
+  .srcs { padding:8px 12px; border-bottom:1px solid var(--border); display:flex; flex-wrap:wrap; gap:5px; background:var(--bg); }
+  .src { font-size:11.8px; border:1px solid var(--border-strong); background:var(--surface); border-radius:8px; padding:1px 7px; display:flex; gap:4px; align-items:center; white-space:nowrap; }
+  .src.stale { border-color:var(--warn); background:var(--warn-bg); }
+  .src.act { border-style:dashed; color:var(--accent); cursor:pointer; }
+  .tabs { display:flex; gap:2px; padding:0 10px; border-bottom:1px solid var(--border); }
+  .tabs span { padding:6px 9px; font-size:12.5px; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; }
+  .tabs span.on { color:var(--text); border-color:var(--accent); font-weight:600; }
+  .dp-body { flex:1; overflow:auto; padding:10px 12px; display:flex; flex-direction:column; gap:9px; position:relative; }
+  .dq { align-self:flex-end; background:var(--user-bg); border-radius:12px; padding:6px 11px; max-width:88%; font-size:13px; animation:pop .3s ease both; }
+  .da { font-size:13px; animation:pop .35s ease both; }
+  .da p { margin:3px 0; } .da ul { margin:3px 0; padding-left:18px; }
+  .cite { display:inline-grid; place-items:center; min-width:17px; height:17px; padding:0 4px; border-radius:5px; background:color-mix(in srgb,var(--haiku) 16%,#fff); color:var(--haiku); font-size:10.5px; font-weight:700; cursor:pointer; vertical-align:1px; margin:0 1px; }
+  .cite:hover { background:var(--haiku); color:#fff; }
+  .meta { font-size:11.5px; color:var(--faint); display:flex; gap:8px; align-items:center; margin-top:4px; flex-wrap:wrap; }
+  .acts { display:flex; gap:5px; margin-top:5px; flex-wrap:wrap; }
+  .btn { border:1px solid var(--border-strong); background:var(--surface); color:var(--text); border-radius:8px; padding:5px 11px; cursor:pointer; font:inherit; font-size:12.5px; }
+  .btn:hover { border-color:var(--accent); } .btn.pri { background:var(--accent); color:#fff; border-color:var(--accent); } .btn.sm { padding:2px 8px; font-size:11.8px; }
+  .box { border:1px solid var(--border); border-radius:10px; padding:9px 11px; background:var(--bg); animation:pop .35s ease both; }
+  .box h4 { margin:0 0 5px; font-size:13px; display:flex; gap:6px; align-items:center; }
+  .box.warn { border-color:color-mix(in srgb,var(--warn) 50%,transparent); background:var(--warn-bg); }
+  .box.no { border-color:var(--border-strong); background:var(--surface-2); }
+  .opt { border:1px solid var(--border); background:var(--surface); border-radius:9px; padding:8px 10px; margin-top:6px; cursor:pointer; display:flex; gap:9px; }
+  .opt:hover { border-color:var(--accent); background:var(--accent-soft); } .opt b { display:block; font-size:13px; } .opt small { color:var(--muted); font-size:12px; }
+  .opt .k { font-size:17px; flex:none; }
+  .cand { display:flex; gap:8px; align-items:flex-start; padding:5px 0; border-bottom:1px dashed var(--border); font-size:12.5px; }
+  .cand:last-child { border:none; } .cand input { margin-top:3px; } .cand small { color:var(--muted); display:block; }
+  .cand .sz { margin-left:auto; color:var(--faint); font-size:11.5px; white-space:nowrap; }
+  .scan { font-family:var(--mono); font-size:11.5px; color:var(--muted); display:flex; gap:6px; animation:pop .3s ease both; }
+  .scan .ok { color:var(--add-fg); margin-left:auto; }
+  .sugg { display:flex; flex-direction:column; gap:4px; } .sugg span { border:1px solid var(--border); border-radius:8px; padding:4px 9px; font-size:12.5px; cursor:pointer; background:var(--surface); } .sugg span:hover { border-color:var(--accent); }
+  .dp-c { border-top:1px solid var(--border); padding:8px 10px 9px; }
+  .dp-c .inp { display:flex; gap:6px; } .dp-c input { flex:1; font:inherit; font-size:13px; border:1px solid var(--border-strong); border-radius:9px; padding:6px 9px; background:var(--surface); color:var(--text); }
+  .dp-c .opts { display:flex; gap:10px; margin-top:5px; font-size:11.5px; color:var(--muted); align-items:center; flex-wrap:wrap; }
+  .dp-c .opts label { display:flex; gap:4px; align-items:center; cursor:pointer; }
+  .dp-f { padding:5px 12px; font-size:11.5px; color:var(--muted); background:var(--bg); border-top:1px solid var(--border); display:flex; gap:6px; }
+  .dp-f b { color:var(--add-fg); }
+  .pop { position:absolute; left:12px; right:12px; background:var(--surface); border:1px solid var(--border-strong); border-radius:10px; box-shadow:0 10px 30px rgba(47,58,40,.2); padding:9px 11px; font-size:12.5px; z-index:5; animation:pop .25s ease both; }
+  .pop .src-h { display:flex; gap:6px; align-items:center; font-weight:600; margin-bottom:4px; }
+  .pop .src-h .sp { flex:1; }
+  .pop pre { margin:4px 0 0; background:var(--surface-2); border-radius:7px; padding:7px 9px; font:11.8px/1.5 var(--mono); white-space:pre-wrap; }
+  .pop mark { background:rgba(63,159,143,.25); color:inherit; border-radius:3px; }
+  .note { border:1px solid var(--border); border-radius:9px; padding:7px 10px; font-size:12.5px; background:var(--surface); }
+  .note small { color:var(--faint); display:block; }
+  .empty { color:var(--muted); text-align:center; padding:40px 18px; }
+  .empty .big { font-size:34px; }
+  .typing::after { content:'▍'; animation:bl 1s infinite; color:var(--haiku); } @keyframes bl { 50% { opacity:0; } }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } }
+  .plan { max-width:1360px; margin:0 auto 40px; padding:0 8px; color:var(--text-2); }
+  .plan a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>📚 Sổ tài liệu theo phiên — hỏi nhanh design/tài liệu bằng model rẻ</h1>
+  <p>Mỗi phiên có một "sổ" riêng ở khung bên phải. Sổ nạp tài liệu (qua MCP như gdd/Figma, hoặc file .md trong dự án do Haiku tự tìm) và chỉ trả lời trong phạm vi tài liệu, kèm trích dẫn — giống NotebookLM. Phiên chính (Opus) không phải tốn token đi tìm. Bấm các bước, hoặc bấm phiên ở cột trái để thấy sổ đổi theo phiên.</p>
+</header>
+<div class="steps" id="steps"></div>
+<div class="cap" id="cap"></div>
+<div class="win">
+  <aside class="sb" id="sb"></aside>
+  <section class="main">
+    <div class="top" id="top"></div>
+    <div class="body" id="mainBody" style="position:relative"></div>
+    <div class="composer" id="composer"></div>
+  </section>
+  <aside class="dp" id="dp"><div class="dp-in" id="dpIn"></div></aside>
+</div>
+<div class="plan">Kế hoạch chi tiết: <a href="docpanel-plan.md">docpanel-plan.md</a> (cùng thư mục).</div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const h = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs || {})) { if (k === 'class') e.className = v; else if (k === 'html') e.innerHTML = v; else if (k.startsWith('on')) e[k] = v; else if (k === 'style') e.style.cssText = v; else e.setAttribute(k, v); } for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c)); return e; };
+
+// ---------- dữ liệu ----------
+const SRC = {
+  g1: { ic: '🎮', name: 'gdd · Cửa hàng', kind: 'MCP gdd', ver: 'sha 3f2a' },
+  g2: { ic: '🎮', name: 'gdd · Kinh tế & tiền tệ', kind: 'MCP gdd', ver: 'sha 3f2a' },
+  f1: { ic: '🎨', name: 'Figma · Shop/Main, Shop/Popup', kind: 'MCP figma', ver: '2 frame' },
+  m1: { ic: '📄', name: 'docs/economy.md', kind: 'tệp', ver: '' },
+  m2: { ic: '📄', name: 'docs/api/shop.md', kind: 'tệp', ver: '' },
+  g3: { ic: '🎮', name: 'gdd · Điểm danh 7 ngày', kind: 'MCP gdd', ver: 'sha 3f2a' },
+  m3: { ic: '📄', name: 'docs/reward.md', kind: 'tệp', ver: '' },
+};
+const CITES = {
+  1: { src: 'g1', loc: 'Cửa hàng › 3.2 Rương', body: 'Rương đồng · 120 vàng · không giới hạn\n<mark>Rương vàng · 80 kim cương · 5 lần/ngày, reset 0h</mark>\nRương huyền thoại · 300 kim cương · 1 lần/tuần' },
+  2: { src: 'm2', loc: 'docs/api/shop.md:42', body: 'POST /shop/buy\n{ "item": "chest_gold", "qty": 1 }\n<mark>→ 429 SHOP_LIMIT khi vượt giới hạn ngày</mark>' },
+  3: { src: 'f1', loc: 'Figma › Shop/Popup › LimitLabel', body: 'TEXT "LimitLabel": <mark>"Còn {n}/3 lượt hôm nay"</mark>\n(frame cập nhật 12/10)' },
+  4: { src: 'g2', loc: 'Kinh tế › 1.4 Quy đổi', body: '<mark>1 kim cương ≈ 15 vàng</mark> (chỉ để cân bằng, không bán trực tiếp)' },
+};
+
+const S = { // trạng thái từng phiên
+  A: { title: 'Làm màn Cửa hàng theo Figma', model: 'opus', eff: 'high', open: false, phase: 'empty', srcs: [], qa: [], notes: [], open_q: [] },
+  B: { title: 'Sửa lỗi nhận thưởng điểm danh', model: 'sonnet', eff: 'medium', open: true, phase: 'qa', srcs: ['g3', 'm3'], qa: [{ q: 'Ngày 7 thưởng gì?', a: '<p>Ngày 7 nhận <b>1 Rương vàng + 200 kim cương</b><span class="cite">1</span>. Nếu lỡ 1 ngày thì chuỗi <b>không reset</b>, chỉ dừng lại ở ngày đang có<span class="cite">2</span>.</p>', cost: '$0.002', t: '2.4s' }], notes: [], open_q: [] },
+  C: { title: 'Refactor lớp networking', model: 'opus', eff: 'xhigh', open: false, phase: 'none', srcs: [], qa: [], notes: [], open_q: [] },
+  D: null,
+};
+let cur = 'A', step = 0, popCite = null, selPop = false, attach = false, stale = false, scanTimer = null;
+
+const STEPS = [
+  { t: 'Mở sổ', cap: 'Nút <b>📚 Tài liệu</b> trên thanh phiên. Lần đầu mở, sổ trống và cho 3 cách nạp: dùng lại bộ nguồn đã lưu của dự án, nhờ Haiku tự tìm, hoặc tự thêm (MCP / tệp .md / thư mục / dán chữ).' },
+  { t: 'Haiku tìm tài liệu', cap: 'Sổ chạy một phiên CLI <b>Haiku · low</b> chỉ có quyền đọc (Read/Glob/Grep + tool đọc của MCP). Nó dựa vào việc phiên chính đang làm để chọn nguồn liên quan, kèm lý do và kích thước. Bạn bỏ chọn bớt rồi bấm Nạp.' },
+  { t: 'Hỏi có trích dẫn', cap: 'Trả lời chỉ dựa trên tài liệu, mỗi ý có số trích dẫn — <b>bấm số [1] [2] [3]</b> để xem đúng đoạn gốc. Chân sổ so chi phí: hỏi ở đây vs. hỏi Opus ở phiên chính. Thử gõ câu hỏi vào ô dưới.' },
+  { t: 'Ngoài phạm vi / mâu thuẫn', cap: 'Không có trong tài liệu thì nói thẳng là không có (không bịa), và gợi ý: hỏi phiên chính, hoặc ghi thành câu hỏi cho designer. Hai nguồn nói khác nhau thì báo mâu thuẫn để bạn quyết.' },
+  { t: 'Đưa về phiên chính', cap: '<b>Chèn vào chat</b> đưa câu trả lời + đoạn trích (vài trăm token) vào ô nhập của phiên chính — Opus nhận đúng thứ cần, không tự đi đọc cả trang. Chiều ngược lại: bôi đen chữ trong chat chính → <b>Tra trong tài liệu</b>.' },
+  { t: 'Đổi phiên', cap: 'Sổ đi theo phiên: bấm <b>phiên ở cột trái</b>. "Sửa lỗi điểm danh" có sổ riêng với nguồn khác; "Refactor networking" chưa mở sổ nên khung tự ẩn (nút 📚 vẫn ở đó). Phiên có sổ hiện dấu 📚 ở sidebar.' },
+  { t: 'Phiên mới', cap: 'Mở phiên mới trong cùng dự án: sổ đề nghị <b>dùng lại bộ nguồn của dự án</b> (nạp ngay, không tốn lượt) hoặc <b>tìm lại theo việc của phiên này</b>. Ghi chú đã ghim là của cả dự án nên phiên mới thấy luôn.' },
+  { t: 'Tài liệu đổi', cap: 'gdd có sha mới / file .md đổi mtime / frame Figma đổi cấu trúc → nguồn đó chuyển màu cảnh báo, các câu trả lời đã trích từ nguồn cũ bị đánh dấu "có thể cũ", có nút nạp lại và hỏi lại.' },
+];
+
+// ---------- render ----------
+function renderSteps() {
+  const box = $('#steps'); box.innerHTML = '';
+  STEPS.forEach((s, i) => box.append(h('button', { class: i === step ? 'on' : '', onclick: () => go(i) }, h('b', {}, i + 1), s.t)));
+  $('#cap').innerHTML = STEPS[step].cap;
+}
+function renderSb() {
+  const sb = $('#sb'); sb.innerHTML = '';
+  sb.append(h('div', { class: 'logo' }, h('i', {}, '✳'), 'Claude GUI'));
+  sb.append(h('div', { class: 'it' }, '✎ Phiên mới'), h('div', { class: 'it' }, '🗓 Lịch & hàng đợi'));
+  sb.append(h('h5', {}, 'kingdom-tycoon'));
+  for (const k of ['D', 'A', 'B', 'C']) {
+    const s = S[k]; if (!s) continue;
+    const col = { opus: 'var(--opus)', sonnet: 'var(--sonnet)', haiku: 'var(--haiku)' }[s.model];
+    sb.append(h('div', { class: 's' + (cur === k ? ' on' : '') + (k === 'D' ? ' new' : ''), onclick: () => { cur = k; popCite = null; selPop = false; renderAll(); } },
+      h('i', { class: 'mdot', style: 'background:' + col }), h('span', {}, s.title), s.srcs.length || s.phase === 'qa' ? h('i', { class: 'nb', title: 'Phiên này có sổ tài liệu' }, '📚') : null));
+  }
+  sb.append(h('h5', {}, 'Dự án khác'), h('div', { class: 's' }, h('i', { class: 'mdot', style: 'background:var(--faint)' }), h('span', {}, 'Tool xuất bảng giá')));
+}
+function renderTop() {
+  const s = S[cur], top = $('#top'); top.innerHTML = '';
+  const staleN = stale && s.srcs.includes('g1');
+  top.append(h('b', {}, s.title), h('span', { class: 'pill m-' + s.model }, s.model[0].toUpperCase() + s.model.slice(1) + ' · ' + s.eff), h('span', { class: 'sp' }),
+    h('button', { class: 'tbtn' + (s.open ? ' on' : ''), title: 'Sổ tài liệu của phiên này', onclick: () => { s.open = !s.open; if (s.open && s.phase === 'none') s.phase = 'empty'; renderAll(); } }, '📚 Tài liệu', staleN ? h('i', { class: 'dot', title: 'Tài liệu đã đổi' }) : null),
+    h('button', { class: 'tbtn' }, '⎇ Git'));
+}
+function renderMain() {
+  const s = S[cur], b = $('#mainBody'); b.innerHTML = '';
+  const c = h('div', { class: 'chat' });
+  if (cur === 'A') {
+    c.append(h('div', { class: 'u' }, 'Làm UI màn Cửa hàng theo Figma frame Shop/Main + popup mua, nối API /shop/buy. Giữ style component hiện có.'),
+      h('div', { class: 'a' }, h('p', {}, 'Mình sẽ đọc frame Figma, đối chiếu component có sẵn rồi dựng ShopScreen trước.')),
+      h('div', { class: 'tl' }, '🎨 ', h('b', {}, 'figma · get_design_context'), 'Shop/Main', h('span', { class: 'ok' }, '✓')),
+      h('div', { class: 'tl' }, '✎ ', h('b', {}, 'Write'), 'src/ui/shop/ShopScreen.tsx', h('span', { class: 'ok' }, '✓')),
+      h('div', { class: 'tl' }, '✎ ', h('b', {}, 'Write'), 'src/ui/shop/ChestCard.tsx', h('span', { class: 'ok' }, '✓')));
+    const p = h('p', { html: 'Đã dựng ShopScreen với danh sách rương. Popup mua đang hiển thị nhãn giới hạn lượt; mình để tạm <span class="' + (step === 4 ? 'hl' : '') + '" id="selw">giới hạn lượt mua Rương vàng</span> là hằng số trong <code>shopConfig.ts</code> — bạn xác nhận giúp con số nhé.' });
+    c.append(h('div', { class: 'a' }, p));
+  } else if (cur === 'B') {
+    c.append(h('div', { class: 'u' }, 'User báo nhận thưởng ngày 7 bị trả về 0 kim cương. Tìm và sửa giúp.'),
+      h('div', { class: 'tl' }, '🔍 ', h('b', {}, 'Grep'), '"day7" src/', h('span', { class: 'ok' }, '✓')),
+      h('div', { class: 'a' }, h('p', {}, 'Tìm thấy lỗi: bảng thưởng đánh index từ 0 nên ngày 7 rơi ra ngoài mảng. Đang sửa và thêm test.')));
+  } else if (cur === 'C') {
+    c.append(h('div', { class: 'u' }, 'Tách lớp NetClient thành transport + retry policy, giữ API cũ.'),
+      h('div', { class: 'a' }, h('p', {}, 'Mình đọc NetClient.ts và các chỗ gọi trước…')));
+  } else {
+    c.append(h('div', { class: 'empty' }, h('div', { class: 'big' }, '✳'), h('div', {}, 'Phiên mới · kingdom-tycoon'), h('div', { style: 'margin-top:6px;font-size:12.5px' }, 'Gõ việc cần làm, ví dụ: "Thêm sự kiện Halloween cho cửa hàng"')));
+  }
+  b.append(c);
+  if (selPop && cur === 'A') {
+    requestAnimationFrame(() => {
+      const w = $('#selw'); if (!w) return; const r = w.getBoundingClientRect(), br = b.getBoundingClientRect();
+      b.append(h('div', { class: 'selpop', style: `left:${r.left - br.left}px;top:${r.top - br.top + b.scrollTop - 34}px` },
+        h('span', { onclick: () => { selPop = false; askDoc('Giới hạn lượt mua Rương vàng là bao nhiêu?', true); } }, '📚 Tra trong tài liệu'), h('span', {}, '📋 Chép'), h('span', {}, '↩ Trích dẫn')));
+    });
+  }
+}
+function renderComposer() {
+  const cp = $('#composer'); cp.innerHTML = '';
+  const box = h('div', { class: 'cbox' });
+  if (attach && cur === 'A') box.append(h('div', {}, h('span', { class: 'chipatt', title: 'Đoạn trích từ sổ tài liệu — gửi kèm tin nhắn' }, '📚 ', h('b', {}, 'Trích tài liệu'), '· Rương vàng: 80 💎, 5 lượt/ngày + API 429 · 2 đoạn · ~310 token ', h('span', { style: 'cursor:pointer;color:var(--faint)', onclick: () => { attach = false; renderAll(); } }, '✕'))));
+  box.append(h('div', { class: 'ph' }, attach && cur === 'A' ? 'Theo tài liệu thì giới hạn là 5 lượt/ngày (Figma đang ghi 3) — sửa hằng số và nhãn cho đúng gdd nhé.' : 'Nhắn cho Claude…'),
+    h('div', { class: 'row' }, h('span', {}, '📎'), h('span', { style: 'flex:1' }), h('span', { class: 'pill m-' + S[cur].model }, S[cur].model), h('button', { class: 'btn sm pri' }, 'Gửi')));
+  cp.append(box);
+}
+
+function srcChips(s) {
+  const box = h('div', { class: 'srcs' });
+  for (const id of s.srcs) { const x = SRC[id]; const st = stale && id === 'g1'; box.append(h('span', { class: 'src' + (st ? ' stale' : ''), title: x.kind + (x.ver ? ' · ' + x.ver : '') }, x.ic, x.name, st ? ' · có bản mới' : '')); }
+  box.append(h('span', { class: 'src act' }, '+ Nguồn'), h('span', { class: 'src act' }, '🔍 Tìm lại'));
+  return box;
+}
+function qaView(s, body) {
+  for (const it of s.qa) {
+    body.append(h('div', { class: 'dq' }, it.q));
+    const a = h('div', { class: 'da' + (it.typing ? ' typing' : '') }); a.innerHTML = it.a;
+    if (!it.typing && it.cost) {
+      const old = stale && it.a.includes('Rương vàng');
+      a.append(h('div', { class: 'meta' }, h('span', { class: 'pill m-haiku' }, 'Haiku · low'), it.t, '· ' + it.cost, old ? h('span', { class: 'pill', style: 'color:var(--warn);border-color:var(--warn)' }, '⚠ có thể cũ — gdd vừa đổi') : null));
+      if (!it.noacts) a.append(h('div', { class: 'acts' },
+        h('button', { class: 'btn sm', title: 'Đưa câu trả lời + đoạn trích vào ô nhập của phiên chính', onclick: () => { attach = true; renderAll(); } }, '↩ Chèn vào chat'),
+        h('button', { class: 'btn sm', onclick: () => { if (!s.notes.find(n => n.q === it.q)) s.notes.push({ q: it.q, a: it.short || it.q }); renderPanel(); } }, '📌 Ghim'),
+        h('button', { class: 'btn sm', title: 'Hỏi lại câu này bằng Sonnet' }, '↻ Sonnet'),
+        old ? h('button', { class: 'btn sm pri', onclick: () => { stale = false; renderAll(); } }, 'Nạp lại & hỏi lại') : null));
+    }
+    if (it.extra) a.append(it.extra());
+    a.querySelectorAll('.cite').forEach(el => el.onclick = () => { popCite = { n: +el.textContent, top: el.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop + 22 }; renderPanel(); });
+    body.append(a);
+  }
+}
+function renderPanel() {
+  const s = S[cur], dp = $('#dp'), box = $('#dpIn');
+  dp.classList.toggle('open', !!s.open);
+  box.innerHTML = '';
+  if (!s.open) return;
+  box.append(h('div', { class: 'dp-h' }, h('b', {}, '📚 Sổ tài liệu'), h('span', { class: 'sp' }),
+    h('select', { style: 'font:inherit;font-size:12px;border:1px solid var(--border-strong);border-radius:7px;padding:1px 4px', title: 'Model trả lời' }, h('option', {}, 'Haiku · low'), h('option', {}, 'Haiku · medium'), h('option', {}, 'Sonnet · low')),
+    h('button', { class: 'ib', title: 'Tách ra cửa sổ riêng (vẫn theo phiên đang chọn)' }, '⧉'), h('button', { class: 'ib', title: 'Khác: xuất ghi chú, làm mới hội thoại, mở phiên sổ trong lịch sử…' }, '⋯'),
+    h('button', { class: 'ib', title: 'Đóng', onclick: () => { s.open = false; renderAll(); } }, '✕')));
+  box.append(h('div', { class: 'dp-sub' }, '↳ theo phiên:', h('b', { style: 'color:var(--text-2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:250px' }, s.title)));
+  if (s.srcs.length) box.append(srcChips(s));
+  if (s.phase === 'qa') box.append(h('div', { class: 'tabs' }, h('span', { class: 'on' }, 'Hỏi đáp'), h('span', {}, '📌 Ghim (' + (s.notes.length + (cur === 'D' ? 0 : 0)) + ')'), h('span', {}, '❓ Câu hỏi mở (' + s.open_q.length + ')')));
+  const body = h('div', { class: 'dp-body' });
+
+  if (s.phase === 'empty') {
+    body.append(h('div', { class: 'empty', style: 'padding:22px 6px 8px' }, h('div', { class: 'big' }, '📚'), h('div', {}, 'Phiên này chưa có tài liệu nào.')));
+    const opts = [
+      ['🗂', 'Dùng bộ nguồn của dự án', 'Đã lưu từ phiên trước: 3 trang gdd, 2 frame Figma, 2 tệp .md · nạp ngay, không tốn lượt', () => { s.srcs = ['g1', 'g2', 'f1', 'm1', 'm2']; s.phase = 'qa'; seedQA(s); renderAll(); }],
+      ['🔍', 'Nhờ Haiku tìm tài liệu cho việc này', 'Đọc tên + tin nhắn đầu của phiên, quét docs/**/*.md, gdd, Figma… rồi đề xuất', () => go(1)],
+      ['＋', 'Tự thêm nguồn', 'Trang gdd / link Figma / tệp hoặc thư mục .md / dán đoạn chữ', null],
+    ];
+    if (cur !== 'A' && cur !== 'D') opts.shift();
+    for (const [k, t, d, fn] of opts) body.append(h('div', { class: 'opt', onclick: fn || (() => {}) }, h('span', { class: 'k' }, k), h('div', {}, h('b', {}, t), h('small', {}, d))));
+  } else if (s.phase === 'scan') {
+    body.append(h('div', { class: 'box' }, h('h4', {}, '🔍 Đang tìm tài liệu cho: ', h('i', { style: 'font-weight:400' }, s.title)), h('div', { id: 'scanLines' })));
+  } else if (s.phase === 'pick') {
+    const lines = h('div', { class: 'box' }, h('h4', {}, '🔍 Đã tìm thấy 7 nguồn — đề xuất nạp 5'));
+    const C = [['g1', true, 'Màn đang làm — bảng giá, giới hạn lượt', '~4k token'], ['g2', true, 'Quy đổi tiền tệ dùng ở giá rương', '~6k'], ['f1', true, 'Frame phiên chính đang dựng', '2 frame'], ['m2', true, 'API /shop/* mà phiên chính nối', '~1.2k'], ['m1', true, 'Ghi chú kinh tế của team dev', '~2k'], [null, false, 'gdd · Sự kiện Halloween — có nhắc cửa hàng nhưng là sự kiện riêng', '~5k', '🎮 gdd · Sự kiện Halloween'], [null, false, 'docs/CHANGELOG.md — không liên quan nội dung', '~9k', '📄 docs/CHANGELOG.md']];
+    for (const [id, on, why, sz, nm] of C) lines.append(h('label', { class: 'cand' }, h('input', { type: 'checkbox', ...(on ? { checked: '' } : {}) }), h('div', {}, h('b', { style: 'font-weight:600' }, id ? SRC[id].ic + ' ' + SRC[id].name : nm), h('small', {}, why)), h('span', { class: 'sz' }, sz)));
+    lines.append(h('div', { class: 'acts', style: 'margin-top:8px' }, h('button', { class: 'btn pri', onclick: () => { s.srcs = ['g1', 'g2', 'f1', 'm1', 'm2']; s.phase = 'qa'; seedQA(s); go(2, true); } }, 'Nạp 5 nguồn'), h('label', { style: 'font-size:12px;color:var(--muted);display:flex;gap:4px;align-items:center' }, h('input', { type: 'checkbox', checked: '' }), 'Lưu làm bộ nguồn của dự án')));
+    body.append(lines, h('div', { class: 'meta' }, 'Tìm bằng Haiku · low · 11s · $0.004 — tài liệu không bị nhồi cả vào ngữ cảnh, khi hỏi Haiku mới tra đúng mục.'));
+  } else if (s.phase === 'reuse') {
+    body.append(h('div', { class: 'box' }, h('h4', {}, '🗂 Dự án này đã có bộ nguồn'), h('div', { style: 'font-size:12.5px;color:var(--text-2)' }, '5 nguồn (gdd Cửa hàng, Kinh tế; Figma Shop; 2 tệp .md) · 2 ghi chú đã ghim · lưu bởi phiên "Làm màn Cửa hàng"'),
+      h('div', { class: 'opt', onclick: () => { s.srcs = ['g1', 'g2', 'f1', 'm1', 'm2']; s.phase = 'qa'; s.notes = S.A.notes.slice(); s.qa = []; s.sugg = true; renderAll(); } }, h('span', { class: 'k' }, '⚡'), h('div', {}, h('b', {}, 'Dùng lại ngay'), h('small', {}, 'Không tốn lượt. Hợp khi phiên mới vẫn quanh cửa hàng.'))),
+      h('div', { class: 'opt', onclick: () => { s.phase = 'scan'; renderAll(); runScan(s); } }, h('span', { class: 'k' }, '🔍'), h('div', {}, h('b', {}, 'Tìm lại theo việc của phiên này'), h('small', {}, 'Đợi bạn gửi tin nhắn đầu, rồi Haiku chọn nguồn theo đó (vẫn ưu tiên bộ cũ).'))),
+      h('div', { class: 'opt' }, h('span', { class: 'k' }, '🚫'), h('div', {}, h('b', {}, 'Không cần sổ cho phiên này'), h('small', {}, 'Ẩn khung; bật lại bằng nút 📚 Tài liệu.')))));
+    body.append(h('div', { class: 'note', style: 'margin-top:4px' }, h('small', {}, '📌 Ghi chú dự án (đã ghim)'), 'Rương vàng: 80 💎, 5 lượt/ngày, reset 0h [gdd Cửa hàng 3.2]', h('br'), 'Vượt lượt → API trả 429 SHOP_LIMIT [docs/api/shop.md:42]'));
+  } else if (s.phase === 'qa') {
+    if (s.sugg) {
+      body.append(h('div', { class: 'box' }, h('h4', {}, '✨ Tóm tắt nguồn'), h('div', { style: 'font-size:12.5px' }, 'Cửa hàng bán 3 loại rương bằng vàng/kim cương, có giới hạn lượt theo ngày; API /shop/buy trả 429 khi vượt; popup mua có nhãn lượt còn lại.'),
+        h('div', { style: 'margin-top:7px;font-size:12px;color:var(--muted)' }, 'Gợi ý câu hỏi:'),
+        h('div', { class: 'sugg' }, ...['Giá và giới hạn lượt của từng rương?', 'Popup mua có những trạng thái nào?', 'Mua thất bại thì hiện gì?'].map(q => h('span', { onclick: () => askDoc(q) }, q)))));
+    }
+    qaView(s, body);
+    if (!s.qa.length && !s.sugg) body.append(h('div', { class: 'empty', style: 'padding:30px 10px' }, 'Hỏi bất cứ điều gì về tài liệu đã nạp.'));
+  }
+  if (popCite) {
+    const c = CITES[popCite.n];
+    if (c) body.append(h('div', { class: 'pop', style: 'top:' + popCite.top + 'px' }, h('div', { class: 'src-h' }, h('span', { class: 'cite' }, popCite.n), SRC[c.src].ic, c.loc, h('span', { class: 'sp' }), h('button', { class: 'ib', title: 'Mở nguồn gốc (tệp → khung xem; gdd/Figma → mở web)' }, '↗'), h('button', { class: 'ib', onclick: () => { popCite = null; renderPanel(); } }, '✕')), h('pre', { html: c.body })));
+  }
+  box.append(body);
+  if (!popCite && s.qa.length) requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
+  if (s.phase === 'qa') {
+    const inp = h('input', { placeholder: 'Hỏi trong phạm vi tài liệu…', onkeydown: (e) => { if (e.key === 'Enter' && inp.value.trim()) askDoc(inp.value.trim()); } });
+    box.append(h('div', { class: 'dp-c' }, h('div', { class: 'inp' }, inp, h('button', { class: 'btn pri sm', onclick: () => inp.value.trim() && askDoc(inp.value.trim()) }, 'Hỏi')),
+      h('div', { class: 'opts' }, h('label', { title: 'Gửi kèm tên phiên + tin nhắn gần nhất của phiên chính (~150 token) để câu trả lời đúng ngữ cảnh' }, h('input', { type: 'checkbox', checked: '' }), 'Biết phiên chính đang làm gì'),
+        h('label', { title: 'Tắt: cho phép suy luận thêm nhưng phải tách riêng phần "suy luận, không có trong tài liệu"' }, h('input', { type: 'checkbox', checked: '' }), 'Chỉ trong tài liệu'))));
+    const n = s.qa.filter(x => x.cost).length;
+    box.append(h('div', { class: 'dp-f' }, '💰 Sổ này: ' + n + ' câu · ', h('b', {}, '$' + (0.004 + n * 0.0025).toFixed(3)), h('span', {}, '— nếu hỏi ' + s.model[0].toUpperCase() + s.model.slice(1) + ' ở phiên chính ≈ $' + (n * (s.model === 'opus' ? 0.11 : 0.05)).toFixed(2) + ' (ước tính)')));
+  }
+}
+function seedQA(s) { s.qa = []; s.sugg = true; }
+
+const ANS = [
+  { k: /giới hạn|bao nhiêu|giá|rương/i, q: 'Giới hạn lượt mua Rương vàng là bao nhiêu?', short: 'Rương vàng: 80 💎, 5 lượt/ngày, reset 0h', a: '<p><b>Rương vàng</b> giá <b>80 kim cương</b>, mua tối đa <b>5 lần/ngày</b>, reset lúc 0h<span class="cite">1</span>. Vượt giới hạn thì API <code>/shop/buy</code> trả <b>429 SHOP_LIMIT</b><span class="cite">2</span>.</p><p>Quy đổi tham khảo: 80 💎 ≈ 1.200 vàng<span class="cite">4</span>.</p>' },
+  { k: /trạng thái|popup/i, q: 'Popup mua có những trạng thái nào?', a: '<ul><li>Đủ tiền → nút Mua sáng<span class="cite">3</span></li><li>Thiếu tiền → nút xám + "Nạp thêm"<span class="cite">1</span></li><li>Hết lượt → nhãn lượt còn lại = 0, nút khoá<span class="cite">3</span></li></ul>' },
+  { k: /thất bại|lỗi/i, q: 'Mua thất bại thì hiện gì?', a: '<p>Tài liệu chỉ quy định mã lỗi <b>429 SHOP_LIMIT</b><span class="cite">2</span>. Thông báo hiển thị cho người chơi khi mua thất bại <b>không có trong tài liệu</b>.</p>', extra: () => outScope(true) },
+];
+function outScope(partial) {
+  const s = S[cur];
+  return h('div', { class: 'box no', style: 'margin-top:6px' }, h('h4', {}, partial ? '⚠ Một phần không có trong tài liệu' : '∅ Không có trong tài liệu đã nạp'),
+    h('div', { style: 'font-size:12.5px;color:var(--muted)' }, partial ? 'Có thể nằm ở trang gdd "UI chung · Thông báo lỗi" (chưa nạp).' : 'Đã tra 5 nguồn. Đây là câu hỏi kỹ thuật, không phải nội dung thiết kế.'),
+    h('div', { class: 'acts' }, partial ? h('button', { class: 'btn sm' }, '+ Nạp trang gợi ý') : null,
+      h('button', { class: 'btn sm', title: 'Gửi câu hỏi sang phiên chính (model của phiên chính trả lời)' }, '↗ Hỏi phiên chính'),
+      h('button', { class: 'btn sm', onclick: (e) => { s.open_q.push('x'); e.target.textContent = '✓ Đã ghi vào Câu hỏi mở'; e.target.disabled = true; } }, '❓ Ghi thành câu hỏi cho designer')));
+}
+function askDoc(q, fromSel) {
+  const s = S[cur]; if (!s.open) s.open = true; if (s.phase !== 'qa') { s.srcs = ['g1', 'g2', 'f1', 'm1', 'm2']; s.phase = 'qa'; }
+  s.sugg = false; popCite = null;
+  const m = ANS.find(a => a.k.test(q));
+  const it = { q: fromSel ? '“giới hạn lượt mua Rương vàng” — ' + q : q, a: '', typing: true };
+  s.qa.push(it); renderAll();
+  setTimeout(() => {
+    it.typing = false; it.cost = '$0.00' + (2 + Math.floor(Math.random() * 2)); it.t = (1.8 + Math.random() * 2).toFixed(1) + 's';
+    if (m) { it.a = m.a; it.short = m.short; it.extra = m.extra; }
+    else { it.a = '<p>Không tìm thấy nội dung này trong 5 nguồn đã nạp.</p>'; it.extra = () => outScope(false); it.noacts = true; }
+    renderAll();
+  }, 1100);
+}
+function runScan(s) {
+  clearTimeout(scanTimer);
+  const L = [['Glob', 'docs/**/*.md, design/**/*.md, *.md', '14 tệp'], ['Grep', '"shop|cửa hàng|rương" trong 14 tệp', '3 tệp'], ['gdd · list_pages', 'kingdom-tycoon', '48 trang'], ['gdd · search', '"cửa hàng rương giới hạn"', '4 trang'], ['figma · get_metadata', 'link trong tin nhắn đầu phiên', '2 frame']];
+  let i = 0;
+  const tick = () => {
+    const box = $('#scanLines'); if (!box || s.phase !== 'scan') return;
+    if (i < L.length) { const [t, a, r] = L[i++]; box.append(h('div', { class: 'scan' }, '› ' + t, h('span', { style: 'color:var(--faint)' }, a), h('span', { class: 'ok' }, r))); scanTimer = setTimeout(tick, 550); }
+    else { s.phase = 'pick'; renderPanel(); }
+  };
+  scanTimer = setTimeout(tick, 300);
+}
+
+function renderAll() { renderSteps(); renderSb(); renderTop(); renderMain(); renderComposer(); renderPanel(); }
+
+function reset() {
+  S.A = { ...S.A, open: false, phase: 'empty', srcs: [], qa: [], notes: [], open_q: [], sugg: false };
+  S.D = null; cur = 'A'; popCite = null; selPop = false; attach = false; stale = false; clearTimeout(scanTimer);
+}
+function loaded(extraQA) {
+  S.A.open = true; S.A.phase = 'qa'; S.A.srcs = ['g1', 'g2', 'f1', 'm1', 'm2']; S.A.sugg = false;
+  S.A.qa = extraQA.map(i => { const m = ANS[i]; return { q: m.q, a: m.a, short: m.short, extra: m.extra, cost: '$0.002', t: '2.' + (i + 1) + 's' }; });
+}
+function go(i, keep) {
+  step = i;
+  if (!keep) {
+    reset();
+    if (i === 0) { S.A.open = true; }
+    if (i === 1) { S.A.open = true; S.A.phase = 'scan'; }
+    if (i === 2) { loaded([0]); popCite = null; }
+    if (i === 3) {
+      loaded([0, 2]);
+      S.A.qa.push({ q: 'Nên dùng thư viện nào để làm hiệu ứng mở rương?', a: '<p>Không tìm thấy nội dung này trong 5 nguồn đã nạp.</p>', cost: '$0.001', t: '1.2s', noacts: true, extra: () => outScope(false) });
+      S.A.qa.push({ q: 'Mỗi ngày mua được mấy Rương vàng?', cost: '$0.003', t: '2.9s', a: '<p>Hai nguồn đang <b>mâu thuẫn</b>:</p>', extra: () => h('div', { class: 'box warn' }, h('h4', {}, '⚠ Tài liệu mâu thuẫn'), h('div', { html: '<ul style="margin:0;padding-left:18px;font-size:12.5px"><li>gdd: <b>5 lần/ngày</b><span class="cite">1</span></li><li>Figma: nhãn <b>"Còn {n}/3 lượt"</b><span class="cite">3</span></li></ul>' }), h('div', { class: 'acts' }, h('button', { class: 'btn sm' }, '❓ Ghi câu hỏi cho designer'), h('button', { class: 'btn sm' }, '↩ Chèn cả 2 vào chat'))) });
+      S.A.open_q = ['x'];
+    }
+    if (i === 4) { loaded([0]); attach = true; selPop = true; }
+    if (i === 5) { loaded([0]); S.A.notes = [{}]; cur = 'B'; }
+    if (i === 6) { loaded([0]); S.A.notes = [{}, {}]; S.D = { title: 'Phiên mới', model: 'opus', eff: 'high', open: true, phase: 'reuse', srcs: [], qa: [], notes: [], open_q: [] }; cur = 'D'; }
+    if (i === 7) { loaded([0, 1]); stale = true; S.A.srcs = ['g1', 'g2', 'f1', 'm1', 'm2']; }
+  }
+  renderAll();
+  if (S[cur] && S[cur].phase === 'scan') runScan(S[cur]);
+  if (i === 7 && !keep) { const b = $('.dp-body'); if (b) b.prepend(h('div', { class: 'box warn' }, h('h4', {}, '⚠ gdd có bản mới (sha 3f2a → 9c41)'), h('div', { style: 'font-size:12.5px' }, 'Trang đổi: ', h('b', {}, 'Cửa hàng'), ' (mục 3.2 Rương). 1 câu trả lời và 1 ghi chú ghim trích từ trang này.'), h('div', { class: 'acts' }, h('button', { class: 'btn sm pri', onclick: () => { stale = false; renderAll(); } }, 'Nạp lại trang đổi'), h('button', { class: 'btn sm' }, 'Xem khác gì'), h('button', { class: 'btn sm' }, 'Để sau')))); }
+}
+go(0);
+</script>
+</body>
+</html>
