@@ -487,8 +487,17 @@ function sessionMeta(file, st) {
     }
   };
   try {
-    scan(readPart(file, 256 * 1024, false), true);
+    let head = readPart(file, 256 * 1024, false);
+    // tin đầu có ảnh dán (base64) có thể dài vài MB trên một dòng → đọc thêm tới 8 MB cho tới khi gặp tin của người dùng
+    for (let n = 1024 * 1024; !/"type":"user"[^\n]*\n/.test(head) && head.length < st.size && n <= 8 * 1024 * 1024; n *= 2) head = readPart(file, n, false);
+    scan(head, true);
     if (st.size > 256 * 1024) scan(readPart(file, 128 * 1024, true), false);
+    // vẫn không đọc trọn được dòng nào (dòng quá dài) → lấy chữ trong phần đầu bằng regex để phiên không bị ẩn
+    if (!meta.firstPrompt) {
+      const m = /"type":"text","text":"((?:[^"\\]|\\.){1,2000})"/.exec(head);
+      if (m) try { const t = JSON.parse('"' + m[1] + '"').trim(); if (!isNoiseText(t)) { meta.firstPrompt = t; meta.userTurns = Math.max(meta.userTurns, 1); } } catch {}
+    }
+    if (!meta.firstPrompt && !meta.customTitle && !meta.aiTitle && !meta.summary && /"type":"user"/.test(head)) { meta.firstPrompt = '(Phiên mở đầu bằng ảnh)'; meta.userTurns = Math.max(meta.userTurns, 1); }
   } catch {}
   meta.title = (meta.customTitle || meta.aiTitle || meta.summary || meta.firstPrompt || '').replace(/\s+/g, ' ').trim().slice(0, 140);
   metaCache.set(file, { mtime: st.mtimeMs, size: st.size, meta });
@@ -1751,7 +1760,7 @@ function updateSources() {
   const pj = require('./package.json');
   const defs = [].concat(pj.defaultUpdateSources || [], pj.defaultUpdateSource || []).map((x) => String(x).trim()).filter(Boolean);
   const own = String(settings.updateSource || '').trim();
-  const list = [...new Set([own, lastUpdateSrc, ...defs].filter(Boolean))];
+  const list = [...new Set([own, lastUpdateSrc, settings.updateFound, ...defs].filter(Boolean))];
   return { list, defs, own };
 }
 let lastUpdateSrc = '';
@@ -1790,7 +1799,42 @@ async function guiUpdateCheck() {
       return { configured: true, current, ...r, source: src, fallback: !!own && src !== own, newer: verGt(r.latest, current), portable: !!process.env.PORTABLE_EXECUTABLE_FILE };
     } catch (e) { errs.push(`${src}: ${e.message}`); }
   }
+  // máy chủ cập nhật đổi IP (DHCP cấp lại) mà tên máy không phân giải được → dò cổng 8765 trong mạng LAN rồi nhớ lại
+  const found = await scanLanUpdate().catch(() => null);
+  if (found) {
+    try {
+      const r = await checkUpdateSrc(found);
+      lastUpdateSrc = found; settings.updateFound = found; saveSettings();
+      return { configured: true, current, ...r, source: found, fallback: !!own, newer: verGt(r.latest, current), portable: !!process.env.PORTABLE_EXECUTABLE_FILE };
+    } catch (e) { errs.push(`${found}: ${e.message}`); }
+  }
   return { configured: true, current, error: errs.length > 1 ? 'Không nguồn nào trả lời — ' + errs.join(' · ') : errs[0], tried: list };
+}
+let lanScan = null;
+function scanLanUpdate() {
+  if (lanScan) return lanScan;
+  lanScan = (async () => {
+    const nets = [];
+    for (const arr of Object.values(os.networkInterfaces())) for (const a of arr || []) {
+      if (a.family !== 'IPv4' && a.family !== 4) continue;
+      if (a.internal || !/^(192\.168|10)\./.test(a.address)) continue; // chỉ mạng LAN thường (bỏ Tailscale 100.x, WSL 172.x)
+      const pre = a.address.split('.').slice(0, 3).join('.');
+      if (!nets.includes(pre)) nets.push(pre);
+    }
+    const hosts = [];
+    for (const pre of nets.slice(0, 3)) for (let i = 1; i < 255; i++) hosts.push(`http://${pre}.${i}:8765`);
+    let hit = null, k = 0;
+    const worker = async () => {
+      while (!hit && k < hosts.length) {
+        const h = hosts[k++];
+        try { const j = await fetchJson(h + '/latest.json', 900); if (j && j.version && /^ClaudeGUI-.*\.exe$/i.test(j.file || '')) hit = hit || h; } catch {}
+      }
+    };
+    await Promise.all(Array.from({ length: 48 }, worker));
+    return hit;
+  })();
+  lanScan.finally(() => setTimeout(() => { lanScan = null; }, 60000));
+  return lanScan;
 }
 
 let guiUpdateLater = null; // bấm "Tự cập nhật khi xong": chờ hết tác vụ đang chạy rồi tự cập nhật
