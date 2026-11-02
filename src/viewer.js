@@ -7,7 +7,19 @@
   const { $, $$, h, svg, icon, toast, menu, popover, renderMd, basename, dirname, shortPath, samePath } = CG;
   const S = () => CG.S;
 
-  const V = { open: false, tabs: [], cur: null, seq: 0 };
+  // Giống bản desktop: MỖI PHIÊN có bộ tab xem trước riêng (tab, tab đang chọn, khung mở hay đóng).
+  // Đổi phiên → khung đổi theo; phiên chưa từng có xem trước → khung đóng. V.tabs / V.cur luôn là của phiên đang xem.
+  const SETS = new Map(); // khoá phiên → { key, tabs, cur, open, t }
+  const newSet = (key) => ({ key, tabs: [], cur: null, open: false, t: Date.now() });
+  let CUR = newSet(null);
+  const V = {
+    seq: 0,
+    get tabs() { return CUR.tabs; },
+    get cur() { return CUR.cur; },
+    set cur(t) { CUR.cur = t; },
+    get open() { return CUR.open; },
+    get key() { return CUR.key; },
+  };
   const HL_MAX = 400 * 1024; // tô màu tối đa ~400KB, lớn hơn hiển thị chữ thường cho mượt
   const EXT_LANG = {
     csproj: 'xml', props: 'xml', targets: 'xml', axaml: 'xml', xaml: 'xml', config: 'xml', resx: 'xml', svg: 'xml', htm: 'xml', html: 'xml', vue: 'xml', svelte: 'xml',
@@ -47,40 +59,65 @@
   };
 
   // ---------- Khung & tab ----------
-  function setOpen(on) {
-    V.open = on;
+  function showPane(on) {
     if (on && !V.sized) { V.sized = true; $('#viewer').style.width = ((S().settings || {}).viewerWidth || 46) + '%'; }
     $('#viewer').classList.toggle('hidden', !on);
     $('#viewer-resize').classList.toggle('hidden', !on);
     $('#btn-viewer').classList.toggle('on', on);
-    if (on && !V.restored) { V.restored = true; if (!V.tabs.length) restoreTabs(); }
   }
-  function toggle() { setOpen(!V.open); }
+  function setOpen(on) {
+    CUR.open = on;
+    showPane(on);
+    saveTabs(CUR);
+  }
+  function toggle() { setOpen(!CUR.open); }
 
-  function addTab(t) {
+  function addTab(t, st = CUR) {
     t.id = ++V.seq;
+    t.set = st;
     t.body = h('div', { class: 'vw-pane off' });
     $('#vw-body').append(t.body);
-    V.tabs.push(t);
+    st.tabs.push(t);
+    if (t.kind === 'file') api.watchFile(t.path);
     return t;
   }
+  // Tab chỉ dựng nội dung (đọc tệp / tạo webview) khi được xem — phiên chạy nền, tab khôi phục không tốn gì
+  function materialize(t) {
+    if (!t || t.loaded) return;
+    t.loaded = true;
+    if (t.kind === 'web') buildWeb(t); else loadFile(t);
+  }
+  function unload(t) {
+    if (!t.loaded) return;
+    clearTimeout(t.retryTimer);
+    t.loaded = false;
+    t.body.innerHTML = '';
+    t.wv = t.previewWv = t.scroller = t.mark = null;
+    t.info = null;
+  }
   function select(t) {
-    V.cur = t;
-    for (const x of V.tabs) x.body.classList.toggle('off', x !== t);
+    const st = t ? t.set : CUR;
+    st.cur = t;
+    if (st !== CUR) { saveTabs(st); return; } // phiên đang ẩn: chỉ ghi nhớ, mở phiên đó ra mới thấy
+    for (const x of CUR.tabs) x.body.classList.toggle('off', x !== t);
+    materialize(t);
     $('.vw-empty', $('#vw-body')) && $('.vw-empty', $('#vw-body')).classList.toggle('hidden', !!t);
     renderTabs();
     renderBar();
-    saveTabs();
+    saveTabs(CUR);
   }
   function closeTab(t) {
-    const i = V.tabs.indexOf(t);
+    const st = t.set;
+    const i = st.tabs.indexOf(t);
     if (i < 0) return;
-    V.tabs.splice(i, 1);
+    st.tabs.splice(i, 1);
     if (t.path) api.unwatchFile(t.path);
+    clearTimeout(t.retryTimer);
     t.body.remove();
+    if (st !== CUR) { if (st.cur === t) st.cur = st.tabs[i] || st.tabs[i - 1] || null; saveTabs(st); return; }
     if (V.cur === t) select(V.tabs[i] || V.tabs[i - 1] || null);
     else renderTabs();
-    if (!V.tabs.length) { renderBar(); saveTabs(); }
+    if (!V.tabs.length) { renderBar(); saveTabs(CUR); }
   }
   function tabLabel(t) {
     if (t.kind === 'web') return t.title || (t.url || '').replace(/^https?:\/\//, '').replace(/\/$/, '') || 'Trang web';
@@ -112,25 +149,64 @@
       icon: t.kind === 'web' ? 'globe' : t.fileKind === 'image' ? 'image' : t.ext === 'md' ? 'book' : 'code', onClick: () => select(t),
     })), '-', { label: 'Đóng các tab khác', icon: 'x', disabled: V.tabs.length < 2 || !V.cur, onClick: () => { for (const t of V.tabs.filter((x) => x !== V.cur)) closeTab(t); } }], { checks: true });
   }
-  function saveTabs() {
+  // Lưu theo phiên (giữ ~50 phiên gần nhất) → mở lại phiên cũ, kể cả sau khi tắt app, vẫn thấy đúng các tab của nó
+  const STORE = 'cg.viewerSets', STORE_MAX = 50;
+  try { localStorage.removeItem('cg.viewerTabs'); } catch {} // tab dùng chung của bản cũ — không biết thuộc phiên nào nên bỏ
+  const readStore = () => { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } };
+  function saveTabs(st = CUR) {
+    if (!st.key) return;
     try {
-      localStorage.setItem('cg.viewerTabs', JSON.stringify({
-        tabs: V.tabs.map((t) => (t.kind === 'web' ? { url: t.url } : { path: t.path })),
-        cur: V.tabs.indexOf(V.cur),
-      }));
+      const all = readStore();
+      st.t = Date.now();
+      if (!st.tabs.length && !st.open) delete all[st.key];
+      else all[st.key] = { tabs: st.tabs.map((t) => (t.kind === 'web' ? { url: t.url, auto: t.auto || undefined } : { path: t.path, auto: t.auto || undefined })), cur: st.tabs.indexOf(st.cur), open: st.open, t: st.t };
+      const keys = Object.keys(all);
+      if (keys.length > STORE_MAX) keys.sort((a, b) => (all[b].t || 0) - (all[a].t || 0)).slice(STORE_MAX).forEach((k) => delete all[k]);
+      localStorage.setItem(STORE, JSON.stringify(all));
     } catch {}
   }
-  function restoreTabs() {
-    let st = null;
-    try { st = JSON.parse(localStorage.getItem('cg.viewerTabs')); } catch {}
-    if (!st || !Array.isArray(st.tabs)) return;
-    const made = [];
-    for (const x of st.tabs.slice(0, 12)) {
-      if (x.url) made.push(openUrl(x.url, { noSelect: true }));
-      else if (x.path) made.push(openFile(x.path, 0, { noSelect: true }));
+  function setFor(key) {
+    let st = SETS.get(key);
+    if (st) return st;
+    st = newSet(key);
+    SETS.set(key, st);
+    const x = readStore()[key];
+    if (x && Array.isArray(x.tabs)) {
+      st.open = !!x.open;
+      for (const o of x.tabs.slice(0, 12)) {
+        if (o.url) addTab({ kind: 'web', url: o.url, title: '', auto: !!o.auto }, st);
+        else if (o.path) addTab({ kind: 'file', path: o.path, ext: (o.path.split('.').pop() || '').toLowerCase(), mode: null, auto: !!o.auto }, st);
+      }
+      for (const t of st.tabs) if (t.kind === 'file') t.mode = PREVIEW_EXT.has(t.ext) ? 'preview' : 'code';
+      st.cur = st.tabs[x.cur] || st.tabs[st.tabs.length - 1] || null;
     }
-    Promise.all(made).then((ts) => { const t = ts[st.cur] || ts[ts.length - 1]; if (t) select(t); });
+    return st;
   }
+  // Trang web / xem trước HTML, PDF của phiên đang ẩn chỉ giữ chạy cho 3 phiên gần nhất, còn lại dỡ ra (quay lại thì tự tải)
+  const LIVE_MAX = 3;
+  function trimLive() {
+    const live = [...SETS.values()].filter((s) => s !== CUR && s.tabs.some((t) => t.loaded)).sort((a, b) => b.t - a.t);
+    for (const s of live.slice(LIVE_MAX - 1)) for (const t of s.tabs) unload(t);
+  }
+  // app.js gọi mỗi khi đổi phiên đang xem
+  function useSession(key) {
+    key = key || null;
+    if (key === CUR.key) return;
+    for (const t of CUR.tabs) t.body.classList.add('off');
+    CUR.t = Date.now();
+    CUR = setFor(key);
+    CUR.t = Date.now();
+    for (const t of CUR.tabs) t.body.classList.toggle('off', t !== CUR.cur);
+    materialize(CUR.cur);
+    $('.vw-empty', $('#vw-body')) && $('.vw-empty', $('#vw-body')).classList.toggle('hidden', !!CUR.cur);
+    showPane(CUR.open);
+    renderTabs();
+    renderBar();
+    trimLive();
+    if (CUR.fresh) { CUR.fresh = false; if (CG.renderSidebar) CG.renderSidebar(); }
+  }
+  // Phiên chạy nền có thứ xem trước mới chưa xem → chấm báo ở thanh bên
+  const fresh = (key) => { const st = SETS.get(key); return !!(st && st.fresh && st !== CUR); };
 
   // ---------- Thanh công cụ của tab ----------
   function btn(ic, title, onclick, cls = '') {
@@ -181,14 +257,15 @@
   }
 
   // ---------- Tệp ----------
+  // opts.set: bộ tab của phiên khác (phiên chạy nền) — chỉ ghi nhận, không bật khung lên
   async function openFile(p, line, opts = {}) {
-    setOpen(true);
-    let t = V.tabs.find((x) => x.kind === 'file' && samePath(x.path, p));
+    const st = opts.set || CUR;
+    if (st === CUR) setOpen(true); else st.open = true;
+    let t = st.tabs.find((x) => x.kind === 'file' && samePath(x.path, p));
     if (!t) {
-      t = addTab({ kind: 'file', path: p, ext: (p.split('.').pop() || '').toLowerCase(), mode: null });
+      t = addTab({ kind: 'file', path: p, ext: (p.split('.').pop() || '').toLowerCase(), mode: null }, st);
       t.mode = PREVIEW_EXT.has(t.ext) ? 'preview' : 'code';
-      api.watchFile(p);
-      await loadFile(t);
+      if (st === CUR) { t.loaded = true; await loadFile(t); }
     }
     if (!opts.noSelect) select(t);
     if (line) requestAnimationFrame(() => gotoLine(t, line));
@@ -297,8 +374,8 @@
   const fmtSize = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
 
   api.onFileChanged((p) => {
-    for (const t of V.tabs) {
-      if (t.kind !== 'file' || !samePath(t.path, p)) continue;
+    for (const t of [...new Set([...SETS.values(), CUR])].flatMap((s) => s.tabs)) {
+      if (t.kind !== 'file' || !t.loaded || !samePath(t.path, p)) continue;
       if (t.previewWv) { try { t.previewWv.reload(); } catch {} } else loadFile(t, true);
     }
   });
@@ -316,15 +393,24 @@
   function openUrl(url, opts = {}) {
     url = normUrl(url);
     if (!url) return null;
-    setOpen(true);
-    let t = !opts.newTab && V.tabs.find((x) => x.kind === 'web' && x.url === url);
+    const st = opts.set || CUR;
+    if (st === CUR) setOpen(true); else st.open = true;
+    let t = !opts.newTab && st.tabs.find((x) => x.kind === 'web' && x.url === url);
     if (!t) {
-      t = addTab({ kind: 'web', url, title: '' });
+      t = addTab({ kind: 'web', url, title: '' }, st);
+      if (st === CUR) { t.loaded = true; buildWeb(t); }
+    }
+    if (!opts.noSelect) select(t);
+    return t;
+  }
+  function buildWeb(t) {
+    {
+      const url = t.url;
       const wv = makeWebview(url);
       t.wv = wv;
       const err = h('div', { class: 'vw-err hidden' });
       t.body.append(wv, err);
-      const sync = () => { try { t.url = wv.getURL() || t.url; } catch {} if (t === V.cur) { if (t.urlIn && document.activeElement !== t.urlIn) t.urlIn.value = t.url; updateNav(t); } saveTabs(); };
+      const sync = () => { try { t.url = wv.getURL() || t.url; } catch {} if (t === V.cur) { if (t.urlIn && document.activeElement !== t.urlIn) t.urlIn.value = t.url; updateNav(t); } saveTabs(t.set); };
       wv.addEventListener('did-navigate', () => { err.classList.add('hidden'); sync(); });
       wv.addEventListener('did-navigate-in-page', sync);
       wv.addEventListener('page-title-updated', (e) => { t.title = e.title; renderTabs(); });
@@ -340,7 +426,7 @@
         const retry = refused && (t.retries || 0) < 30;
         if (retry) {
           t.retries = (t.retries || 0) + 1;
-          t.retryTimer = setTimeout(() => { if (V.tabs.includes(t)) { try { wv.loadURL(failedUrl); } catch {} } }, 2000);
+          t.retryTimer = setTimeout(() => { if (t.set.tabs.includes(t) && t.wv === wv) { try { wv.loadURL(failedUrl); } catch {} } }, 2000);
         }
         err.innerHTML = '';
         err.append(icon('globe', 28), h('div', { class: 'vw-err-t', text: `Không mở được ${failedUrl}` }),
@@ -349,13 +435,11 @@
         err.classList.remove('hidden');
       });
     }
-    if (!opts.noSelect) select(t);
-    return t;
   }
   function navigate(t, url) {
     t.url = url;
     try { t.wv.loadURL(url); } catch { t.wv.src = url; }
-    saveTabs();
+    saveTabs(t.set);
   }
   function updateNav(t) {
     if (t !== V.cur || !t.back) return;
@@ -551,7 +635,7 @@
     document.addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
       if (e.ctrlKey && !e.shiftKey && !e.altKey && k === 'p') { e.preventDefault(); quickOpen(V.open ? $('#vw-open') : $('#btn-viewer')); }
-      else if (e.ctrlKey && e.shiftKey && k === 'p') { e.preventDefault(); toggle(); }
+      else if (e.ctrlKey && e.shiftKey && (k === 'p' || k === 'b')) { e.preventDefault(); toggle(); } // Ctrl+Shift+B như bản desktop
       else if (e.ctrlKey && k === 'w' && V.open && V.cur && document.activeElement && document.activeElement.closest && document.activeElement.closest('#viewer')) { e.preventDefault(); closeTab(V.cur); }
       else if (e.key === 'F5' && V.cur && V.cur.kind === 'web' && document.activeElement && document.activeElement.closest && document.activeElement.closest('#viewer')) { e.preventDefault(); V.cur.wv.reload(); }
     });
@@ -560,23 +644,33 @@
   // Tự mở xem trước (Claude vừa tạo tệp / in địa chỉ localhost): chỉ giữ MỘT tab "tự mở".
   // Trùng tệp / cùng server đang mở → tải lại tab đó; thứ mới → mở tab mới rồi đóng tab tự mở cũ. Tab bạn tự mở không bị đụng tới.
   const originOf = (u) => { try { return new URL(u).origin; } catch { return ''; } };
+  // o.key: phiên tạo ra thứ cần xem. Phiên đang xem → mở khung ngay; phiên chạy nền → ghi vào bộ tab của phiên đó
+  // (khung không bật lên giữa chừng), chấm báo ở thanh bên; mở phiên đó ra thì khung tự mở với tab ấy.
   async function autoShow(o) {
+    const st = o.key == null || o.key === CUR.key ? CUR : setFor(o.key);
+    const bg = st !== CUR;
     const org = o.url ? originOf(o.url) : '';
-    const same = o.file ? V.tabs.find((x) => x.kind === 'file' && samePath(x.path, o.file)) : V.tabs.find((x) => x.kind === 'web' && x.wv && org && originOf(x.url) === org);
+    const same = o.file ? st.tabs.find((x) => x.kind === 'file' && samePath(x.path, o.file)) : st.tabs.find((x) => x.kind === 'web' && org && originOf(x.url) === org);
     if (same) {
+      if (bg) { st.open = true; st.fresh = true; if (o.url) same.url = o.url; unload(same); select(same); CG.renderSidebar && CG.renderSidebar(); return same; }
       setOpen(true);
-      if (same.kind === 'file') await loadFile(same, true);
+      if (!same.loaded) select(same);
+      else if (same.kind === 'file') await loadFile(same, true);
       else { try { if (same.url === o.url) same.wv.reload(); else same.wv.loadURL(o.url).catch(() => {}); same.url = o.url; } catch {} }
       select(same);
       return same;
     }
-    const old = V.tabs.filter((x) => x.auto);
-    const t = o.file ? await openFile(o.file) : openUrl(o.url, { newTab: true });
+    const old = st.tabs.filter((x) => x.auto);
+    const t = o.file ? await openFile(o.file, 0, { set: st }) : openUrl(o.url, { newTab: true, set: st });
     if (!t) return null;
     t.auto = true;
     for (const x of old) if (x !== t) closeTab(x);
+    saveTabs(st);
+    if (bg) { st.fresh = true; CG.renderSidebar && CG.renderSidebar(); }
     return t;
   }
-  CG.viewer = { autoShow, toggle, setOpen, openFile, openPath, openUrl, quickOpen, handleLink, lightbox, isLocalHost, get state() { return V; } };
+  // Tab tệp đang mở trong phiên (để app.js biết sửa tệp đã mở thì chỉ cần tự tải lại)
+  const hasFile = (key, f) => { const st = key == null || key === CUR.key ? CUR : SETS.get(key); return !!(st && st.tabs.some((t) => t.kind === 'file' && samePath(t.path, f))); };
+  CG.viewer = { autoShow, toggle, setOpen, openFile, openPath, openUrl, quickOpen, handleLink, lightbox, isLocalHost, useSession, fresh, hasFile, get state() { return V; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })();

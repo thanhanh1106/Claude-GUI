@@ -594,6 +594,7 @@
             card.setResult(b.content, b.is_error);
             if (!b.is_error) this.trackEdit(card, m.tool_use_result || m.toolUseResult);
             if (!b.is_error && !hist && !this.replaying) this.autoPreview(card, b.content);
+            if (!b.is_error) { const su = serverUrl(card, b.content); if (su) card.previewBtn(su); } // như nút Open của bản desktop
             if (!hist && !this.replaying && CG.mascot && CG.mascot.onToolResult) CG.mascot.onToolResult(this, card, b);
             if (!hist && !this.replaying && !b.is_error && CG.autopilot) CG.autopilot.onToolResult(this, card);
             if (!hist && !this.replaying && this.nb && CG.nb) CG.nb.onToolResult(this, card, b);
@@ -639,36 +640,30 @@
     }
     // Giống bản desktop: Claude tạo tệp xem được (web, md, pdf, ảnh) hoặc chạy web localhost → mở luôn ở khung xem bên cạnh
     autoPreview(card, content) {
-      if (S.settings.autoPreview === false || this !== S.active || !CG.viewer) return;
+      if (S.settings.autoPreview === false || !CG.viewer) return;
       const inp = card.input || {};
-      const keepFocus = document.activeElement === els.input;
+      // phiên chạy nền: tab vào đúng phiên này (khung không bật lên), mở phiên ra mới thấy
+      const key = this.key, bg = this !== S.active;
+      const keepFocus = !bg && document.activeElement === els.input;
       // khung xem mở ra mà cột chat bị bóp quá hẹp → cất bảng chi tiết đi
-      const done = () => { if (keepFocus) els.input.focus(); requestAnimationFrame(() => { if (S.settings.showDetails && $('#chat-col').offsetWidth < 380) toggleDetails(false); }); };
+      const done = () => { if (bg) return; if (keepFocus) els.input.focus(); requestAnimationFrame(() => { if (S.settings.showDetails && $('#chat-col').offsetWidth < 380) toggleDetails(false); }); };
       if (card.name === 'Write' || card.name === 'Edit' || card.name === 'MultiEdit' || card.name === 'NotebookEdit') {
         const f = inp.file_path || inp.notebook_path;
         const ext = f ? (f.split('.').pop() || '').toLowerCase() : '';
         if (!AUTO_PREVIEW_EXT.has(ext)) return;
-        const open = CG.viewer.state.tabs.some((t) => t.kind === 'file' && samePath(t.path, f));
+        const open = CG.viewer.hasFile(key, f);
         // tệp mới ghi → mở (thay tab tự mở trước đó); sửa tệp đã mở sẵn → tab tự tải lại (watchFile)
-        if (card.name === 'Write' && !open) CG.viewer.autoShow({ file: f }).then(done, () => {});
+        if (card.name === 'Write' && !open) CG.viewer.autoShow({ file: f, key }).then(done, () => {});
         return;
       }
-      if (!/^(Bash|PowerShell|BashOutput|TaskOutput|Monitor)$/.test(card.name)) return;
-      this.previewed = this.previewed || new WeakSet();
-      const txt = resultText(content) + '\n' + (inp.command || '');
-      const m = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d{2,5})?(?:\/[^\s'"`<>)\]]*)?/i.exec(txt);
-      let url = m && m[0].replace(/0\.0\.0\.0/, 'localhost').replace(/[.,;:]+$/, '');
-      // server chạy nền (run_in_background) chưa in địa chỉ: đoán cổng từ lệnh (http.server 8000, --port 3000, -p 5173)
-      if (!url && inp.run_in_background && inp.command) {
-        const pm = /http\.server\s+(\d{2,5})|--port[= ](\d{2,5})|\s-p\s+(\d{2,5})\b|\bPORT=(\d{2,5})/.exec(inp.command);
-        if (pm && /(serve|server|dev|start|vite|next|http\.server|live-server|webpack|preview|flask|uvicorn|rails)/i.test(inp.command)) url = 'http://localhost:' + (pm[1] || pm[2] || pm[3] || pm[4]);
-      }
+      const url = serverUrl(card, content);
       if (!url) return;
+      this.previewed = this.previewed || new WeakSet();
       // cùng một lệnh in địa chỉ nhiều lần thì chỉ xử lý một lần; lần chạy sau (Claude sửa rồi chạy lại) → tải lại tab
       if (this.previewed.has(card)) return;
       this.previewed.add(card);
       // cùng server đã có tab → tải lại / chuyển sang địa chỉ mới; server khác → mở tab mới, đóng tab tự mở cũ
-      CG.viewer.autoShow({ url }).then(done, () => {});
+      CG.viewer.autoShow({ url, key }).then(done, () => {});
     }
     historyUserText(t, m) {
       if (m.isMeta) return;
@@ -911,6 +906,12 @@
           stat.prepend(h('span', { class: 'cnt' }, h('span', { class: 'add', text: '+' + c.add }), ' ', h('span', { class: 'del', text: '−' + c.del })));
           patch = hunks;
           if (built) renderInput();
+        },
+        previewBtn: (url) => {
+          if (card.pvBtn) { card.pvBtn.title = 'Mở xem trước: ' + url; card.pvUrl = url; return; }
+          card.pvUrl = url;
+          card.pvBtn = h('button', { class: 't-child t-pv', title: 'Mở xem trước: ' + url, onclick: (e) => { e.stopPropagation(); CG.viewer.openUrl(card.pvUrl); } }, icon('globe', 12), 'Mở xem trước');
+          stat.before(card.pvBtn);
         },
         stopped: () => { card.done = true; stat.innerHTML = ''; stat.append(h('span', { text: 'đã dừng' })); },
         addSub: (text) => {
@@ -2048,6 +2049,20 @@
     if (taskRunning(t)) return t.bg ? 'Đang chạy nền' : 'Đang chạy';
     return { completed: 'Xong', failed: 'Lỗi' }[t.status] || 'Đã dừng';
   }
+  // Lệnh chạy server in ra địa chỉ localhost → địa chỉ đó; server chạy nền chưa in gì → đoán cổng từ lệnh
+  function serverUrl(card, content) {
+    if (!/^(Bash|PowerShell|BashOutput|TaskOutput|Monitor)$/.test(card.name)) return '';
+    const inp = card.input || {};
+    const txt = resultText(content) + '\n' + (inp.command || '');
+    const m = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d{2,5})?(?:\/[^\s'"`<>)\]]*)?/i.exec(txt);
+    let url = m && m[0].replace(/0\.0\.0\.0/, 'localhost').replace(/[.,;:]+$/, '');
+    // server chạy nền (run_in_background) chưa in địa chỉ: đoán cổng từ lệnh (http.server 8000, --port 3000, -p 5173)
+    if (!url && inp.run_in_background && inp.command) {
+      const pm = /http\.server\s+(\d{2,5})|--port[= ](\d{2,5})|\s-p\s+(\d{2,5})\b|\bPORT=(\d{2,5})/.exec(inp.command);
+      if (pm && /(serve|server|dev|start|vite|next|http\.server|live-server|webpack|preview|flask|uvicorn|rails)/i.test(inp.command)) url = 'http://localhost:' + (pm[1] || pm[2] || pm[3] || pm[4]);
+    }
+    return url || '';
+  }
   function taskLine(t) {
     const secs = Math.max(0, Math.floor(((taskRunning(t) ? Date.now() : t.end || Date.now()) - t.start) / 1000));
     return [taskStatusText(t), t.tools ? `${t.tools} công cụ` : '', t.tokens ? `${fmtTok(t.tokens)} tokens` : '', fmtDur(secs),
@@ -2228,6 +2243,7 @@
     const row = h('div', { class: 'sess' + (active ? ' active' : '') + (side ? ' side' : '') + (starred ? ' starred' : ''), title: `${it.title}\n${it.cwd || ''}\n${relTime(it.mtime)}${bg ? `\n${bg} tác vụ đang chạy nền` : ''}${ext ? `\nĐang mở ở terminal khác (${ext.status === 'busy' ? 'đang chạy' : 'rảnh'})` : ''}` },
       h('span', { class: 'st ' + st }, st === 'ext' ? icon('terminal', 11) : null),
       h('span', { class: 's-title ellipsis', text: it.title }),
+      CG.viewer && CG.viewer.fresh(c ? c.key : it.id) ? h('span', { class: 's-vw', title: 'Có xem trước mới (tệp / trang web Claude vừa tạo) — mở phiên để xem' }) : null,
       CG.lark && CG.lark.unread(it.id) ? h('span', { class: 's-lark', text: String(CG.lark.unread(it.id)), title: 'Tin Lark chưa xem' }) : null,
       showProject && it.cwd ? h('span', { class: 's-proj ellipsis', text: basename(it.cwd) }) : null,
       kids.length ? h('button', {
@@ -2577,6 +2593,7 @@
     if (mcap) CG.motion.after(conv, mcap);
     if (CG.nb) CG.nb.onActivate(conv);
     if (CG.lark) CG.lark.onActivate(conv);
+    if (CG.viewer) CG.viewer.useSession(conv.key);
   }
   async function newSession(dir) {
     dir = dir || (S.active && S.active.cwd) || S.settings.lastDir || S.home;
@@ -2733,13 +2750,14 @@
     }
   }
   CG.checkUpdates = checkUpdates;
+  CG.renderSidebar = () => renderSidebar();
 
   // ---------- Shortcuts ----------
   const SHORTCUTS = [
     ['Ctrl N', 'Phiên mới'], ['Ctrl Tab / Ctrl Shift Tab', 'Phiên kế tiếp / trước'], ['Ctrl K', 'Tìm phiên'],
     ['Enter / Shift Enter', 'Gửi / xuống dòng'], ['Esc', 'Dừng Claude, từ chối yêu cầu đang chờ'], ['Shift Tab', 'Đổi chế độ quyền'],
     ['Ctrl Shift M', 'Menu chế độ quyền'], ['Ctrl Shift I', 'Chọn model'], ['Ctrl Shift E', 'Chỉnh effort'],
-    ['Ctrl O', 'Đổi chế độ xem (Bình thường / Chi tiết / Tóm tắt)'], ['Ctrl Shift D', 'Bảng Thay đổi'], ['Ctrl `', 'Ẩn/hiện terminal tích hợp'], ['Ctrl \\', 'Chia đôi màn hình (mở/đóng khung phải)'], ['Tab', 'Dùng câu gợi ý trong ô nhập'], ['Ctrl P', 'Mở nhanh tệp trong khung xem'], ['Ctrl Shift P', 'Ẩn/hiện khung xem tệp & web'],
+    ['Ctrl O', 'Đổi chế độ xem (Bình thường / Chi tiết / Tóm tắt)'], ['Ctrl Shift D', 'Bảng Thay đổi'], ['Ctrl `', 'Ẩn/hiện terminal tích hợp'], ['Ctrl \\', 'Chia đôi màn hình (mở/đóng khung phải)'], ['Tab', 'Dùng câu gợi ý trong ô nhập'], ['Ctrl P', 'Mở nhanh tệp trong khung xem'], ['Ctrl Shift B', 'Ẩn/hiện khung xem trước (mỗi phiên một bộ tab riêng)'],
     ['Ctrl B', 'Ẩn/hiện thanh bên'], ['Ctrl ,', 'Cài đặt'], ['Ctrl /', 'Danh sách phím tắt'], ['@', 'Nhắc tới tệp'], ['/', 'Lệnh slash'], ['F12', 'DevTools'],
   ];
   function showShortcuts() {

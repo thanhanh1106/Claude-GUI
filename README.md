@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.17.10-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.17.11-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -69,7 +69,8 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - Hộp xin quyền (Cho phép / Luôn cho phép / Từ chối / bảo Claude làm khác), trả lời câu hỏi trắc nghiệm, duyệt kế hoạch.
 - 3 chế độ xem: Bình thường / Chi tiết / Tóm tắt (`Ctrl O`).
 
-**Khung xem tệp & web** (nút con mắt trên thanh tiêu đề, `Ctrl+Shift+P`; `Ctrl+P` mở nhanh tệp trong dự án):
+**Khung xem tệp & web** (nút con mắt trên thanh tiêu đề, `Ctrl+Shift+B`; `Ctrl+P` mở nhanh tệp trong dự án):
+- **Mỗi phiên một bộ tab riêng** (giống app gốc): đổi phiên thì khung đổi theo, phiên chưa có xem trước thì khung đóng; mở lại phiên cũ (kể cả sau khi tắt app) vẫn thấy đúng tab của nó. Phiên chạy nền tạo tệp / bật server → tab vào đúng phiên đó, chấm xanh ở thanh bên, mở phiên ra là khung tự mở. Thẻ lệnh in địa chỉ `localhost` có nút **Mở xem trước**.
 - Bấm tên tệp trên thẻ công cụ (Read/Edit/Write), link tệp hoặc `đường/dẫn.cs:42` trong câu trả lời → mở ở khung bên phải: code tô màu + số dòng (nhảy tới dòng), markdown hiển thị đẹp (có nút Mã nguồn), ảnh, HTML/SVG xem trước. Tệp bị sửa → tự tải lại.
 - Link `localhost` / IP nội bộ → mở trang ngay trong khung, tương tác như trình duyệt (lùi/tiến/tải lại, ô địa chỉ, DevTools, mở ra trình duyệt ngoài). Gõ `3000` là ra `http://localhost:3000`. Web bên ngoài vẫn mở bằng trình duyệt (Ctrl+bấm link localhost cũng vậy).
 - Xem trước HTML chạy qua máy chủ cục bộ `127.0.0.1` (không phải `file://`) nên demo dùng `<script type="module">`, `fetch()`, tệp JSON… chạy như web thật. Xem **PDF** ngay trong khung. Trang localhost chưa bật server → tự thử lại trong ~1 phút.
