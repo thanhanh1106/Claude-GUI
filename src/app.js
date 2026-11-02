@@ -151,6 +151,7 @@
         this.stableLen = cut;
       }
       renderMd(this.tail, text.slice(this.stableLen), true);
+      if (CG.motion && CG.motion.ink) CG.motion.ink(this.tail, this.shown < this.target.length);
     }
   }
 
@@ -252,10 +253,12 @@
       const msg = h('input', { class: 'lim-msg', value: 'Giới hạn sử dụng đã hồi. Hãy làm tiếp phần việc còn dở cho xong.', spellcheck: 'false' });
       const ck = h('input', { type: 'checkbox' });
       ck.checked = on;
-      const left = h('b', { class: 'lim-left' }), atEl = h('b'), bar = h('i');
+      const left = h('b', { class: 'lim-left' }), atEl = h('b');
+      // vòng đếm ngược quanh biểu tượng đồng hồ (phần còn lại co dần), tới giờ gửi thì loé xanh
+      const ring = h('div', { class: 'lim-ring', html: '<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15" class="bg"/><circle cx="18" cy="18" r="15" class="fg" pathLength="100" stroke-dasharray="100" transform="rotate(-90 18 18)"/></svg>' }, icon('clock', 14));
+      const bar = ring.querySelector('.fg');
       const card = h('div', { class: 'limit-card' },
-        h('div', { class: 'lim-t' }, icon('clock', 15), h('span', { text: /tuần|week/i.test(text) ? 'Đã hết giới hạn tuần' : 'Đã hết giới hạn sử dụng' }), h('span', { class: 'spacer' }), h('span', { class: 'lim-at' }, 'hồi lúc ', atEl, ' · còn ', left)),
-        h('div', { class: 'lim-bar' }, bar),
+        h('div', { class: 'lim-t' }, ring, h('span', { text: /tuần|week/i.test(text) ? 'Đã hết giới hạn tuần' : 'Đã hết giới hạn sử dụng' }), h('span', { class: 'spacer' }), h('span', { class: 'lim-at' }, 'hồi lúc ', atEl, ' · còn ', left)),
         this.managed ? h('div', { class: 'note', text: 'Phiên này do Lịch & hàng đợi / dự án tự động điều khiển — kế hoạch sẽ tự chạy tiếp khi giới hạn hồi.' })
           : h('label', { class: 'chk' }, ck, ' Tự chạy tiếp khi giới hạn hồi'),
         this.managed ? null : h('div', { class: 'lim-row' }, h('span', { class: 'muted', text: 'Lời nhắn sẽ gửi:' }), msg,
@@ -755,6 +758,7 @@
       if (CG.mascot && CG.mascot.onTurnEnd) CG.mascot.onTurnEnd(this, { failed, stopped, long, ms: Date.now() - (this.turnStart || Date.now()) });
       if (CG.git) CG.git.onTurnEnd(this);
       this.setBusy(false);
+      if (CG.suggest) CG.suggest.onTurnEnd(this, m, failed);
       if (this.nb && CG.nb) CG.nb.onResult(this, m, failed);
       if (!this.nb && !failed && CG.lark) CG.lark.onResult(this, m);
       if (this.flushRedirect()) return;
@@ -876,6 +880,9 @@
       const el = h('div', { class: 'tool' + (S.settings.viewMode === 'verbose' ? ' open' : '') }, head, sub, body);
       // /code-review: kết quả báo qua công cụ ReportFindings → thẻ danh sách vấn đề có nút xử lý (giống bản desktop)
       if (name === 'ReportFindings' && CG.parity) { el.classList.add('rv-tool'); el.insertBefore(CG.parity.reviewCard(this, inp), sub); }
+      // Claude gợi ý việc ngoài phạm vi (MCP nội bộ claude-gui) → thẻ Mở phiên mới / Làm ở đây / Lưu vào hàng đợi
+      if (name === 'mcp__claude-gui__suggest_task' && CG.suggest) { el.classList.add('rv-tool', 'sg-tool'); el.insertBefore(CG.suggest.card(this, inp), sub); }
+      if (name === 'mcp__claude-gui__withdraw_task' && CG.suggest) { el.classList.add('sg-tool-w'); CG.suggest.withdraw(this, inp); }
       // Nội dung thẻ (diff, output) chỉ dựng khi mở ra — phiên dài có hàng nghìn thẻ công cụ
       let built = false, result = null, patch = null;
       const renderInput = () => {
@@ -1148,9 +1155,9 @@
     }
 
     // --- lịch sử dài: dựng DOM theo từng đoạn
-    loadHistory(entries) {
+    loadHistory(entries, chunk) {
       this.hist = entries;
-      const start = histChunkStart(entries, entries.length);
+      const start = histChunkStart(entries, entries.length, chunk);
       this.scanHistory(entries, start);
       this.histStart = start;
       this.replay(entries.slice(start));
@@ -1181,9 +1188,9 @@
     }
     hasOlder() { return (this.hist && this.histStart > 0) || !!(this.remote && this.remote.end > 0); }
     // Dựng đoạn lịch sử liền trước phần đang hiển thị (lấy từ phần cuối đã có, hoặc xin tiến trình chính)
-    renderOlder() {
+    renderOlder(chunk) {
       if (this.hist && this.histStart > 0) {
-        const end = this.histStart, start = histChunkStart(this.hist, end);
+        const end = this.histStart, start = histChunkStart(this.hist, end, chunk);
         this.histStart = start;
         this.prependEntries(this.hist.slice(start, end));
         return true;
@@ -1275,8 +1282,8 @@
   // hoặc đầu một tin nhắn assistant ngay sau kết quả công cụ) để tool_use và tool_result không bị tách.
   const HIST_CHUNK = 150;
   const isToolResultEntry = (e) => Array.isArray(e.message && e.message.content) && e.message.content.some((b) => b && b.type === 'tool_result');
-  function histChunkStart(entries, end) {
-    let i = Math.max(0, end - HIST_CHUNK);
+  function histChunkStart(entries, end, chunk) {
+    let i = Math.max(0, end - (chunk || HIST_CHUNK));
     while (i > 0) {
       const e = entries[i], p = entries[i - 1];
       if (e.type === 'system') break;
@@ -1492,7 +1499,7 @@
     const p2 = (n) => String(n).padStart(2, '0'), d = new Date(a.at);
     a.atEl.textContent = `${p2(d.getHours())}:${p2(d.getMinutes())}${d.toDateString() !== new Date().toDateString() ? ` ${d.getDate()}/${d.getMonth() + 1}` : ''}${a.guess ? ' (ước tính)' : ''}`;
     a.left.textContent = fmtLeft(a.at - Date.now());
-    a.bar.style.width = Math.min(100, ((Date.now() - a.t0) / Math.max(1, a.at - a.t0)) * 100) + '%';
+    a.bar.style.strokeDashoffset = Math.min(100, ((Date.now() - a.t0) / Math.max(1, a.at - a.t0)) * 100);
   }
   // mỗi giây: cập nhật đồng hồ; tới giờ → gửi lời nhắn vào đúng phiên (kể cả phiên đã đóng / app vừa mở lại)
   let arBusy = false;
@@ -2283,6 +2290,8 @@
       map.set(c.sid, it);
     }
     let arr = [...map.values()].filter((it) => isArchived(it.id) === showArchived);
+    // phiên con mở từ thẻ gợi ý việc: nằm dưới phiên cha (nếu phiên cha đang trong danh sách)
+    if (CG.suggest) { const ids = new Set(arr.map((it) => it.id)); arr = arr.filter((it) => { const p = CG.suggest.parentOf(it.id); return !p || !ids.has(p) || !!q; }); }
     if (S.filter === 'running') arr = arr.filter((it) => (it.conv && it.conv.working) || S.extMap.has(it.id));
     if (q) arr = arr.filter((it) => it.title.toLowerCase().includes(q) || (it.cwd || '').toLowerCase().includes(q));
     return arr.sort((a, b) => b.mtime - a.mtime);
@@ -2301,11 +2310,12 @@
       if (x.running) x.mtime = Date.now();
       map.set(t.id, x);
     }
+    if (CG.suggest) for (const k of CG.suggest.kidsOf(it.id)) map.set('sp:' + k.id, k);
     return [...map.values()].sort((a, b) => (b.running ? 1 : 0) - (a.running ? 1 : 0) || b.mtime - a.mtime);
   }
   function treeOpen(it, kids) {
     if (it.id in treeState) return treeState[it.id];
-    return kids.some((k) => k.running) || !!(S.active && S.active.child && S.active.parentId === it.id);
+    return kids.some((k) => k.running || k.fresh) || !!(S.active && S.active.child && S.active.parentId === it.id);
   }
   function childRow(ch, last) {
     const active = S.active && S.active.sid === ch.id;
@@ -2313,9 +2323,10 @@
     const t = ch.task;
     const row = h('div', { class: 'sess child' + (active ? ' active' : '') + (side ? ' side' : '') + (last ? ' last' : ''), 'data-parent': ch.parentId || '',
       title: [ch.title, ch.agentType ? `Tác tử: ${ch.agentType}` : '', t ? taskLine(t) : '', relTime(ch.mtime)].filter(Boolean).join('\n') },
-      h('span', { class: 'st ' + (ch.running ? 'run' : '') }, ch.running ? null : icon('bot', 12)),
+      h('span', { class: 'st ' + (ch.running ? 'run' : '') }, ch.running ? null : icon(ch.spawned ? 'branch' : 'bot', 12)),
       h('span', { class: 's-title ellipsis', text: ch.title }),
       ch.agentType && ch.agentType !== 'general-purpose' ? h('span', { class: 's-proj ellipsis', text: ch.agentType }) : null,
+      ch.spawned && ch.branch ? h('span', { class: 's-proj ellipsis', text: ch.branch, title: 'Nhánh git riêng' }) : null,
       h('span', { class: 's-time', text: ch.running ? 'đang chạy' : relTime(ch.mtime, true) }));
     row.onclick = (e) => { if (e.ctrlKey) openSide(ch); else openSession(ch); };
     row.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); openSide(ch); } };
@@ -2374,6 +2385,7 @@
     more.onclick = (e) => { e.stopPropagation(); sessionMenu(it, more); };
     // Ctrl+bấm hoặc bấm chuột giữa → mở ở khung bên phải
     row.dataset.sid = it.id;
+    if (!c) { row.onmouseenter = () => { clearTimeout(row._pf); row._pf = setTimeout(() => prefetchTail(it), 120); }; row.onmouseleave = () => clearTimeout(row._pf); }
     row.onclick = (e) => { if (e.target.closest('.s-more, .s-star')) return; if (e.ctrlKey) openSide(it); else openSession(it); };
     row.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); openSide(it); } };
     row.oncontextmenu = (e) => { e.preventDefault(); sessionMenu(it, pointAnchor(e.clientX, e.clientY)); };
@@ -2733,13 +2745,19 @@
       const pref = !it.child && sessPrefs()[it.id];
       if (pref) { if (pref.model) conv.model = pref.model; conv.effort = pref.effort || ''; }
       if (opts.onCreate) opts.onCreate(conv);
-      if (!opts.background) activate(conv);
-      const loading = h('div', { class: 'note', text: 'Đang tải lịch sử…' });
-      conv.root.append(loading);
-      // Đọc phần cuối tệp trước (hiện ngay), phần cũ hơn đọc nền
-      const tail = await api.loadSessionTail(it.id, it.cwd);
-      loading.remove();
-      conv.loadHistory(tail.entries);
+      const fg = !opts.background;
+      if (fg) activate(conv);
+      // Phiên chưa có trong bộ nhớ: viên chọn + tiêu đề đổi ngay; chờ quá 150 ms thì hiện khối xương (vệt sáng chạy bằng
+      // transform nên vẫn mượt khi đang dựng nội dung); nạp xong mới cho nội dung hiện so le — không chạy hiệu ứng trên khung trống.
+      let sk = null;
+      const skT = fg ? setTimeout(() => { if (!conv.count && S.active === conv) { sk = convSkeleton(); conv.root.append(sk); } }, 150) : 0;
+      if (fg) document.body.classList.add('m-hist');
+      // Đọc phần cuối tệp trước (hiện ngay), phần cũ hơn đọc nền — đã đọc sẵn lúc rê chuột thì lấy luôn
+      const tail = (await takePrefetch(it)) || (await api.loadSessionTail(it.id, it.cwd));
+      clearTimeout(skT);
+      if (sk) sk.remove();
+      // lần đầu chỉ dựng ~1 màn hình (40 mục) cho nhanh; phần cũ hơn dựng khi cuộn lên
+      conv.loadHistory(tail.entries, fg ? 40 : 0);
       if (tail.offset > 0) conv.fetchOlder(it, tail.offset);
       // Tiếp tục bằng đúng model mà phiên này đang dùng (lựa chọn trong GUI mới hơn lịch sử thì ưu tiên lựa chọn đó)
       const used = conv.modelName && models().find((m) => m.value !== 'default' && m.resolvedModel === conv.modelName);
@@ -2762,14 +2780,53 @@
         sc.scrollTop = sc.scrollHeight;
       }
       // Người dùng đã bấm sang phiên khác trong lúc đang tải → không giật về phiên này
-      if (opts.background || S.active !== conv) return conv;
+      if (opts.background || S.active !== conv) { if (fg) document.body.classList.remove('m-hist'); return conv; }
       activate(conv);
       // Phiên ngắn trên màn hình lớn: dựng thêm cho đầy khung
-      for (let n = 0; n < 4 && S.active === conv && conv.histStart > 0 && els.scroller.scrollHeight <= els.scroller.clientHeight + 200; n++) conv.renderOlder();
+      for (let n = 0; n < 6 && S.active === conv && conv.histStart > 0 && els.scroller.scrollHeight <= els.scroller.clientHeight + 200; n++) conv.renderOlder(40);
+      els.scroller.scrollTop = els.scroller.scrollHeight;
+      conv.openedAt = Date.now();
+      revealConv(conv);
+      requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('m-hist')));
       return conv;
     }
     if (!opts.background) activate(conv);
     return conv;
+  }
+
+  function convSkeleton() {
+    const sk = h('div', { class: 'conv-skel' },
+      h('div', { class: 'skel u' }), h('div', { class: 'skel', style: 'width:88%' }), h('div', { class: 'skel', style: 'width:70%' }),
+      h('div', { class: 'skel card' }), h('div', { class: 'skel card' }), h('div', { class: 'skel', style: 'width:80%' }), h('div', { class: 'skel', style: 'width:62%' }),
+      h('div', { class: 'skel u' }), h('div', { class: 'skel', style: 'width:84%' }), h('div', { class: 'skel card' }));
+    if (CG.motion && CG.motion.on()) sk.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120 });
+    return sk;
+  }
+  // nội dung vừa nạp: các khối đang thấy hiện so le từ dưới lên (sau khi đã dựng xong, không trong lúc đang bận)
+  function revealConv(conv) {
+    if (!CG.motion || !CG.motion.on()) return;
+    requestAnimationFrame(() => {
+      if (S.active !== conv) return;
+      const vr = els.scroller.getBoundingClientRect();
+      const kids = [...conv.root.children].filter((k) => { const r = k.getBoundingClientRect(); return r.height > 0 && r.bottom > vr.top && r.top < vr.bottom; }).slice(-8);
+      kids.forEach((k, i) => k.animate([{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }], { duration: 300, delay: 30 + 35 * i, fill: 'backwards', easing: 'cubic-bezier(.2,.8,.2,1)' }));
+    });
+  }
+  // Rê chuột lên một phiên ~120 ms → đọc trước phần cuối của nó (giữ 8 phiên gần nhất) để bấm vào là hiện ngay
+  const PF = new Map();
+  function prefetchTail(it) {
+    if (!it || it.child || [...S.convs.values()].some((c) => c.sid === it.id)) return;
+    const x = PF.get(it.id);
+    if (x && x.mtime === it.mtime && Date.now() - x.t < 120000) return;
+    PF.delete(it.id);
+    PF.set(it.id, { mtime: it.mtime, t: Date.now(), p: api.loadSessionTail(it.id, it.cwd).catch(() => null) });
+    while (PF.size > 8) PF.delete(PF.keys().next().value);
+  }
+  function takePrefetch(it) {
+    const x = PF.get(it.id);
+    PF.delete(it.id);
+    if (!x || x.mtime !== it.mtime || Date.now() - x.t > 120000) return null;
+    return x.p;
   }
 
   // Phiên con đang chạy: tệp transcript lớn dần → tải lại phần hiển thị khi tệp đổi (theo dõi bằng fs.watch)
@@ -3297,7 +3354,8 @@
       S.stick = s.scrollHeight - s.scrollTop - s.clientHeight < 60;
       // Cuộn gần lên đầu → dựng thêm đoạn lịch sử cũ hơn
       const c = S.active;
-      if (c && c.hasOlder() && s.scrollTop < 500 && !S.loadingOlder) {
+      // (vừa mở phiên: cuộn do chính app đặt vị trí → không tự dựng thêm, tránh khựng ngay lúc hiện nội dung)
+      if (c && c.hasOlder() && s.scrollTop < 500 && !S.loadingOlder && !(c.openedAt && Date.now() - c.openedAt < 900) && !document.body.classList.contains('m-hist')) {
         S.loadingOlder = true;
         requestAnimationFrame(() => { try { if (S.active === c) c.renderOlder(); } finally { S.loadingOlder = false; } });
       }

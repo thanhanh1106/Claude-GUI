@@ -218,7 +218,15 @@
         else if (node.kind === 'new') {
           if (!node.cwd) throw new Error(`Bước ${i + 1}: chưa chọn thư mục dự án`);
           const dirs = node.atts.filter((a) => a.kind === 'dir' || (a.kind === 'repo' && /^[a-zA-Z]:[\\/]|^\//.test(a.path))).map((a) => a.path);
-          c = await A().createConv({ cwd: node.cwd, model: node.model, effort: node.effort, mode: node.mode, agent: node.agent, addDirs: dirs });
+          // việc gợi ý lưu vào hàng đợi (quy trình "sửa lỗi ở nhánh riêng"): tạo worktree trên nhánh mới rồi chạy ở đó
+          let cwd = node.cwd;
+          if (node.branch) {
+            const w = await api.gitWorktree({ cwd: node.cwd, branch: node.branch, base: node.base });
+            if (!w || !w.ok) throw new Error(`Bước ${i + 1}: không tạo được nhánh ${node.branch} — ${(w && w.error) || ''}`);
+            cwd = w.path;
+          }
+          c = await A().createConv({ cwd, model: node.model, effort: node.effort, mode: node.mode, agent: node.agent, addDirs: dirs, title: node.title });
+          if (p.suggest && CG.suggest) CG.suggest.linkChild(c.sid, p.suggest.from, node.title || p.name, node.branch);
         } else {
           const sid = node.target === 'prev' ? (i > 0 ? r.sids[i - 1] : p.trig.sess && p.trig.sess.id) : node.target;
           if (!sid) throw new Error(`Bước ${i + 1}: không có phiên để nối tiếp`);
@@ -251,6 +259,12 @@
           ok = false; break;
         }
         r.st[i] = end.kind === 'done' ? 'done' : 'err';
+        // xong thì tạo Merge Request / PR cho nhánh riêng (Claude đã push theo hướng dẫn trong prompt)
+        if (end.kind === 'done' && node.finish === 'mr' && node.branch) {
+          const pr = await api.prCreate(c.cwd, node.title || node.branch).catch((e) => ({ ok: false, error: e.message }));
+          r.note = pr && pr.ok ? `Đã tạo MR / PR: ${pr.url}` : `Chưa tạo được MR / PR: ${(pr && pr.error) || ''}`;
+          if (pr && pr.ok) notify('Claude GUI · đã tạo MR', `${p.name}: ${pr.url}`);
+        }
         save(); render();
         if (end.kind !== 'done' && node.cond !== 'any') { r.state = 'error'; r.note = `Bước ${i + 1} ${end.kind === 'stopped' ? 'đã bị dừng' : 'gặp lỗi'} — các bước sau không chạy.`; ok = false; notify('Claude GUI · kế hoạch dừng', `${p.name}: ${r.note}`); break; }
         if (i < p.nodes.length - 1 && (node.cond === 'wait' || node.cond === 'reset')) {
@@ -401,6 +415,7 @@
     const st = ST[(p.run.st && p.run.st[i]) || 'wait'] || ST.wait;
     const chips = [];
     if (n.kind === 'new') chips.push(['folder', n.cwd ? basename(n.cwd) : '(chưa chọn thư mục)'], ['bot', n.agent || 'agent mặc định'], ['sparkles', n.model ? modelName(n.model) : 'model mặc định']);
+    if (n.branch) chips.push(['branch', `nhánh ${n.branch}${n.base ? ' từ ' + n.base : ''}${n.finish === 'mr' ? ' · push + MR' : ' · commit'}`]);
     else chips.push(['cornerDownRight', n.target === 'prev' ? (i === 0 ? `phiên “${(p.trig.sess && p.trig.sess.title) || '?'}”` : 'phiên của bước trước') : `phiên “${n.targetTitle || n.target.slice(0, 8)}”`]);
     chips.push(['zap', modeName(n.mode)], ['gauge', n.effort ? CG.effortLabel(n.effort) : 'effort mặc định']);
     const el = h('div', { class: 'sc-node' + (U.node === i ? ' sel' : '') + (st[2] ? ' ' + st[2] : '') },
@@ -626,6 +641,19 @@
     if (!o.quiet) toast(`Đã xếp vào hàng đợi (bước ${p.nodes.length}). Phiên này xong thì tự gửi.`);
     return p;
   }
+  // việc Claude gợi ý (thẻ trong chat) → kế hoạch một bước "Phiên mới", có thể chạy trên nhánh git riêng
+  function addSuggest(o) {
+    const node = newNode('new', { prompt: o.prompt, display: '🛠 ' + o.title, title: o.title, cwd: o.cwd, mode: o.mode || 'acceptEdits', model: o.model || '', branch: o.branch || '', base: o.base || '', finish: o.finish || '' });
+    const p = newPlan({ name: '🛠 ' + String(o.title || 'Việc gợi ý').slice(0, 70), nodes: [node], suggest: { from: o.fromSid, fromTitle: o.fromTitle } });
+    if (o.when === 'after') p.trig = { ...p.trig, type: 'after', sess: { id: o.fromSid, title: o.fromTitle || o.fromSid } };
+    else if (o.when === 'reset5') p.trig = { ...p.trig, type: 'reset5' };
+    else if (o.when === 'at') p.trig = { ...p.trig, type: 'at' };
+    else p.trig = { ...p.trig, type: 'now' };
+    p.armedAt = Date.now();
+    D.plans.unshift(p); save(); render();
+    if (o.when === 'at') { openPage(p.id); U.node = 'trig'; render(); }
+    return p;
+  }
   function scheduleSend(c, text, atts) {
     const p = newPlan({ name: `Gửi hẹn giờ: ${(c.title || 'phiên').slice(0, 40)}`, nodes: [newNode('cont', { prompt: text, atts, target: c.sid, targetTitle: c.title || c.sid, mode: c.mode, cwd: c.cwd })] });
     D.plans.unshift(p); save();
@@ -835,5 +863,5 @@
     setTimeout(() => whatsNew(false), 1500);
   }, 100);
 
-  CG.sched = { queueAfter, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
+  CG.sched = { queueAfter, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
 })();

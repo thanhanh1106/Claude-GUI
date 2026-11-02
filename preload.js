@@ -80,6 +80,8 @@ contextBridge.exposeInMainWorld('api', {
   prInfo: inv('pr:info'),
   prFix: inv('pr:fix'),
   prMerge: inv('pr:merge'),
+  gitBases: inv('git:bases'),
+  gitWorktree: inv('git:worktree'),
   prCreate: inv('pr:create'),
   gitlabGet: inv('gitlab:get'),
   gitlabSet: inv('gitlab:set'),

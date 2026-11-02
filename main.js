@@ -300,7 +300,44 @@ const XS_TOOLS = [
   { name: 'list_sessions', description: 'List the other recent Claude GUI sessions on this machine (id, title, project folder, running or idle). Use it to find a session to read or message.', inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max sessions (default 20)' } } } },
   { name: 'read_session', description: 'Read the recent conversation (user and assistant messages) of another Claude GUI session. `session` = id, 8-char id prefix, or part of its title.', inputSchema: { type: 'object', properties: { session: { type: 'string' }, last_turns: { type: 'number', description: 'How many recent messages (default 16, max 60)' } }, required: ['session'] } },
   { name: 'send_to_session', description: 'Send a message to another Claude GUI session (e.g. tell the backend session that the API changed). The message is shown to the user in that session as a card; the user decides whether to send it to that session\'s Claude.', inputSchema: { type: 'object', properties: { session: { type: 'string' }, message: { type: 'string' } }, required: ['session', 'message'] } },
+  { name: 'suggest_task', description: 'Suggest one or more tasks OUTSIDE the scope of the current work (a real bug, security hole, broken behaviour, risky code you noticed). The user sees a card in this chat with buttons: start it in a new child session, do it here, or save it to the schedule queue to fix later on its own git branch. Do not fix suggested work in this session unless the user asks. Every field is required and must be concrete — the user decides from your reasoning and evidence alone.',
+    inputSchema: { type: 'object', required: ['tasks'], properties: { tasks: { type: 'array', minItems: 1, maxItems: 6, items: { type: 'object',
+      required: ['title', 'summary', 'severity', 'category', 'why', 'evidence', 'impact', 'why_not_here', 'fix', 'prompt', 'branch'],
+      properties: {
+        title: { type: 'string', description: 'Short title (max ~70 chars), in the user\'s language' },
+        summary: { type: 'string', description: '1-2 sentences: what is wrong, concretely' },
+        severity: { type: 'string', enum: ['high', 'medium', 'low'], description: 'high = data loss / security / crash / wrong money; medium = wrong behaviour; low = cleanup / perf' },
+        category: { type: 'string', description: 'e.g. bug, security, performance, cleanup, tests (user\'s language)' },
+        why: { type: 'string', description: 'Why this is a problem — the root cause, not just the symptom' },
+        evidence: { type: 'array', minItems: 1, description: 'Code you actually read that proves it', items: { type: 'object', required: ['file', 'start_line', 'code'], properties: {
+          file: { type: 'string', description: 'Repo-relative path' }, start_line: { type: 'number', description: 'Line number of the first line of `code`' },
+          code: { type: 'string', description: 'Exact excerpt, 1-8 lines, copied from the file' }, highlight_line: { type: 'number', description: 'The line (absolute number) that is wrong' } } } },
+        impact: { type: 'string', description: 'Who/what is affected and how badly (call sites, users, data)' },
+        why_not_here: { type: 'string', description: 'Why it should not be fixed inside the current task' },
+        fix: { type: 'string', description: 'Direction of the fix' },
+        prompt: { type: 'string', description: 'Self-contained prompt for a fresh session that will NOT see this conversation: the problem, files/lines (repo-relative), steps, how to verify, what not to touch' },
+        branch: { type: 'string', description: 'Git branch name for the fix, e.g. fix/format-price-rounding (lowercase, a-z0-9/-)' },
+      } } } } } },
+  { name: 'withdraw_task', description: 'Withdraw a task you suggested earlier with suggest_task in this session that is now stale (you had to fix it here after all, or it turned out to be wrong). Has no effect if the user already acted on it.',
+    inputSchema: { type: 'object', required: ['title', 'reason'], properties: { title: { type: 'string', description: 'Title of the suggested task (as given)' }, reason: { type: 'string' } } } },
 ];
+const XS_CROSS = ['list_sessions', 'read_session', 'send_to_session'];
+const SUGGEST_RULE = 'While working, if you notice a real problem OUTSIDE the scope of the current task (a bug, security hole, broken behaviour, risky code) that you verified by reading the code, do not fix it in this session and do not only mention it in passing: call the `suggest_task` tool of the claude-gui MCP server (several tasks can go in one call) with a thorough reason, exact evidence (file, line, code excerpt), impact, why it is out of scope, the fix direction, a self-contained prompt for a fresh session and a git branch name. Then continue the current task. Do not suggest style nits or things you have not verified. If a suggestion becomes stale, call `withdraw_task`.';
+function xsTools() { return XS_TOOLS.filter((t) => (XS_CROSS.includes(t.name) ? settings.crossSession !== false : settings.suggestTasks !== false)); }
+function checkSuggest(a) {
+  const tasks = Array.isArray(a && a.tasks) ? a.tasks : [];
+  if (!tasks.length) return 'tasks is empty';
+  const need = ['title', 'summary', 'severity', 'category', 'why', 'impact', 'why_not_here', 'fix', 'prompt', 'branch'];
+  const errs = [];
+  tasks.forEach((t, i) => {
+    const miss = need.filter((k) => !t || typeof t[k] !== 'string' || !t[k].trim());
+    if (!Array.isArray(t && t.evidence) || !t.evidence.length || t.evidence.some((e) => !e || !e.file || !e.code)) miss.push('evidence (file, start_line, code)');
+    if (t && t.severity && !['high', 'medium', 'low'].includes(t.severity)) miss.push('severity must be high|medium|low');
+    if (t && t.branch && !/^[\w.\/-]+$/.test(t.branch)) miss.push('branch has invalid characters');
+    if (miss.length) errs.push(`task ${i + 1} (${(t && t.title) || '?'}): missing/invalid ${miss.join(', ')}`);
+  });
+  return errs.join('\n');
+}
 // hỏi renderer (danh sách phiên đang hiện, gửi thẻ tin nhắn) rồi chờ trả lời
 function xsAsk(op, args) {
   return new Promise((resolve) => {
@@ -332,6 +369,14 @@ function sessionTailText(id, n) {
 }
 async function xsCall(key, name, a) {
   a = a || {};
+  if (name === 'suggest_task') {
+    if (settings.suggestTasks === false) return { error: 'The user turned off task suggestions.' };
+    const bad = checkSuggest(a);
+    if (bad) return { error: 'Suggestion rejected — fill every field concretely and call suggest_task again:\n' + bad };
+    return `Shown to the user as a card with ${a.tasks.length} suggested task(s) (start in a new session / do it here / save to the queue on its own branch). Do not work on them here unless the user asks; continue the current task.`;
+  }
+  if (name === 'withdraw_task') return 'Withdrawn (if the user had not acted on it yet).';
+  if (XS_CROSS.includes(name) && settings.crossSession === false) return { error: 'The user turned off cross-session tools.' };
   if (name === 'list_sessions') {
     const r = await xsAsk('list', { key, limit: a.limit });
     return r.error ? r.error : JSON.stringify(r.items || [], null, 1);
@@ -360,8 +405,12 @@ function xsStart() {
         try {
           if (q.method === 'initialize') return { jsonrpc: '2.0', id: q.id, result: { protocolVersion: (q.params && q.params.protocolVersion) || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'claude-gui', version: app.getVersion() } } };
           if (q.method === 'ping') return { jsonrpc: '2.0', id: q.id, result: {} };
-          if (q.method === 'tools/list') return { jsonrpc: '2.0', id: q.id, result: { tools: XS_TOOLS } };
-          if (q.method === 'tools/call') { const t = await xsCall(m[2], q.params && q.params.name, q.params && q.params.arguments); return { jsonrpc: '2.0', id: q.id, result: { content: [{ type: 'text', text: String(t) }] } }; }
+          if (q.method === 'tools/list') return { jsonrpc: '2.0', id: q.id, result: { tools: xsTools() } };
+          if (q.method === 'tools/call') {
+            const t = await xsCall(m[2], q.params && q.params.name, q.params && q.params.arguments);
+            const err = t && typeof t === 'object' && t.error;
+            return { jsonrpc: '2.0', id: q.id, result: { content: [{ type: 'text', text: String(err || t) }], ...(err ? { isError: true } : {}) } };
+          }
           return { jsonrpc: '2.0', id: q.id, error: { code: -32601, message: 'Method not found' } };
         } catch (e) { return { jsonrpc: '2.0', id: q.id, error: { code: -32603, message: e.message } }; }
       };
@@ -375,7 +424,7 @@ function xsStart() {
   XS.server.listen(0, '127.0.0.1', () => { XS.port = XS.server.address().port; });
 }
 function xsConfig(key) {
-  if (!XS.port || settings.crossSession === false) return '';
+  if (!XS.port || (settings.crossSession === false && settings.suggestTasks === false)) return '';
   const d = path.join(app.getPath('userData'), 'xs'); fs.mkdirSync(d, { recursive: true });
   const f = path.join(d, String(key).replace(/[^\w-]/g, '') + '.json');
   fs.writeFileSync(f, JSON.stringify({ mcpServers: { 'claude-gui': { type: 'http', url: `http://127.0.0.1:${XS.port}/mcp/${XS.token}/${key}` } } }), 'utf8');
@@ -742,7 +791,7 @@ function startSession(key, o) {
   if (pd) args.push('--plugin-dir', pd);
   if (o.systemPrompt) args.push('--system-prompt', o.systemPrompt);
   else {
-    const sp = [systemPromptExtra(), typeof o.appendPrompt === 'string' ? o.appendPrompt : ''].filter(Boolean).join('\n\n');
+    const sp = [systemPromptExtra(), xsf && settings.suggestTasks !== false ? SUGGEST_RULE : '', typeof o.appendPrompt === 'string' ? o.appendPrompt : ''].filter(Boolean).join('\n\n');
     if (sp) args.push('--append-system-prompt', sp);
   }
   // Gợi ý câu nhắn tiếp theo sau mỗi lượt (giống bản desktop): CLI phát message prompt_suggestion
@@ -2673,6 +2722,44 @@ function registerIpc() {
   ipcMain.handle('pr:fix', (_e, cwd) => prFixContext(cwd).catch((e) => ({ error: e.message })));
   ipcMain.handle('pr:merge', (_e, cwd) => prMergeWhenReady(cwd));
   ipcMain.handle('pr:create', (_e, cwd, title, target) => prCreate(cwd, title, target));
+  // Việc gợi ý / hàng đợi theo quy trình "sửa lỗi ở nhánh riêng": nhánh gốc có thể chọn + tạo worktree trên nhánh mới
+  ipcMain.handle('git:bases', async (_e, cwd) => {
+    const top = await run('git', ['rev-parse', '--show-toplevel'], { cwd });
+    if (top.code !== 0) return { ok: false };
+    const root = top.stdout.trim();
+    const cur = (await run('git', ['branch', '--show-current'], { cwd })).stdout.trim();
+    const loc = (await run('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads'], { cwd: root })).stdout.split(/\r?\n/).filter(Boolean);
+    const head = (await run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { cwd: root })).stdout.trim().replace(/^origin\//, '');
+    const def = head || ['main', 'master', 'develop'].find((b) => loc.includes(b)) || cur || 'main';
+    const pref = [def, 'main', 'master', 'develop', cur].filter((b, i, a) => b && a.indexOf(b) === i && (loc.includes(b) || b === def));
+    return { ok: true, root, current: cur, def, branches: [...pref, ...loc.filter((b) => !pref.includes(b))].slice(0, 30) };
+  });
+  ipcMain.handle('git:worktree', async (_e, o) => {
+    o = o || {};
+    const branch = String(o.branch || '').trim();
+    if (!/^[\w.\/-]+$/.test(branch) || /\.\.|^[-/]|\/$/.test(branch)) return { ok: false, error: 'Tên nhánh không hợp lệ: ' + branch };
+    const top = await run('git', ['rev-parse', '--show-toplevel'], { cwd: o.cwd });
+    if (top.code !== 0) return { ok: false, error: 'Thư mục không phải repo git' };
+    const root = path.normalize(top.stdout.trim());
+    // giữ đúng thư mục con của phiên (repo nhiều dự án con)
+    const rel = path.relative(root, path.normalize(o.cwd || root));
+    const dir = path.join(root, '.claude', 'worktrees', branch.replace(/[\\/]+/g, '-'));
+    const out = (p) => ({ ok: true, path: rel && !rel.startsWith('..') ? path.join(p, rel) : p, root: p, branch });
+    if (fs.existsSync(path.join(dir, '.git'))) return out(dir);
+    try { const ex = path.join(root, '.git', 'info', 'exclude'); const s = fs.existsSync(ex) ? fs.readFileSync(ex, 'utf8') : ''; if (!/^\/?\.claude\/worktrees\/?$/m.test(s)) { fs.mkdirSync(path.dirname(ex), { recursive: true }); fs.appendFileSync(ex, (s && !s.endsWith('\n') ? '\n' : '') + '.claude/worktrees/\n'); } } catch {}
+    const exists = (await run('git', ['rev-parse', '--verify', '--quiet', 'refs/heads/' + branch], { cwd: root })).code === 0;
+    let r;
+    if (exists) r = await run('git', ['worktree', 'add', dir, branch], { cwd: root, timeout: 120000 });
+    else {
+      const base = String(o.base || '').trim() || 'HEAD';
+      await run('git', ['fetch', 'origin', base], { cwd: root, timeout: 60000 });
+      const remote = base !== 'HEAD' && (await run('git', ['rev-parse', '--verify', '--quiet', 'origin/' + base], { cwd: root })).code === 0;
+      r = await run('git', ['worktree', 'add', '-b', branch, dir, remote ? 'origin/' + base : base], { cwd: root, timeout: 120000 });
+      if (r.code === 0 && remote) await run('git', ['branch', '--unset-upstream', branch], { cwd: dir });
+    }
+    if (r.code !== 0) return { ok: false, error: (r.stderr || r.error || 'git worktree add lỗi').trim().slice(0, 400) };
+    return out(dir);
+  });
   ipcMain.handle('gitlab:get', () => ({ url: settings.gitlabUrl || '', hasToken: !!settings.gitlabTokenEnc }));
   ipcMain.handle('gitlab:set', async (_e, o) => {
     o = o || {};

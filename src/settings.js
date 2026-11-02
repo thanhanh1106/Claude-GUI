@@ -22,8 +22,20 @@
   let current = 'general';
   let savedFlash = null;
 
+  const motionOn = () => !(CG.decor && CG.decor.cfg().reduceMotion);
   CG.openSettings = (section) => { if (section) current = section; render(); };
-  CG.closeSettings = () => { $('#settings-root').innerHTML = ''; CG.onUpdates = null; };
+  // Đóng: thu nhỏ + mờ đi 140 ms rồi mới gỡ (mở lại giữa chừng thì huỷ)
+  CG.closeSettings = () => {
+    const root = $('#settings-root');
+    CG.onUpdates = null;
+    const sh = root.querySelector('.settings');
+    if (!sh || !motionOn()) { root.innerHTML = ''; return; }
+    if (sh._closing) return;
+    sh._closing = sh.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.985)' }], { duration: 140, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' });
+    const gone = () => { if (sh._closing && sh.isConnected) root.innerHTML = ''; };
+    sh._closing.onfinish = gone;
+    setTimeout(gone, 220); // cửa sổ ẩn thì animation không chạy → vẫn đóng
+  };
 
   async function set(patch) {
     CG.S.settings = await api.setSettings(patch);
@@ -123,25 +135,72 @@
   }
 
   // ---------- Page ----------
-  function render() {
-    const root = $('#settings-root');
-    const scrollTop = root.querySelector('.st-content') ? root.querySelector('.st-content').scrollTop : 0;
-    const prev = root.dataset.section;
+  // Khung (điều hướng + vùng nội dung) dựng một lần khi mở; chuyển mục / đổi tuỳ chọn chỉ thay phần nội dung
+  // (trước đây dựng lại cả trang + chạy fadein mỗi lần → cả màn hình nháy, lộ khung chat phía sau, video thu nhỏ chớp đen).
+  function shellFor(root) {
+    const sh = root.querySelector('.settings');
+    if (sh && sh._closing) { sh._closing.cancel(); sh._closing = null; }
+    if (sh && sh._nav) return { sh, fresh: false };
     root.innerHTML = '';
     savedFlash = h('span', { class: 'st-saved', text: '✓ Đã lưu' });
-    const nav = h('nav', { class: 'st-nav' },
-      h('div', { class: 'st-nav-title' }, logo(18), 'Cài đặt'),
-      SECTIONS.map(([k, l, ic]) => h('button', { class: k === current ? 'on' : '', onclick: () => { current = k; render(); } }, icon(ic, 15), h('span', { text: l }),
-        k === 'updates' && ((S().updates.cli && S().updates.cli.newer) || (S().updates.gui && S().updates.gui.newer)) ? h('span', { class: 'update-dot' }) : null)));
+    const pill = h('div', { class: 'st-pill' });
+    const nav = h('nav', { class: 'st-nav has-pill' }, h('div', { class: 'st-nav-title' }, logo(18), 'Cài đặt'), pill,
+      SECTIONS.map(([k, l, ic]) => h('button', { 'data-k': k, onclick: () => { if (current !== k) { current = k; render(); } } }, icon(ic, 15), h('span', { text: l }), h('span', { class: 'update-dot hidden' }))));
     const content = h('div', { class: 'st-content' });
+    const s2 = h('div', { class: 'settings' }, nav, content, h('div', { class: 'st-top' }, savedFlash, h('button', { class: 'icon-btn', html: svg('x', 18), title: 'Đóng (Esc)', onclick: CG.closeSettings })));
+    Object.assign(s2, { _nav: nav, _pill: pill, _content: content });
+    root.append(s2);
+    if (motionOn()) for (const [el, dx] of [[nav, -10], [content, 0]]) el.animate([{ opacity: 0, transform: `translate(${dx}px, ${dx ? 0 : 8}px) scale(${dx ? 1 : .99})` }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    return { sh: s2, fresh: true };
+  }
+  // ảnh / video thu nhỏ giống hệt bản cũ → dùng lại phần tử cũ (không nạp lại, không chớp đen)
+  function keepMedia(oldEl, newEl) {
+    if (!oldEl) return;
+    const olds = [...oldEl.querySelectorAll('video, img')];
+    for (const n of newEl.querySelectorAll('video, img')) {
+      const i = olds.findIndex((o) => o.tagName === n.tagName && o.src && o.src === n.src);
+      if (i < 0) continue;
+      const o = olds.splice(i, 1)[0];
+      o.className = n.className; o.style.cssText = n.style.cssText;
+      n.replaceWith(o);
+      if (o.tagName === 'VIDEO') requestAnimationFrame(() => o.play().catch(() => {}));
+    }
+  }
+  function render() {
+    const root = $('#settings-root');
+    const { sh, fresh } = shellFor(root);
+    const content = sh._content;
+    const same = !fresh && sh.dataset.section === current;
+    const scrollTop = content.scrollTop;
+    // điều hướng: mục đang chọn + viên chọn trượt theo
+    let onBtn = null;
+    for (const b of sh._nav.querySelectorAll('button[data-k]')) {
+      const on = b.dataset.k === current;
+      b.classList.toggle('on', on);
+      if (on) onBtn = b;
+      const dot = b.querySelector('.update-dot');
+      if (dot) dot.classList.toggle('hidden', !(b.dataset.k === 'updates' && ((S().updates.cli && S().updates.cli.newer) || (S().updates.gui && S().updates.gui.newer))));
+    }
+    if (onBtn) {
+      sh._pill.style.transition = fresh || !motionOn() ? 'none' : '';
+      Object.assign(sh._pill.style, { top: onBtn.offsetTop + 'px', height: onBtn.offsetHeight + 'px' });
+    }
     const inner = h('div', { class: 'st-inner' }, h('h1', { text: SECTIONS.find((s) => s[0] === current)[1] }));
-    content.append(inner);
-    root.append(h('div', { class: 'settings' }, nav, content, h('div', { class: 'st-top' }, savedFlash, h('button', { class: 'icon-btn', html: svg('x', 18), title: 'Đóng (Esc)', onclick: CG.closeSettings }))));
+    PAGES[current](inner);
+    const old = content.firstElementChild;
+    keepMedia(old, inner);
+    content.replaceChildren(inner);
+    sh.dataset.section = current;
     root.dataset.section = current;
     CG.onUpdates = current === 'updates' ? () => { if ($('#settings-root').firstChild) render(); } : null;
-    PAGES[current](inner);
-    if (prev === current) content.scrollTop = scrollTop;
+    if (same) { content.scrollTop = scrollTop; return; }
+    content.scrollTop = 0;
+    // chuyển mục: chỉ phần nội dung hiện dần + trượt nhẹ (cột điều hướng đứng yên)
+    if (!fresh && motionOn()) inner.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 170, easing: 'cubic-bezier(.2,.8,.2,1)' });
   }
+  // chỗ tải chậm: giữ sẵn chỗ bằng khối xương đúng chiều cao, dữ liệu về thì hiện mờ dần (không đẩy các dòng khác)
+  const skel = (n, hgt = 40) => h('div', { class: 'st-skel-box' }, Array.from({ length: n }, () => h('div', { class: 'st-skel-row', style: `height:${hgt}px` }, h('div', { class: 'skel', style: 'width:42%' }), h('div', { class: 'skel', style: 'width:22%' }))));
+  const reveal = (el) => { if (motionOn()) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' }); };
 
   const PAGES = {
     lark(el) { if (CG.lark) CG.lark.settingsPage(el, { group, row, toggle, select, text, set, render }); },
@@ -169,6 +228,8 @@
           row('Dừng có tóm tắt', 'Khi bấm Dừng/Esc lúc Claude đang dùng công cụ, Claude trả lời thêm một đoạn ngắn: đã xong gì, còn dở gì, file nào đang sửa dở.', toggle(s.stopSummary !== false, (v) => set({ stopSummary: v }))),
           row('Tự chạy tiếp khi giới hạn hồi', 'Phiên đang làm mà hết giới hạn 5 giờ / tuần → hiện thẻ đếm ngược, tới giờ hồi tự gửi lời nhắn làm tiếp (bỏ tick trên thẻ nếu không muốn).', toggle(s.autoContinue !== false, (v) => set({ autoContinue: v }))),
           row('Hỏi bên lề (/btw, Ctrl+;)', 'Model trả lời câu hỏi bên lề. "Theo phiên chính" dùng lại bộ nhớ đệm của phiên nên thường rẻ và đúng ngữ cảnh hơn.', select([['', 'Theo phiên chính'], ['haiku', 'Haiku (rẻ)'], ['sonnet', 'Sonnet']], s.btwModel || '', (v) => set({ btwModel: v }))),
+          row('Claude gợi ý việc ngoài phạm vi', 'Đang làm mà thấy lỗi / lỗ hổng ngoài phạm vi việc hiện tại, Claude không tự sửa mà hiện thẻ có lý do + bằng chứng: Mở phiên mới, Làm ở đây hoặc Lưu vào Lịch & hàng đợi để sửa sau. Áp dụng cho phiên mở sau khi đổi.', toggle(s.suggestTasks !== false, (v) => set({ suggestTasks: v }))),
+          row('Quy trình nhóm: sửa lỗi ở nhánh git riêng', 'Việc gợi ý mở phiên mới / chạy từ hàng đợi sẽ tự tạo nhánh riêng (fix/…, từ nhánh mặc định) trong worktree riêng. "Làm ở đây" hiện cảnh báo vì sửa thẳng trên nhánh đang làm.', toggle(s.branchPolicy !== false, (v) => set({ branchPolicy: v }))),
           row('Cho các phiên nhắn / đọc nhau', 'Claude trong một phiên có thể liệt kê, đọc và nhắn sang phiên khác (công cụ claude-gui). Tin nhắn tới hiện thành thẻ, bạn bấm Gửi mới tới Claude ở phiên đó. Gõ @ trong ô nhập để nhắc một phiên.', toggle(s.crossSession !== false, (v) => set({ crossSession: v })))),
         group('Terminal', 'Terminal tích hợp mở bằng nút >_ trên thanh tiêu đề hoặc Ctrl+`. Mỗi phiên có terminal riêng tại thư mục của phiên.',
           row('Shell', 'Áp dụng cho terminal mở mới (hoặc bấm "Khởi động lại" trong terminal).', select([['auto', 'Tự chọn (PowerShell 7 nếu có)'], ['powershell', 'Windows PowerShell'], ['pwsh', 'PowerShell 7 (pwsh)'], ['cmd', 'Command Prompt (cmd)'], ['gitbash', 'Git Bash']], s.terminalShell || 'auto', (v) => set({ terminalShell: v })))),
@@ -416,9 +477,10 @@
     },
 
     async permissions(el) {
-      const box = h('div', {}, h('div', { class: 'note', text: 'Đang đọc ~/.claude/settings.json…' }));
+      const box = h('div', {}, skel(1, 60), skel(3), skel(2));
       el.append(box);
       const cs = await api.claudeSettings();
+      reveal(box);
       const perm = { allow: [], ask: [], deny: [], ...((cs.data && cs.data.permissions) || {}) };
       const lists = { allow: [...(perm.allow || [])], ask: [...(perm.ask || [])], deny: [...(perm.deny || [])] };
       box.innerHTML = '';
@@ -453,10 +515,12 @@
 
     extensions(el) {
       const info = S().info || {};
-      const mcpBox = h('div', {}, h('div', { class: 'note' }, h('span', { class: 'spinner' }), ' Đang kiểm tra máy chủ MCP (claude mcp list)…'));
+      const mcpBox = h('div', { title: 'Đang kiểm tra máy chủ MCP (claude mcp list)…' }, skel(Math.max(2, (S().mcpCount || 3)), 46));
       const loadMcp = async () => {
         const r = await api.mcpList();
+        S().mcpCount = r.servers.length;
         mcpBox.innerHTML = '';
+        reveal(mcpBox);
         if (!r.servers.length) mcpBox.append(h('pre', { class: 'pre', text: r.raw || 'Chưa cấu hình máy chủ MCP nào.' }));
         for (const sv of r.servers) mcpBox.append(h('div', { class: 'list-row' }, h('span', { class: 'dot ' + (sv.ok ? 'ok' : 'err') }), h('div', { class: 'lr-body' }, h('div', { class: 'lr-title', text: sv.name }), h('div', { class: 'lr-desc mono', text: sv.target })), h('span', { class: 'muted', text: sv.status })));
       };
@@ -475,7 +539,7 @@
       paint();
       const agents = info.agents || [];
       el.append(
-        group('Máy chủ MCP', 'Cấu hình bằng lệnh `claude mcp add` hoặc tệp .mcp.json của dự án.', mcpBox, h('div', { class: 'row', style: 'padding:10px 14px' }, btn('Kiểm tra lại', () => { mcpBox.innerHTML = ''; mcpBox.append(h('div', { class: 'note', text: 'Đang kiểm tra…' })); loadMcp(); }), btn('Mở terminal: claude mcp', () => api.openTerminal(S().active && S().active.cwd, ['mcp', '--help'])))),
+        group('Máy chủ MCP', 'Cấu hình bằng lệnh `claude mcp add` hoặc tệp .mcp.json của dự án.', mcpBox, h('div', { class: 'row', style: 'padding:10px 14px' }, btn('Kiểm tra lại', () => { mcpBox.replaceChildren(skel(Math.max(2, (S().mcpCount || 3)), 46)); loadMcp(); }), btn('Mở terminal: claude mcp', () => api.openTerminal(S().active && S().active.cwd, ['mcp', '--help'])))),
         group('Lệnh & kỹ năng', 'Gõ / trong ô nhập để dùng. Danh sách phụ thuộc vào thư mục dự án đang mở.', h('div', { style: 'padding:10px 14px 0' }, q), cmdList),
         group('Tác tử phụ (subagents)', null, agents.length ? h('div', { class: 'scroll-list' }, agents.map((a) => h('div', { class: 'list-row' }, h('div', { class: 'lr-body' }, h('div', { class: 'lr-title', text: a.name }), h('div', { class: 'lr-desc', text: (a.description || '').slice(0, 220) }))))) : h('div', { class: 'note pad', text: 'Không có.' })),
         info.available_output_styles ? group('Kiểu trả lời (output style)', 'Đổi bằng lệnh /output-style trong phiên.', h('div', { class: 'chips pad' }, info.available_output_styles.map((s) => h('span', { class: 'chip' + (s === info.output_style ? ' on' : ''), text: s })))) : null,

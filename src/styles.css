@@ -353,8 +353,15 @@ code { font-family: var(--mono); font-size: .9em; }
 .limit-card .lim-t { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .limit-card .lim-at { font-weight: 400; color: var(--text-2); font-size: 12.5px; }
 .limit-card .lim-left { font-variant-numeric: tabular-nums; }
-.limit-card .lim-bar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
-.limit-card .lim-bar i { display: block; height: 100%; width: 0; background: var(--warn); transition: width 1s linear; }
+.limit-card .lim-ring { width: 32px; height: 32px; position: relative; display: grid; place-items: center; flex: none; color: var(--warn); border-radius: 50%; }
+.limit-card .lim-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.limit-card .lim-ring circle { fill: none; stroke-width: 3; }
+.limit-card .lim-ring .bg { stroke: var(--surface-2); }
+.limit-card .lim-ring .fg { stroke: var(--warn); stroke-linecap: round; stroke-dashoffset: 0; transition: stroke-dashoffset 1s linear; }
+.limit-card.done .lim-ring { color: var(--ok); animation: lim-ok .6s ease-out; }
+.limit-card.done .lim-ring .fg { stroke: var(--ok); stroke-dashoffset: 0 !important; transition: none; }
+@keyframes lim-ok { from { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 50%, transparent); } to { box-shadow: 0 0 0 0 transparent; } }
+body.fx-reduce .limit-card .lim-ring, body.fx-reduce .limit-card .lim-ring .fg { animation: none; transition: none; }
 .limit-card .lim-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 .limit-card .lim-msg { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); padding: 3px 8px; font: inherit; }
 .limit-card .lim-raw { font-size: 11.5px; opacity: .7; }
@@ -536,7 +543,23 @@ code { font-family: var(--mono); font-size: .9em; }
 
 /* ================= Settings ================= */
 #settings-root:empty { display: none; }
-.settings { position: fixed; inset: 0; z-index: 300; background: var(--bg); display: flex; animation: fadein .12s; }
+.settings { position: fixed; inset: 0; z-index: 300; background: var(--bg); display: flex; }
+.st-nav.has-pill { position: relative; }
+.st-nav.has-pill button { position: relative; z-index: 1; }
+.st-nav.has-pill button.on { background: none; }
+.st-pill { position: absolute; left: 10px; right: 10px; top: 0; height: 32px; border-radius: 8px; background: var(--active); transition: top .26s cubic-bezier(.3, 1.25, .5, 1), height .26s; pointer-events: none; }
+body.fx-reduce .st-pill { transition: none; }
+/* khối xương khi đang tải (vệt sáng chạy bằng transform → vẫn mượt khi luồng giao diện đang bận) */
+.skel { border-radius: 6px; background: var(--hover); position: relative; overflow: hidden; height: 11px; }
+.skel::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 7%, transparent), transparent); transform: translateX(-100%); animation: skel-x 1.2s ease-in-out infinite; }
+@keyframes skel-x { to { transform: translateX(100%); } }
+body.fx-reduce .skel::after { animation: none; }
+.st-skel-box { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 14px; }
+.st-skel-row { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.st-skel-row:last-child { border-bottom: 0; }
+.conv-skel { display: grid; gap: 12px; padding: 4px 0; }
+.conv-skel .skel.u { height: 30px; width: 46%; justify-self: end; border-radius: 15px; }
+.conv-skel .skel.card { height: 34px; border-radius: 10px; }
 .st-nav { width: 250px; flex: none; background: var(--sidebar); border-right: 1px solid var(--border); padding: 18px 10px; display: flex; flex-direction: column; gap: 2px; }
 .st-nav-title { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 16px; padding: 0 10px 14px; }
 .st-nav button { display: flex; align-items: center; gap: 10px; background: none; border: none; border-radius: 8px; padding: 7px 10px; text-align: left; color: var(--text-2); font-size: 13.5px; }
@@ -631,6 +654,8 @@ textarea.text-input { resize: vertical; font-family: inherit; line-height: 1.5; 
 
 /* ---- Hiệu năng phiên dài: bỏ qua dựng/tính layout các lượt ngoài màn hình ---- */
 .conv > .turn { content-visibility: auto; contain-intrinsic-block-size: auto 320px; }
+/* lượt rất dài (hàng chục thẻ công cụ, diff mở sẵn): phần ngoài màn hình trong cùng một lượt cũng bỏ qua khi tính bố cục */
+.conv > .turn > .tool, .conv > .turn > .md { content-visibility: auto; contain-intrinsic-block-size: auto 44px; }
 .hist-more {
   align-self: center; display: inline-flex; align-items: center; gap: 6px;
   margin: 4px 0 6px; padding: 6px 14px; border-radius: 999px;

@@ -1,0 +1,109 @@
+/* 1.19 · Bộ animation bổ sung (đi kèm phần cuối motion.js). Tắt hết dưới body.fx-reduce (Giảm hiệu ứng). */
+
+/* ---------- Nút: lún nhẹ khi nhấn ---------- */
+.btn, .icon-btn, .ctl, .send { transition: transform .1s ease-out; }
+.btn:active:not(:disabled), .icon-btn:active:not(:disabled), .ctl:active:not(:disabled), .send:active:not(:disabled) { transform: scale(.96); }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.06); }
+
+/* ---------- Công tắc: núm dãn dài khi nhấn, nảy về tròn ---------- */
+.switch .slider::before { transition: transform .3s cubic-bezier(.3, 1.5, .5, 1), width .15s ease-out; }
+.switch:active .slider::before { width: 21px; }
+.switch:active input:checked + .slider::before { transform: translateX(11px); }
+
+/* ---------- "Đang suy nghĩ…": vệt sáng chạy qua chữ ---------- */
+.indicator:has(.logo.spin) .ind-text {
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 38%, color-mix(in srgb, var(--accent) 30%, #fff) 50%, var(--accent) 62%, var(--accent) 100%);
+  background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: m-shim 1.8s linear infinite;
+}
+@keyframes m-shim { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* ---------- Chữ đang stream: vài ký tự cuối mờ dần (CG.motion.ink) ---------- */
+.m-ink { -webkit-mask-image: linear-gradient(90deg, #000 10%, rgba(0, 0, 0, .15)); mask-image: linear-gradient(90deg, #000 10%, rgba(0, 0, 0, .15)); }
+
+/* ---------- Nút Gửi ↔ Dừng: vòng mảnh chạy quanh khi Claude đang làm ---------- */
+.send { position: relative; }
+.send.stop::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 13px; border: 2px solid transparent;
+  border-top-color: var(--accent); border-right-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: m-spin 1.1s linear infinite; pointer-events: none;
+}
+@keyframes m-spin { to { transform: rotate(360deg); } }
+.ctl { transition: transform .1s ease-out, background-color .25s, color .25s, border-color .25s; }
+
+/* ---------- Thanh bên ---------- */
+#session-list { position: relative; }
+.sess.m-new { animation: m-sess-new 1s ease-out; }
+@keyframes m-sess-new {
+  0% { opacity: 0; transform: translateX(-8px); background: color-mix(in srgb, var(--accent) 28%, transparent); }
+  35% { opacity: 1; transform: none; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+}
+.m-ghost { pointer-events: none !important; }
+.sess .m-done { position: absolute; width: 16px; height: 16px; display: grid; place-items: center; color: var(--ok); pointer-events: none; z-index: 2; background: var(--sidebar, var(--bg)); border-radius: 50%; }
+.sess .m-done svg { width: 11px; height: 11px; }
+.sess .m-done i { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--ok); }
+
+/* ---------- Chip "n tin mới" khi đang cuộn lên đọc lại ---------- */
+.m-newchip {
+  position: absolute; left: 50%; transform: translateX(-50%); z-index: 40; border: none; border-radius: 16px; padding: 5px 13px;
+  background: var(--text); color: var(--bg); font-size: 12.5px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .35); cursor: pointer;
+}
+.m-newchip.hidden { display: none; }
+.m-newchip .m-ar { display: inline-block; }
+
+/* ---------- Diff vừa sửa: dòng thêm / xoá loé lên rồi nhạt về màu thường ---------- */
+.diff.m-flash .dl.add { animation: m-flash-add .9s ease-out; }
+.diff.m-flash .dl.del { animation: m-flash-del .9s ease-out; }
+@keyframes m-flash-add { from { background: color-mix(in srgb, var(--ok) 45%, transparent); } }
+@keyframes m-flash-del { from { background: color-mix(in srgb, var(--err) 45%, transparent); } }
+
+/* ---------- Việc cần làm: gạch ngang chạy từ trái sang khi vừa xong ---------- */
+.todos li.m-strk > span:not(.ic):not(.box) { text-decoration: none; background: linear-gradient(currentColor, currentColor) no-repeat 0 56% / 0 1px; animation: m-strk .35s .12s ease-out forwards; }
+@keyframes m-strk { to { background-size: 100% 1px; } }
+.todos li.in_progress .box { animation: m-breathe 1.4s ease-in-out infinite; }
+@keyframes m-breathe { 50% { opacity: .45; } }
+
+/* ---------- Sao chép → tick ---------- */
+.m-copied { color: var(--ok) !important; }
+
+/* ---------- Kéo thả tệp: khung nét đứt chạy vòng quanh ---------- */
+#drop-overlay {
+  border: 0;
+  background-image:
+    linear-gradient(90deg, var(--accent) 50%, transparent 0), linear-gradient(90deg, var(--accent) 50%, transparent 0),
+    linear-gradient(0deg, var(--accent) 50%, transparent 0), linear-gradient(0deg, var(--accent) 50%, transparent 0);
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  background-size: 18px 3px, 18px 3px, 3px 18px, 3px 18px;
+  background-position: 0 0, 0 100%, 0 0, 100% 0;
+  animation: m-march .6s linear infinite, m-fadein .15s ease-out;
+}
+@keyframes m-march { to { background-position: 18px 0, -18px 100%, 0 -18px, 100% 18px; } }
+@keyframes m-fadein { from { opacity: 0; } }
+#drop-overlay > div { animation: m-pop-in .25s cubic-bezier(.3, 1.5, .5, 1); }
+@keyframes m-pop-in { from { opacity: 0; transform: scale(.9); } }
+
+/* ---------- Menu "/" "@": nền mục chọn trượt theo phím mũi tên ---------- */
+#ac-menu.m-has-pill .menu-item { position: relative; z-index: 1; }
+#ac-menu.m-has-pill .menu-item.sel { background: transparent; }
+#ac-menu.m-has-pill .menu-item.sel:hover { background: transparent; }
+.m-acpill { position: absolute; left: 5px; right: 5px; border-radius: 8px; background: var(--hover); z-index: 0; pointer-events: none; }
+
+/* ---------- Tự lưu tệp: "Đang sửa…" có chấm nháy ---------- */
+.vw-saved:not(.ok)::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); margin-right: 5px; vertical-align: 1px; animation: m-breathe 1s ease-in-out infinite; }
+
+/* ---------- Lớp bóng ma của hộp thoại / menu đang đóng ---------- */
+#m-ghosts { position: fixed; inset: 0; pointer-events: none; z-index: 650; }
+#m-ghosts * { pointer-events: none !important; }
+#m-ghosts .m-g-bg { position: fixed; inset: 0; }
+
+/* ---------- Giảm hiệu ứng: tắt hết ---------- */
+body.fx-reduce .indicator .ind-text { animation: none; background: none; color: var(--accent); }
+body.fx-reduce .send.stop::after, body.fx-reduce .sess.m-new, body.fx-reduce .diff.m-flash .dl,
+body.fx-reduce .todos li.in_progress .box, body.fx-reduce #drop-overlay, body.fx-reduce #drop-overlay > div,
+body.fx-reduce .vw-saved::before, body.fx-reduce .todos li.m-strk > span { animation: none; }
+body.fx-reduce .todos li.m-strk > span { text-decoration: line-through; background: none; }
+body.fx-reduce .m-ink { -webkit-mask-image: none; mask-image: none; }
+body.fx-reduce .btn, body.fx-reduce .icon-btn, body.fx-reduce .ctl, body.fx-reduce .send, body.fx-reduce .switch .slider::before { transition: none; }
+body.fx-reduce .btn:active, body.fx-reduce .icon-btn:active, body.fx-reduce .ctl:active, body.fx-reduce .send:active { transform: none; }
+body.fx-reduce #drop-overlay { border: 3px dashed var(--accent); background-image: none; }

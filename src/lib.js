@@ -174,8 +174,13 @@
     b.onclick = async (e) => {
       e.stopPropagation();
       try { await navigator.clipboard.writeText(getText()); } catch {}
+      const M = CG.motion, anim = M && M.on && M.on();
+      clearTimeout(b._t);
       b.innerHTML = svg('check', 14);
-      setTimeout(() => (b.innerHTML = svg('copy', 14)), 1200);
+      b.classList.add('m-copied');
+      // icon chép → dấu tick được vẽ ra (nảy nhẹ), 1.5 giây sau trở lại
+      if (anim) { const s = b.querySelector('svg'); if (s) s.animate([{ transform: 'scale(.4)' }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.3,1.5,.5,1)' }); if (M.drawTick) M.drawTick(b); }
+      b._t = setTimeout(() => { b.innerHTML = svg('copy', 14); b.classList.remove('m-copied'); if (anim && b.firstChild && b.firstChild.animate) b.firstChild.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200 }); }, 1500);
     };
     return b;
   }
@@ -486,10 +491,18 @@
   // ---------- Toast / modal ----------
   function toast(text, kind) {
     const box = document.getElementById('toasts');
-    if ([...box.children].some((x) => x.textContent === String(text))) return;
+    if ([...box.children].some((x) => !x.classList.contains('m-out') && x.textContent === String(text))) return;
     const t = h('div', { class: 'toast ' + (kind === true ? 'error' : kind || '') , text });
     box.append(t);
-    setTimeout(() => t.remove(), kind === true || kind === 'error' ? 6000 : 3200);
+    // tắt: trượt lên + mờ, các thông báo bên dưới dồn lên theo (tắt hiệu ứng → gỡ ngay)
+    setTimeout(() => {
+      const M = CG.motion;
+      if (!M || !M.on || !M.on() || !t.animate || !t.isConnected) return t.remove();
+      t.classList.add('m-out');
+      const a = t.animate([{ opacity: 1, transform: 'none', marginTop: '0px' }, { opacity: 0, transform: 'translateY(-8px) scale(.96)', marginTop: -(t.offsetHeight + 8) + 'px' }], { duration: 200, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' });
+      a.onfinish = a.oncancel = () => t.remove();
+      setTimeout(() => t.remove(), 400); // cửa sổ bị ẩn giữa chừng → animation dừng, vẫn gỡ
+    }, kind === true || kind === 'error' ? 6000 : 3200);
   }
   function modal(title, body, actions, opts = {}) {
     const root = document.getElementById('modal-root');

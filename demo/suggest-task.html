@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo · Claude gợi ý việc ngoài phạm vi → phiên con / hàng đợi</title>
+<style>
+  :root { --bg:#1e1f22; --surface:#26282c; --surface2:#2d3035; --border:#3a3d43; --text:#e6e6e6; --text2:#b8bcc4; --muted:#8a8f98; --accent:#d97757; --blue:#5aa9ff; --green:#5cc98a; --red:#ef6b6b; --warn:#e5b45a; --purple:#b48cff; --ease:cubic-bezier(.2,.8,.2,1); }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.55 "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  button { font:inherit; cursor:pointer; color:inherit; }
+  code, .mono { font-family:"Cascadia Code", Consolas, monospace; font-size:12.5px; }
+  code { background:var(--surface2); padding:1px 5px; border-radius:5px; }
+  .top { display:flex; gap:10px; align-items:center; padding:9px 16px; border-bottom:1px solid var(--border); background:#18191c; font-size:13px; flex-wrap:wrap; }
+  .top b { font-size:14px; }
+  .top .sp { flex:1; }
+  .seg { display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .seg button { background:none; border:0; padding:4px 11px; font-size:12.5px; color:var(--text2); }
+  .seg button.on { background:var(--surface2); color:var(--text); }
+  .pol { display:flex; align-items:center; gap:6px; color:var(--text2); font-size:12.5px; border:1px solid var(--border); border-radius:8px; padding:3px 9px; }
+  .main { flex:1; display:flex; min-height:0; }
+  /* sidebar */
+  .side { width:250px; flex:none; background:#18191c; border-right:1px solid var(--border); padding:12px 8px; overflow:auto; display:flex; flex-direction:column; }
+  .nav-i { display:flex; gap:8px; align-items:center; padding:6px 9px; border-radius:8px; color:var(--text2); font-size:13px; cursor:pointer; }
+  .nav-i:hover { background:var(--surface); }
+  .badge { margin-left:auto; background:var(--accent); color:#fff; font-size:11px; border-radius:9px; padding:0 6px; min-width:18px; text-align:center; transform:scale(0); transition:transform .3s cubic-bezier(.3,1.6,.5,1); }
+  .badge.show { transform:scale(1); }
+  .side .grp { margin:12px 8px 6px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .sess { display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:8px; color:var(--text2); font-size:13px; position:relative; cursor:pointer; }
+  .sess:hover { background:var(--surface); }
+  .sess.on { background:var(--surface2); color:var(--text); }
+  .sess .t { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); flex:none; transition:background .3s; }
+  .dot.run { background:var(--accent); animation:pl 1.2s infinite; }
+  .dot.ok { background:var(--green); animation:okpop .45s cubic-bezier(.3,1.8,.5,1); }
+  @keyframes pl { 50% { opacity:.3; } }
+  @keyframes okpop { 0% { transform:scale(.3); } 100% { transform:scale(1); } }
+  .sess.child { margin-left:18px; padding-left:14px; font-size:12.5px; }
+  .sess.child::before { content:''; position:absolute; left:2px; top:-6px; width:9px; height:20px; border-left:1px solid var(--border); border-bottom:1px solid var(--border); border-bottom-left-radius:6px; }
+  .grow { animation:grow .4s var(--ease); overflow:hidden; }
+  @keyframes grow { from { opacity:0; max-height:0; transform:translateX(-8px); } to { opacity:1; max-height:40px; } }
+  .tag { font-size:10.5px; color:var(--muted); border:1px solid var(--border); border-radius:5px; padding:0 4px; white-space:nowrap; }
+  /* chat */
+  .chatwrap { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .chead { padding:9px 20px; border-bottom:1px solid var(--border); font-weight:600; font-size:13px; display:flex; gap:8px; align-items:center; }
+  .chead .crumb { color:var(--muted); font-weight:400; cursor:pointer; }
+  .chat { flex:1; overflow-y:auto; padding:16px 24px 40px; display:flex; flex-direction:column; gap:10px; }
+  .chat > * { flex-shrink:0; }               /* ← lỗi cũ: thẻ dài bị bóp lại, không cuộn được */
+  .u { align-self:flex-end; background:linear-gradient(135deg,#6a7dff,#b06ad8); padding:7px 13px; border-radius:15px; max-width:70%; }
+  .a { max-width:780px; }
+  .tool { border:1px solid var(--border); border-radius:9px; padding:5px 10px; font-size:12.5px; color:var(--text2); display:flex; gap:8px; align-items:center; background:var(--bg); max-width:780px; }
+  .tool .ok { color:var(--green); margin-left:auto; }
+  .fade { animation:rise .35s var(--ease); }
+  @keyframes rise { from { opacity:0; transform:translateY(10px); } }
+  /* the card */
+  .st-card { max-width:780px; border:1px solid var(--border); border-radius:12px; background:var(--surface); overflow:hidden; animation:cardin .5s var(--ease); position:relative; }
+  .st-card::before { content:''; position:absolute; inset:0; border-radius:12px; pointer-events:none; box-shadow:0 0 0 1px var(--accent); opacity:0; animation:attn 1.6s .2s ease-out; }
+  @keyframes cardin { from { opacity:0; transform:translateY(14px) scale(.98); } }
+  @keyframes attn { 20% { opacity:.9; } 100% { opacity:0; } }
+  .st-card.closing { animation:cardout .3s var(--ease) forwards; }
+  @keyframes cardout { to { opacity:0; transform:scale(.97); max-height:0; margin:0; } }
+  .st-head { display:flex; align-items:center; gap:8px; padding:9px 12px 6px 14px; font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--border); }
+  .st-head .x { margin-left:auto; background:none; border:0; color:var(--muted); font-size:16px; line-height:1; padding:2px 6px; border-radius:6px; }
+  .st-head .x:hover { background:var(--surface2); color:var(--text); }
+  .st-item { border-bottom:1px solid var(--border); }
+  .st-item:last-of-type { border-bottom:0; }
+  .st-sumrow { display:flex; gap:10px; padding:10px 14px; cursor:pointer; align-items:flex-start; }
+  .st-sumrow:hover { background:rgba(255,255,255,.02); }
+  .chev { color:var(--muted); transition:transform .25s var(--ease); margin-top:2px; flex:none; }
+  .st-item.exp .chev { transform:rotate(90deg); }
+  .st-title { font-weight:600; display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
+  .sev { font-size:10.5px; font-weight:700; border-radius:5px; padding:0 6px; text-transform:uppercase; letter-spacing:.03em; }
+  .sev.hi { background:#4a2326; color:var(--red); }
+  .sev.md { background:#463a20; color:var(--warn); }
+  .sev.lo { background:#22354a; color:var(--blue); }
+  .st-sum { color:var(--text2); font-size:13px; margin-top:2px; }
+  .st-mini { margin-left:auto; flex:none; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .st-body { display:grid; grid-template-rows:0fr; transition:grid-template-rows .35s var(--ease); }
+  .st-item.exp .st-body { grid-template-rows:1fr; }
+  .st-body > div { overflow:hidden; }
+  .st-in { padding:0 14px 12px 38px; }
+  .why { display:grid; grid-template-columns:150px 1fr; gap:6px 14px; font-size:13px; margin-bottom:8px; }
+  .why dt { color:var(--muted); }
+  .why dd { margin:0; color:var(--text2); min-width:0; }
+  .ev { margin:2px 0 4px; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--bg); }
+  .ev .f { font-size:12px; color:var(--blue); padding:4px 10px; border-bottom:1px solid var(--border); font-family:"Cascadia Code", Consolas, monospace; cursor:pointer; }
+  .ev pre { overflow-x:auto; margin:0; padding:6px 0; font:12.5px/1.55 "Cascadia Code", Consolas, monospace; }
+  .ev pre span { display:block; padding:0 10px; }
+  .ev pre .ln { color:var(--muted); display:inline-block; width:30px; padding:0; }
+  .ev pre .hl { background:rgba(239,107,107,.13); box-shadow:inset 3px 0 var(--red); }
+  .st-more { background:none; border:0; color:var(--blue); font-size:12.5px; padding:0; }
+  .st-prompt { display:none; margin-top:6px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; font:12.5px/1.5 "Cascadia Code", Consolas, monospace; color:var(--text2); white-space:pre-wrap; }
+  .st-item.pr .st-prompt { display:block; animation:rise .25s var(--ease); }
+  .st-btns { display:flex; gap:7px; justify-content:flex-end; margin-top:10px; flex-wrap:wrap; align-items:center; }
+  .st-btns .warn { margin-right:auto; color:var(--warn); font-size:12px; }
+  .btn { border:1px solid var(--border); background:var(--surface2); border-radius:8px; padding:4px 12px; font-size:12.5px; transition:transform .1s, border-color .15s, background .15s; }
+  .btn:hover { border-color:var(--muted); }
+  .btn:active { transform:scale(.96); }
+  .btn.pri { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.q { border-color:#5b4a8a; background:#2f2a42; }
+  .panel { display:none; margin-top:10px; border:1px solid var(--border); border-radius:9px; padding:10px 12px; background:var(--bg); font-size:13px; grid-template-columns:150px 1fr; gap:8px 12px; align-items:center; animation:rise .25s var(--ease); }
+  .panel.show { display:grid; }
+  .panel h4 { grid-column:1/-1; margin:0 0 2px; font-size:13px; color:var(--text); }
+  .panel select, .panel input[type=text] { background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:3px 7px; font:inherit; font-size:12.5px; }
+  .panel input[type=text] { font-family:"Cascadia Code", Consolas, monospace; width:100%; }
+  .panel label { color:var(--text2); }
+  .panel .hint { grid-column:2; color:var(--muted); font-size:12px; margin-top:-4px; }
+  .panel .acts { grid-column:1/-1; display:flex; justify-content:flex-end; gap:7px; }
+  .row2 { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .st-state { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text2); padding:8px 14px 10px 38px; animation:rise .3s var(--ease); flex-wrap:wrap; }
+  .st-state a { color:var(--blue); cursor:pointer; margin-left:auto; }
+  .st-item.done .st-body { grid-template-rows:0fr !important; }
+  .st-item.gone { opacity:.55; }
+  .st-foot { display:flex; justify-content:flex-end; gap:7px; padding:8px 14px; border-top:1px solid var(--border); background:var(--surface2); }
+  .report { max-width:780px; border-left:3px solid var(--green); background:var(--surface); padding:8px 12px; border-radius:0 9px 9px 0; font-size:13px; }
+  .report b { color:var(--green); }
+  .composer { margin:0 24px 14px; border:1px solid var(--border); border-radius:14px; background:var(--surface2); padding:10px 12px; color:var(--muted); font-size:13px; }
+  /* queue overlay */
+  .ov { position:absolute; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:5; }
+  .ov.show { display:flex; animation:fd .2s; }
+  @keyframes fd { from { opacity:0; } }
+  .qbox { width:640px; max-width:92%; background:var(--bg); border:1px solid var(--border); border-radius:14px; padding:16px 18px; animation:pop .3s cubic-bezier(.2,1.2,.4,1); }
+  @keyframes pop { from { opacity:0; transform:scale(.94); } }
+  .qbox h3 { margin:0 0 10px; font-size:15px; }
+  .qp { border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; background:var(--surface); }
+  .qp.new { animation:qnew 1.4s ease-out; }
+  @keyframes qnew { 0% { box-shadow:0 0 0 2px var(--purple); } 100% { box-shadow:0 0 0 0 transparent; } }
+  .qp .h { display:flex; gap:8px; align-items:center; font-weight:600; }
+  .qp .m { color:var(--muted); font-size:12.5px; margin-top:3px; display:flex; gap:10px; flex-wrap:wrap; }
+  .chatwrap { position:relative; }
+  /* explain */
+  .explain { width:370px; flex:none; border-left:1px solid var(--border); overflow:auto; padding:14px 16px 40px; font-size:13px; color:var(--text2); }
+  .explain h3 { color:var(--text); font-size:14px; margin:16px 0 6px; }
+  .explain h3:first-child { margin-top:0; }
+  .explain ul { margin:0; padding-left:18px; }
+  .explain li { margin:3px 0; }
+  .src { font-size:11px; border-radius:5px; padding:0 5px; margin-left:3px; white-space:nowrap; }
+  .src.off { background:#24402f; color:var(--green); }
+  .src.us { background:#3d3220; color:var(--warn); }
+  .src.new { background:#332a4a; color:var(--purple); }
+  .toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:7px 14px; border-radius:9px; font-size:13px; display:none; }
+  .toast.show { display:block; animation:tin .3s cubic-bezier(.2,1.3,.4,1); }
+  @keyframes tin { from { opacity:0; transform:translate(-50%, 12px); } }
+</style>
+</head>
+<body>
+<div class="top">
+  <b>Demo · Claude gợi ý việc ngoài phạm vi</b>
+  <div class="seg" id="scn">
+    <button class="on" data-s="one">1 việc</button>
+    <button data-s="many">3 việc</button>
+    <button data-s="stale">Gợi ý bị rút lại</button>
+  </div>
+  <span class="sp"></span>
+  <label class="pol" title="Cài đặt → Claude Code → Git"><input type="checkbox" id="pol" checked> Quy trình nhóm: sửa lỗi phải ở nhánh git riêng</label>
+  <button class="btn" id="replay">↻ Chạy lại</button>
+</div>
+<div class="main">
+  <div class="side">
+    <div class="nav-i" id="nav-q">🗓 Lịch &amp; hàng đợi <span class="badge" id="qbadge">0</span></div>
+    <div class="grp">shop-web</div>
+    <div class="sess on" id="s-main"><span class="dot run"></span><span class="t">Thêm trang thanh toán VNPay</span><span class="tag">feature/vnpay</span></div>
+    <div id="kids"></div>
+    <div class="sess"><span class="dot"></span><span class="t">Sửa lỗi lọc đơn hàng</span></div>
+    <div class="sess"><span class="dot"></span><span class="t">Viết test giỏ hàng</span></div>
+  </div>
+  <div class="chatwrap">
+    <div class="chead" id="chead">Thêm trang thanh toán VNPay</div>
+    <div class="chat" id="chat"></div>
+    <div class="composer">Nhắn cho Claude…</div>
+    <div class="ov" id="ov"><div class="qbox"><h3>🗓 Lịch &amp; hàng đợi</h3><div id="qlist"></div><div style="text-align:right;margin-top:8px"><button class="btn" onclick="ov.classList.remove('show')">Đóng</button></div></div></div>
+  </div>
+  <div class="explain">
+    <h3>Thẻ gợi ý (theo bản gốc)</h3>
+    <ul>
+      <li>Thẻ nằm <b>ngay trong khung chat</b>, không phải cửa sổ bật lên. Phiên vẫn làm tiếp việc đang dở. <span class="src off">chính thức</span></li>
+      <li><b>Mở phiên mới</b> (Start), <b>Làm ở đây</b> (Do it here), <b>Tuỳ chọn</b> (Options), <b>Mở tất cả</b> (Start all). <span class="src off">chính thức</span></li>
+      <li>Phiên con nằm dưới phiên cha ở thanh bên, thẻ hiện trạng thái của phiên con. <span class="src off">chính thức</span></li>
+      <li>Bấm × để bỏ gợi ý, gợi ý bỏ đi không được lưu. Claude rút lại được gợi ý đã cũ. <span class="src us">bài viết bên ngoài</span></li>
+    </ul>
+    <h3>Lý do được mô tả kỹ <span class="src new">thêm</span></h3>
+    <ul>
+      <li>Mỗi việc ghi <b>mức độ</b> (Nghiêm trọng / Trung bình / Nhỏ), <b>vì sao là vấn đề</b>, <b>bằng chứng</b> (đoạn code đúng dòng, bấm vào để mở tệp), <b>ảnh hưởng</b>, <b>vì sao không sửa luôn ở đây</b> và <b>hướng sửa</b>.</li>
+      <li>Công cụ <code>suggest_task</code> <b>bắt buộc</b> Claude điền đủ các mục này. Thiếu mục nào thì công cụ trả lỗi để Claude gợi ý lại.</li>
+      <li>Khi có nhiều việc, mỗi việc thu gọn thành một dòng, bấm vào để xem chi tiết. Thẻ dài thì khung chat vẫn cuộn bình thường (đã sửa lỗi trong ảnh).</li>
+    </ul>
+    <h3>Lưu vào hàng đợi, sửa sau <span class="src new">thêm</span></h3>
+    <ul>
+      <li>Nút <b>Lưu vào hàng đợi</b> tạo một kế hoạch trong <b>Lịch &amp; hàng đợi</b>. Prompt, lý do và bằng chứng của việc đó được giữ nguyên trong kế hoạch.</li>
+      <li>Chọn lúc chạy: <i>khi tôi bấm</i>, <i>sau khi phiên này xong</i>, <i>khi giới hạn 5 giờ hồi</i> hoặc <i>vào lúc…</i>.</li>
+      <li>Theo quy trình nhóm: lúc chạy, GUI tự tạo <b>nhánh riêng</b> (<code>fix/…</code>, tạo từ <code>main</code>) trong một worktree riêng. Claude chỉ sửa và commit trên nhánh đó. Có tuỳ chọn tự push và tạo MR (dùng phần GitLab của 1.18).</li>
+      <li>Bật quy trình này thì <b>Mở phiên mới</b> cũng tự tạo nhánh riêng. <b>Làm ở đây</b> sẽ hiện cảnh báo vì nó sửa ngay trên nhánh đang làm.</li>
+    </ul>
+    <h3>Cách làm ở Claude GUI</h3>
+    <ul>
+      <li>Thêm hai công cụ <code>suggest_task</code> và <code>withdraw_task</code> vào MCP nội bộ <code>claude-gui</code> (có từ 1.18), kèm một đoạn hướng dẫn ngắn trong system prompt.</li>
+      <li>Phiên con và việc trong hàng đợi đều chạy bằng CLI thật và ghi jsonl đầy đủ. Quan hệ cha–con được lưu lại, mở lại app vẫn còn.</li>
+      <li>Ô <i>Báo kết quả về phiên này</i> mặc định tắt. Trong Cài đặt có công tắc tắt hẳn tính năng gợi ý.</li>
+    </ul>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const chat = $('#chat'), ov = $('#ov');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const pol = () => $('#pol').checked;
+let run = 0, nQ = 0;
+function toast(t) { const e = $('#toast'); e.textContent = t; e.classList.remove('show'); void e.offsetWidth; e.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('show'), 2600); }
+function add(html, cls) { const d = document.createElement('div'); d.className = cls + ' fade'; d.innerHTML = html; chat.append(d); chat.scrollTo({ top: 1e9, behavior: 'smooth' }); return d; }
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const ev = (file, start, lines, hl) => `<div class="ev"><div class="f" title="Mở trong khung xem">${file}:${start + hl}</div><pre>${lines.map((l, i) => `<span class="${i === hl ? 'hl' : ''}"><span class="ln">${start + i}</span>${esc(l)}</span>`).join('')}</pre></div>`;
+
+const T = {
+  price: { sev: 'md', sevT: 'Trung bình', cat: 'lỗi tính toán', title: 'Làm tròn tiền sai trong formatPrice()', branch: 'fix/format-price-rounding',
+    sum: 'Số như 19.995 bị làm tròn thành 19.99 thay vì 20.00. Lệch 1 xu trên giỏ hàng và hoá đơn.',
+    why: 'Hàm nhân số thực với 100 rồi <code>Math.round</code>. Số thực nhị phân không biểu diễn đúng 19.995 (thực tế là 19.99499999…), nên kết quả bị làm tròn xuống.',
+    ev: ev('src/utils/money.ts', 12, ['export function formatPrice(x: number) {', '  return (Math.round(x * 100) / 100).toFixed(2);', '}'], 1),
+    impact: 'Được gọi ở 7 chỗ, gồm <code>cart/Summary.tsx</code> và <code>invoice/pdf.ts</code>. Tổng hoá đơn có thể lệch 0.01 so với số tiền gửi sang cổng thanh toán, và VNPay sẽ từ chối giao dịch khi hai số này không khớp.',
+    scope: 'Việc đang làm là trang thanh toán. Sửa hàm dùng chung này sẽ đổi kết quả ở giỏ hàng và hoá đơn, cần test riêng và review riêng.',
+    fix: 'Tính bằng số nguyên (đồng), làm tròn theo kiểu "half-up" trên số nguyên, thêm test cho 19.995, 0.005 và số âm.',
+    prompt: 'Trong src/utils/money.ts, formatPrice() (dòng 13) làm tròn bằng Math.round(x * 100) / 100 nên 19.995 → 19.99.\nViệc cần làm:\n1. Chuyển sang tính bằng số nguyên nhỏ nhất (đồng), làm tròn half-up.\n2. Thêm test 19.995, 0.005, -1.005 vào src/utils/money.test.ts.\n3. Chạy test của src/cart/ và src/invoice/ (7 chỗ gọi), sửa nếu kết quả đổi.\nKhông sửa gì trong src/checkout/ (phiên khác đang làm).' },
+  axios: { sev: 'lo', sevT: 'Nhỏ', cat: 'dọn dẹp', title: 'Hai phiên bản axios cùng nằm trong bundle', branch: 'chore/dedupe-axios',
+    sum: 'sdk-thanh-toan cũ kéo theo axios 0.27, trong khi app dùng 1.7. Bundle nặng thêm khoảng 40 KB.',
+    why: '<code>npm ls axios</code> cho thấy 2 bản. Bản 0.27 chỉ do <code>sdk-thanh-toan@2.1</code> dùng.',
+    ev: ev('package-lock.json', 1840, ['"node_modules/sdk-thanh-toan/node_modules/axios": {', '  "version": "0.27.2",'], 1),
+    impact: 'Trang tải chậm hơn một chút. Bản 0.27 cũng có cảnh báo bảo mật mức thấp.',
+    scope: 'Đổi dependency ảnh hưởng toàn bộ app, không liên quan tới VNPay.',
+    fix: 'Nâng sdk-thanh-toan lên 3.x (dùng axios 1.x) hoặc thêm <code>overrides</code>, rồi build để so sánh kích thước bundle.',
+    prompt: 'package.json có hai bản axios (0.27 qua sdk-thanh-toan@2.1, và 1.7)…' },
+  auth: { sev: 'hi', sevT: 'Nghiêm trọng', cat: 'bảo mật', title: 'API /api/orders/:id không kiểm tra chủ đơn', branch: 'fix/orders-authz',
+    sum: 'Đăng nhập bằng tài khoản bất kỳ, đổi id trên URL là xem được đơn hàng của người khác (địa chỉ, số điện thoại).',
+    why: 'Route lấy đơn theo id nhưng không so sánh <code>order.userId</code> với người đang đăng nhập (lỗi IDOR).',
+    ev: ev('src/api/orders.ts', 41, ['router.get("/:id", requireLogin, async (req, res) => {', '  const order = await db.order.findUnique({ where: { id: req.params.id } });', '  res.json(order);'], 1),
+    impact: 'Lộ dữ liệu cá nhân của mọi khách hàng. id là số tăng dần nên rất dễ dò.',
+    scope: 'Không thuộc trang thanh toán, nhưng nên sửa sớm, tách nhánh hotfix riêng.',
+    fix: 'Thêm điều kiện <code>userId: req.user.id</code> (trừ khi là admin), trả về 404 thay vì 403, thêm test truy cập chéo.',
+    prompt: 'src/api/orders.ts dòng 42: GET /api/orders/:id không kiểm tra chủ đơn…' },
+};
+
+function itemEl(t, opts) {
+  const it = document.createElement('div');
+  it.className = 'st-item' + (opts.exp ? ' exp' : '');
+  it.innerHTML = `
+    <div class="st-sumrow"><span class="chev">▸</span><div style="flex:1;min-width:0">
+      <div class="st-title"><span class="sev ${t.sev}">${t.sevT}</span>${t.title}</div>
+      <div class="st-sum">${t.sum}</div></div>
+      <span class="st-mini">${t.cat}</span></div>
+    <div class="st-body"><div><div class="st-in">
+      <dl class="why">
+        <dt>Vì sao là vấn đề</dt><dd>${t.why}</dd>
+        <dt>Bằng chứng</dt><dd>${t.ev}</dd>
+        <dt>Ảnh hưởng</dt><dd>${t.impact}</dd>
+        <dt>Vì sao không sửa ở đây</dt><dd>${t.scope}</dd>
+        <dt>Hướng sửa</dt><dd>${t.fix}</dd>
+      </dl>
+      <button class="st-more">Xem prompt sẽ gửi cho phiên mới ▾</button><div class="st-prompt">${esc(t.prompt)}</div>
+      <div class="panel" data-p="opt"><h4>Tuỳ chọn khi mở phiên mới</h4>
+        <label>Model</label><select><option>Theo phiên này (Opus 5.5)</option><option>Sonnet 5.5</option><option>Haiku 5.5</option></select>
+        <label>Quyền</label><select><option>Theo phiên này (Hỏi khi sửa)</option><option>Tự sửa tệp</option><option>Chỉ lên kế hoạch</option></select>
+        <label>Nhánh git</label><div class="row2"><input type="checkbox" class="br" ${pol() ? 'checked' : ''}> nhánh riêng <input type="text" class="bn" value="${t.branch}" style="width:220px"> từ <select><option>main</option><option>develop</option><option>nhánh hiện tại (feature/vnpay)</option></select></div>
+        <span class="hint">Chạy trong worktree riêng nên không đụng tới tệp của phiên đang làm.</span>
+        <label>Báo kết quả về</label><span><input type="checkbox" class="rb"> báo tóm tắt về phiên này khi xong</span>
+      </div>
+      <div class="panel" data-p="q"><h4>🗓 Lưu vào Lịch &amp; hàng đợi để sửa sau</h4>
+        <label>Khi nào chạy</label><select class="qw"><option>Khi tôi bấm "Chạy ngay" trong lịch</option><option>Sau khi phiên này xong việc</option><option>Khi giới hạn 5 giờ hồi</option><option>Vào lúc… (chọn giờ)</option></select>
+        <label>Nhánh git</label><div class="row2"><input type="text" class="qb" value="${t.branch}" style="width:220px"> tạo từ <select><option>main</option><option>develop</option></select></div>
+        <span class="hint">Lúc chạy: tạo worktree riêng trên nhánh này, Claude chỉ sửa và commit ở đó.</span>
+        <label>Xong thì</label><div class="row2"><label><input type="checkbox" checked> commit</label><label><input type="checkbox" class="mr"> push &amp; tạo Merge Request</label></div>
+        <label>Model / quyền</label><div class="row2"><select><option>Sonnet 5.5</option><option>Opus 5.5</option></select><select><option>Tự sửa tệp</option><option>Hỏi khi sửa</option></select></div>
+        <div class="acts"><button class="btn" data-a="qcancel">Huỷ</button><button class="btn pri" data-a="qsave">Lưu vào hàng đợi</button></div>
+      </div>
+      <div class="st-btns">${pol() ? '<span class="warn" style="display:none">⚠ Làm ở đây sẽ sửa thẳng trên nhánh feature/vnpay, trái quy trình nhóm.</span>' : ''}
+        <button class="btn" data-a="opt">Tuỳ chọn</button><button class="btn" data-a="here">Làm ở đây</button><button class="btn q" data-a="queue">🗓 Lưu vào hàng đợi</button><button class="btn pri" data-a="start">Mở phiên mới</button></div>
+    </div></div></div>`;
+  it.querySelector('.st-sumrow').onclick = () => { if (!it.dataset.done) it.classList.toggle('exp'); };
+  it.querySelector('.st-more').onclick = (e) => { it.classList.toggle('pr'); e.target.textContent = it.classList.contains('pr') ? 'Thu gọn prompt ▴' : 'Xem prompt sẽ gửi cho phiên mới ▾'; };
+  const panel = (k) => { it.querySelectorAll('.panel').forEach((p) => p.classList.toggle('show', p.dataset.p === k && !p.classList.contains('show'))); };
+  it.querySelector('[data-a=opt]').onclick = () => panel('opt');
+  it.querySelector('[data-a=queue]').onclick = () => panel('q');
+  it.querySelector('[data-a=qcancel]').onclick = () => panel('');
+  it.querySelector('[data-a=qsave]').onclick = () => saveQ(it, t);
+  const hereBtn = it.querySelector('[data-a=here]'), warn = it.querySelector('.warn');
+  if (warn) { hereBtn.onmouseenter = () => (warn.style.display = ''); hereBtn.onmouseleave = () => (warn.style.display = 'none'); }
+  hereBtn.onclick = () => doHere(it, t);
+  it.querySelector('[data-a=start]').onclick = () => start(it, t);
+  return it;
+}
+
+function card(list) {
+  const c = document.createElement('div');
+  c.className = 'st-card';
+  c.innerHTML = `<div class="st-head">✦ ${list.length > 1 ? 'Claude gợi ý ' + list.length + ' việc' : 'Claude gợi ý một việc'} ngoài phạm vi<button class="x" title="Bỏ gợi ý (không lưu lại)">×</button></div>`;
+  list.forEach((t, i) => c.append(itemEl(t, { exp: list.length === 1 })));
+  if (list.length > 1) {
+    const f = document.createElement('div'); f.className = 'st-foot';
+    f.innerHTML = `<button class="btn q" data-a="qall">🗓 Lưu tất cả vào hàng đợi</button><button class="btn pri" data-a="all">Mở tất cả (${list.length} phiên song song)</button>`;
+    f.querySelector('[data-a=all]').onclick = () => { c.querySelectorAll('.st-item').forEach((it, i) => { if (!it.dataset.done) start(it, list[i], true); }); f.remove(); };
+    f.querySelector('[data-a=qall]').onclick = () => { c.querySelectorAll('.st-item').forEach((it, i) => { if (!it.dataset.done) saveQ(it, list[i], true); }); f.remove(); toast(`Đã lưu ${list.length} việc vào Lịch & hàng đợi, mỗi việc một nhánh riêng`); };
+    c.append(f);
+  }
+  c.querySelector('.x').onclick = () => { c.classList.add('closing'); setTimeout(() => c.remove(), 300); toast('Đã bỏ gợi ý — không lưu lại ở đâu.'); };
+  return c;
+}
+
+function settle(it, html) {
+  it.dataset.done = 1; it.classList.add('done'); it.classList.remove('exp');
+  setTimeout(() => { it.querySelector('.st-body').remove(); const s = document.createElement('div'); s.className = 'st-state'; s.innerHTML = html; it.append(s); }, 300);
+  const c = it.closest('.st-card'); const f = c.querySelector('.st-foot');
+  if (f && ![...c.querySelectorAll('.st-item')].some((x) => !x.dataset.done)) f.remove();
+}
+
+function doHere(it, t) {
+  settle(it, '↳ Đã chuyển thành tin nhắn trong phiên này' + (pol() ? ' <span class="tag" style="color:var(--warn)">trên nhánh feature/vnpay</span>' : ''));
+  add('Làm luôn việc này trong phiên này: ' + t.title, 'u');
+  setTimeout(() => add('Ok, mình sửa sau khi xong bước thanh toán…', 'a'), 700);
+}
+
+function saveQ(it, t, quiet) {
+  const br = (it.querySelector('.qb') || {}).value || t.branch, when = (it.querySelector('.qw') || {}).value || 'Khi tôi bấm "Chạy ngay" trong lịch', mr = it.querySelector('.mr')?.checked;
+  settle(it, `<span>🗓</span><span>Đã lưu vào Lịch &amp; hàng đợi · nhánh <code>${br}</code> · ${when.toLowerCase()}</span><a>Mở lịch ›</a>`);
+  setTimeout(() => (it.querySelector('.st-state a').onclick = openQ), 320);
+  const b = $('#qbadge'); b.textContent = ++nQ; b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+  const q = document.createElement('div'); q.className = 'qp new';
+  q.innerHTML = `<div class="h"><span class="sev ${t.sev}">${t.sevT}</span>${t.title}</div><div class="m"><span>⏱ ${when}</span><span>⑂ <code>${br}</code> từ main (worktree riêng)</span><span>${mr ? '⤴ push + tạo MR' : '✓ commit'}</span><span>📎 gợi ý từ: Thêm trang thanh toán VNPay</span></div>`;
+  $('#qlist').prepend(q);
+  if (!quiet) toast('Đã lưu vào Lịch & hàng đợi — sẽ chạy trên nhánh ' + br);
+}
+function openQ() { ov.classList.add('show'); $('#qlist').querySelectorAll('.qp').forEach((q) => { q.classList.remove('new'); void q.offsetWidth; q.classList.add('new'); }); }
+$('#nav-q').onclick = openQ;
+
+let nKid = 0;
+async function start(it, t, quiet) {
+  const my = run, br = it.querySelector('.br') ? it.querySelector('.br').checked : pol(), bn = (it.querySelector('.bn') || {}).value || t.branch, rb = it.querySelector('.rb')?.checked;
+  const id = 'k' + ++nKid;
+  settle(it, `<span class="dot run" id="cd-${id}"></span><span id="ct-${id}">Đang chạy trong phiên mới${br ? ' · nhánh <code>' + bn + '</code>' : ''}</span><a>Mở phiên ›</a>`);
+  setTimeout(() => (it.querySelector('.st-state a').onclick = () => openKid(t)), 320);
+  const row = document.createElement('div');
+  row.className = 'sess child grow';
+  row.innerHTML = `<span class="dot run" id="sd-${id}"></span><span class="t">${t.title}</span>${br ? `<span class="tag">${bn.split('/')[0]}/…</span>` : ''}`;
+  row.onclick = () => openKid(t);
+  $('#kids').append(row);
+  if (!quiet) toast('Đã mở phiên con' + (br ? ' trên nhánh ' + bn : '') + ' · phiên này vẫn làm tiếp');
+  await sleep(4000 + Math.random() * 3000); if (my !== run) return;
+  for (const s of ['#cd-', '#sd-']) { const d = $(s + id); if (d) d.className = 'dot ok'; }
+  const ct = $('#ct-' + id); if (ct) ct.innerHTML = 'Xong · sửa 2 tệp, 3 test đạt' + (br ? ' · đã commit lên <code>' + bn + '</code>' : '');
+  if (rb) add(`<b>✓ Phiên con xong:</b> ${t.title}. Đã sửa <code>src/utils/money.ts</code>, thêm 3 test, tất cả đạt${br ? ', commit lên <code>' + bn + '</code>' : ''}.`, 'report');
+}
+
+function openKid(t) {
+  document.querySelectorAll('.chat.kid').forEach((x) => x.remove());
+  $('#chead').innerHTML = `<span class="crumb" id="back">Thêm trang thanh toán VNPay ›</span> ${t.title}`;
+  chat.style.display = 'none';
+  const k = document.createElement('div'); k.className = 'chat kid';
+  k.innerHTML = `<div class="u fade" style="white-space:pre-wrap">${esc(t.prompt)}</div><div class="tool fade">⑂ git worktree add -b ${t.branch} … origin/main <span class="ok">✓</span></div><div class="tool fade">📄 Đọc src/utils/money.ts <span class="ok">✓</span></div><div class="tool fade">✎ Sửa src/utils/money.ts <span class="ok">✓</span></div><div class="a fade" style="color:var(--muted)">Phiên con chỉ biết prompt ở trên, không thấy cuộc trò chuyện của phiên cha.</div>`;
+  chat.after(k);
+  $('#back').onclick = () => { $('#chead').textContent = 'Thêm trang thanh toán VNPay'; chat.style.display = ''; k.remove(); };
+}
+
+async function play(s) {
+  const my = ++run; nKid = 0;
+  chat.innerHTML = ''; $('#kids').innerHTML = ''; chat.style.display = '';
+  document.querySelectorAll('.chat.kid').forEach((x) => x.remove());
+  $('#chead').textContent = 'Thêm trang thanh toán VNPay';
+  add('Thêm trang thanh toán VNPay cho đơn hàng, dùng giá từ giỏ hàng.', 'u');
+  for (const st of ['📄 Đọc src/checkout/CheckoutPage.tsx', '📄 Đọc src/cart/cartStore.ts', '📄 Đọc src/utils/money.ts', '📄 Đọc src/api/orders.ts', '✎ Tạo src/checkout/vnpay.ts']) { await sleep(450); if (my !== run) return; add(st + ' <span class="ok">✓</span>', 'tool'); }
+  await sleep(450); if (my !== run) return;
+  let c;
+  if (s === 'many') {
+    add('Trong lúc đọc code, mình gặp 3 việc ngoài phạm vi. Mình không sửa chúng ở đây, chỉ ghi lại để bạn chọn. Bấm vào từng dòng để xem lý do:', 'a');
+    c = card([T.auth, T.price, T.axios]);
+  } else {
+    add('Mình thấy <code>formatPrice()</code> làm tròn sai. Hàm này dùng chung cho cả app nên mình không sửa ở đây mà tách thành việc riêng:', 'a');
+    c = card([T.price]);
+  }
+  chat.append(c); chat.scrollTo({ top: 1e9, behavior: 'smooth' });
+  if (s === 'stale') {
+    await sleep(3000); if (my !== run || !c.isConnected || c.querySelector('[data-done]')) return;
+    add('✎ Sửa src/utils/money.ts (phí VNPay cần làm tròn đúng nên buộc phải sửa luôn ở đây) <span class="ok">✓</span>', 'tool');
+    await sleep(500); if (my !== run) return;
+    c.querySelectorAll('.st-item').forEach((it) => { it.classList.add('gone'); settle(it, '⊘ Claude đã rút lại gợi ý này, vì việc đã được sửa trong phiên này'); });
+    return;
+  }
+  await sleep(700); if (my !== run) return;
+  add('✎ Sửa src/checkout/CheckoutPage.tsx <span class="ok">✓</span>', 'tool');
+  add('Mình làm tiếp trang thanh toán trong lúc chờ bạn chọn…', 'a');
+}
+
+document.querySelectorAll('#scn button').forEach((b) => (b.onclick = () => { document.querySelectorAll('#scn button').forEach((x) => x.classList.toggle('on', x === b)); play(b.dataset.s); }));
+$('#replay').onclick = () => play(document.querySelector('#scn .on').dataset.s);
+$('#pol').onchange = () => $('#replay').click();
+play('one');
+</script>
+</body>
+</html>
