@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo: kiểu làm nổi tiêu đề, chữ đậm, đầu mục</title>
+<style>
+  :root {
+    --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  }
+  /* ---- màu app: tối (mặc định của app) / sáng ---- */
+  body.dark {
+    --bg: #262624; --surface: #30302e; --surface-2: #2b2b29; --text: #f2f1ec; --text-2: #dcdad2; --muted: #a3a199;
+    --border: #3b3a36; --border-strong: #4c4b45; --accent: #d97757; --accent-hover: #e48b6d; --accent-soft: rgba(217, 119, 87, .16);
+    --code-bg: #1e1e1c; color-scheme: dark;
+    /* màu riêng của từng kiểu (bản tối) */
+    --hl-marker: rgba(250, 204, 21, .34); --hl-strong-accent: #f0a585;
+    --hl-l1: #e8916f; --hl-l2: #7aa2f7; --hl-l3: #bb9af7; --hl-l4: #7dcfff; --hl-strong-lv: #f2c67a;
+    --hl-hc-body: #c4c2ba; --hl-hc-strong: #ffffff;
+  }
+  body.light {
+    --bg: #faf9f5; --surface: #fff; --surface-2: #f5f4ee; --text: #1f1e1d; --text-2: #3d3d3a; --muted: #73726c;
+    --border: #e5e3d9; --border-strong: #d4d1c4; --accent: #c96442; --accent-hover: #b4552f; --accent-soft: rgba(201, 100, 66, .12);
+    --code-bg: #f6f5f0; color-scheme: light;
+    --hl-marker: rgba(250, 204, 21, .45); --hl-strong-accent: #a84a28;
+    --hl-l1: #b4552f; --hl-l2: #2f5fb3; --hl-l3: #7a4fc2; --hl-l4: #1f7f9e; --hl-strong-lv: #9a5b00;
+    --hl-hc-body: #4a4945; --hl-hc-strong: #000;
+  }
+  /* hình nền giống ảnh chụp: chữ nằm trên ảnh tối có vệt sáng */
+  body.wall .card .chat {
+    background:
+      linear-gradient(180deg, rgba(20, 22, 28, .55), rgba(20, 22, 28, .72)),
+      radial-gradient(60% 50% at 75% 30%, #8a95a8 0%, transparent 70%),
+      radial-gradient(50% 60% at 20% 80%, #3a4252 0%, transparent 70%),
+      linear-gradient(160deg, #4a5160, #20242c);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.6 var(--font); background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; }
+  .seg button { border: 0; background: none; color: var(--muted); padding: 5px 12px; font: inherit; cursor: pointer; }
+  .seg button.on { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+  header label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .hint { color: var(--muted); font-size: 12.5px; }
+  main { padding: 18px 20px 40px; display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 16px; }
+  .card { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); display: flex; flex-direction: column; }
+  .card.pick { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .card > .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .card > .top b, .card > .top .tag { white-space: nowrap; }
+  .card > .top b { font-size: 14px; }
+  .card > .top .tag { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .card > .top .tag.new { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .card > .top span.d { color: var(--muted); font-size: 12.5px; flex-basis: 100%; }
+  .card .chat { background: var(--bg); padding: 16px 20px; flex: 1; }
+
+  /* ===== markdown như trong app (styles.css) ===== */
+  .md { overflow-wrap: anywhere; color: var(--text); font-size: 14.5px; }
+  .md > :first-child { margin-top: 0; }
+  .md p { margin: 0 0 .75em; }
+  .md h1, .md h2, .md h3, .md h4 { line-height: 1.3; margin: 1.1em 0 .5em; font-weight: 650; }
+  .md h2 { font-size: 1.22em; } .md h3 { font-size: 1.08em; }
+  .md ul, .md ol { padding-left: 1.5em; margin: 0 0 .75em; }
+  .md li { margin: .2em 0; }
+  .md code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: .08em .35em; font-size: .88em; font-family: var(--mono); }
+  .md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .md blockquote { margin: 0 0 .75em; padding: 2px 14px; border-left: 3px solid var(--border-strong); color: var(--muted); }
+
+  /* ===== CÁC KIỂU LÀM NỔI ===== */
+  /* 1. Mặc định (hiện tại): không thêm gì */
+
+  /* 2. Màu nhấn: tiêu đề màu nhấn, chữ đậm sáng màu nhấn, thân chữ dịu đi một chút */
+  .md.hl-accent { color: var(--text-2); }
+  .md.hl-accent :is(h1, h2, h3) { color: var(--accent); }
+  .md.hl-accent h4 { color: var(--text); }
+  .md.hl-accent strong { color: var(--hl-strong-accent); font-weight: 650; }
+  .md.hl-accent li::marker { color: var(--accent); font-weight: 650; }
+
+  /* 3. Bút dạ quang: chữ đậm có vệt vàng ở nửa dưới, tiêu đề có vạch màu bên trái */
+  .md.hl-marker strong { background: linear-gradient(transparent 38%, var(--hl-marker) 38%, var(--hl-marker) 94%, transparent 94%); padding: 0 .12em; margin: 0 -.06em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .md.hl-marker :is(h1, h2, h3) { border-left: 4px solid var(--accent); padding-left: 10px; }
+  .md.hl-marker li::marker { color: var(--accent); font-weight: 700; }
+
+  /* 4. Nhãn nền: chữ đậm thành nhãn có nền nhạt, tiêu đề có gạch chân ngắn màu nhấn */
+  .md.hl-chip strong { background: var(--accent-soft); color: var(--hl-strong-accent); border-radius: 5px; padding: .04em .38em; font-weight: 650; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .md.hl-chip :is(h1, h2, h3) { padding-bottom: .3em; background: linear-gradient(var(--accent), var(--accent)) left bottom / 42px 3px no-repeat, linear-gradient(var(--border), var(--border)) left bottom / 100% 1px no-repeat; }
+  .md.hl-chip li::marker { color: var(--accent); font-weight: 700; }
+
+  /* 5. Tương phản cao: thân chữ lùi xuống, chữ đậm và tiêu đề trắng tinh / đen tuyền, đậm hơn */
+  .md.hl-contrast { color: var(--hl-hc-body); }
+  .md.hl-contrast :is(h1, h2, h3, h4) { color: var(--hl-hc-strong); font-weight: 760; }
+  .md.hl-contrast h2 { font-size: 1.3em; padding-bottom: .25em; border-bottom: 1px solid var(--border-strong); }
+  .md.hl-contrast strong { color: var(--hl-hc-strong); font-weight: 760; }
+  .md.hl-contrast li::marker { color: var(--hl-hc-strong); font-weight: 760; }
+
+  /* 6. Màu theo cấp: mỗi cấp tiêu đề một màu (kiểu trình soạn code), chữ đậm vàng ấm, đầu mục theo cấp lồng */
+  .md.hl-level :is(h1, h2) { color: var(--hl-l1); }
+  .md.hl-level h3 { color: var(--hl-l2); }
+  .md.hl-level h4 { color: var(--hl-l3); }
+  .md.hl-level strong { color: var(--hl-strong-lv); font-weight: 650; }
+  .md.hl-level li::marker { color: var(--hl-l2); font-weight: 700; }
+  .md.hl-level li li::marker { color: var(--hl-l3); }
+  .md.hl-level li li li::marker { color: var(--hl-l4); }
+
+  /* bản có hình nền: chữ thêm bóng mờ cho dễ đọc */
+  body.wall .md { text-shadow: 0 1px 2px rgba(0, 0, 0, .55); }
+  body.wall.light .md { text-shadow: none; }
+
+  /* ---- mô phỏng Cài đặt ---- */
+  .setmock { grid-column: 1 / -1; border: 1px dashed var(--border-strong); border-radius: 12px; padding: 14px 18px; background: var(--surface); }
+  .setmock h3 { margin: 0 0 4px; font-size: 14px; }
+  .setmock .row { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--border); }
+  .setmock .row:first-of-type { border-top: 0; }
+  .setmock .row small { display: block; color: var(--muted); }
+  .setmock select { font: inherit; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); }
+</style>
+</head>
+<body class="dark wall">
+<header>
+  <h1>Kiểu làm nổi tiêu đề, chữ đậm và đầu mục</h1>
+  <div class="seg" id="bg">
+    <button data-v="dark wall" class="on">Tối + hình nền</button>
+    <button data-v="dark">Tối</button>
+    <button data-v="light">Sáng</button>
+  </div>
+  <span class="hint">Bấm vào một khung để chọn thử. Mẫu chữ lấy từ câu trả lời trong ảnh chụp.</span>
+</header>
+
+<main id="grid"></main>
+
+<template id="sample">
+  <div class="md">
+    <p><strong>javis-os</strong> là một "hệ điều hành trợ lý AI" tự host, của Nguyễn Minh Quý, license MIT. Bản <code>0.438.7</code>, commit mới nhất sáng nay.</p>
+    <h2>Repo này làm gì</h2>
+    <ul>
+      <li><strong>Đổi "não" thoải mái:</strong> dùng được 14 nhà cung cấp, đổi model vẫn giữ nguyên bộ công cụ.</li>
+      <li><strong>Second Brain:</strong> bộ nhớ và wiki lưu dạng markdown.
+        <ul><li>Mỗi lần học là một <strong>git commit</strong>, hoàn tác được ngay.</li></ul>
+      </li>
+      <li><strong>Làm việc nền:</strong> Kanban giao mục tiêu cho AI tự viết spec rồi chạy.</li>
+    </ul>
+    <h2>Những ý đáng học cho Claude GUI</h2>
+    <ol>
+      <li><code>claude_token_gate.py</code> <strong>(chống văng đăng nhập)</strong>: nhiều tiến trình dùng chung <code>~/.claude/.credentials.json</code> thì refresh token đá nhau.</li>
+      <li><code>limit_resume.py</code> <strong>(hết lượt thì tự chạy lại)</strong>: ghi mục chờ và tự gửi lại khi hạn mức mở.</li>
+    </ol>
+    <h3>Lưu ý khi dùng</h3>
+    <p>Đừng mở ra mạng ngoài khi <strong>chưa bật đăng nhập và 2FA</strong>. Xem thêm <a href="#">README</a>.</p>
+  </div>
+</template>
+
+<script>
+  const STYLES = [
+    { id: 'default', name: 'Mặc định', tag: 'đang dùng', d: 'Như hiện giờ: tiêu đề và chữ đậm chỉ đậm hơn, cùng màu chữ.' },
+    { id: 'accent', name: 'Màu nhấn', tag: 'mới', d: 'Tiêu đề và số thứ tự màu nhấn của theme, chữ đậm sáng màu nhấn.' },
+    { id: 'marker', name: 'Bút dạ quang', tag: 'mới', d: 'Chữ đậm có vệt vàng như bút dạ quang, tiêu đề có vạch màu bên trái.' },
+    { id: 'chip', name: 'Nhãn nền', tag: 'mới', d: 'Chữ đậm thành nhãn có nền nhạt, tiêu đề có gạch chân màu nhấn.' },
+    { id: 'contrast', name: 'Tương phản cao', tag: 'mới', d: 'Thân chữ lùi xuống, tiêu đề và chữ đậm trắng tinh, đậm hơn. Hợp với hình nền.' },
+    { id: 'level', name: 'Màu theo cấp', tag: 'mới', d: 'Mỗi cấp tiêu đề một màu, chữ đậm vàng ấm, dấu đầu dòng đổi màu theo cấp lồng.' },
+  ];
+  const grid = document.getElementById('grid'), tpl = document.getElementById('sample');
+  let pick = 'default';
+  for (const s of STYLES) {
+    const card = document.createElement('div');
+    card.className = 'card' + (s.id === pick ? ' pick' : '');
+    card.dataset.id = s.id;
+    card.innerHTML = `<div class="top"><b>${s.name}</b><span class="tag ${s.tag === 'mới' ? 'new' : ''}">${s.tag}</span><span class="d">${s.d}</span></div><div class="chat"></div>`;
+    const md = tpl.content.firstElementChild.cloneNode(true);
+    md.classList.add('hl-' + s.id);
+    card.querySelector('.chat').append(md);
+    card.onclick = () => setPick(s.id);
+    grid.append(card);
+  }
+  // mô phỏng chỗ chọn trong Cài đặt → Giao diện
+  const mock = document.createElement('div');
+  mock.className = 'setmock';
+  mock.innerHTML = `<h3>Cài đặt → Giao diện (mô phỏng)</h3>
+    <div class="row"><div>Kiểu làm nổi tiêu đề và chữ đậm<small>Áp cho câu trả lời của Claude, Sổ tài liệu và khung xem trước Markdown. Màu đi theo theme đang dùng.</small></div>
+    <select id="sel">${STYLES.map((s) => `<option value="${s.id}">${s.name}</option>`).join('')}</select></div>`;
+  grid.prepend(mock);
+  const sel = mock.querySelector('#sel');
+  sel.onchange = () => setPick(sel.value);
+  function setPick(id) {
+    pick = id; sel.value = id;
+    for (const c of grid.querySelectorAll('.card')) c.classList.toggle('pick', c.dataset.id === id);
+  }
+  for (const b of document.querySelectorAll('#bg button')) b.onclick = () => {
+    document.body.className = b.dataset.v;
+    for (const x of document.querySelectorAll('#bg button')) x.classList.toggle('on', x === b);
+  };
+</script>
+</body>
+</html>

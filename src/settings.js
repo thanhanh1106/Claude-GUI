@@ -213,6 +213,16 @@
           row('Bộ skill của Claude GUI', 'Lên kế hoạch & tự lập lịch nhiều task (mỗi task model/effort riêng), làm task có bàn giao ngữ cảnh, xin đổi lịch khi kế hoạch sai. Chỉ nạp cho phiên mở từ GUI. Áp dụng cho phiên mở sau khi đổi.',
             h('div', { class: 'row', style: 'gap:8px;display:flex;align-items:center' }, h('button', { class: 'btn sm', text: 'Xem', onclick: () => CG.autopilot && CG.autopilot.skillsDialog() }), toggle(s.guiSkills !== false, (v) => set({ guiSkills: v })))),
           row('Gợi ý câu nhắn tiếp theo', 'Sau mỗi lượt, Claude đoán câu bạn sẽ nhắn tiếp và hiện mờ trong ô nhập — bấm Tab để dùng, Enter để gửi. Áp dụng cho phiên mở sau khi đổi.', toggle(s.promptSuggestions !== false, (v) => set({ promptSuggestions: v }))),
+          (() => {
+            // kiểu làm nổi: đổi là áp ngay, có khung xem trước nhỏ ngay dưới
+            const opts = [['default', 'Mặc định (chỉ in đậm)'], ['accent', 'Màu nhấn'], ['marker', 'Bút dạ quang'], ['chip', 'Nhãn nền'], ['contrast', 'Tương phản cao'], ['level', 'Màu theo cấp']];
+            const prev = h('div', { class: 'md st-hlprev' });
+            prev.innerHTML = '<h3>Tiêu đề mục</h3><ul><li><strong>Chữ đậm:</strong> câu giải thích bình thường, có <code>code</code>.</li><li>Dòng thứ hai với <strong>một cụm nhấn mạnh</strong>.</li></ul>';
+            const r = row('Kiểu làm nổi tiêu đề và chữ đậm', 'Cách tô tiêu đề, chữ đậm và số thứ tự / dấu đầu dòng trong câu trả lời của Claude, Sổ tài liệu và khung xem trước Markdown. Màu đi theo chủ đề đang dùng.',
+              select(opts, s.mdHl || 'default', (v) => { CG.applyMdHl(v); set({ mdHl: v }); }));
+            r.querySelector('.st-text').append(prev);
+            return r;
+          })(),
           row('Cỡ chữ', 'Phóng to/thu nhỏ toàn bộ giao diện.', (() => {
             const val = h('span', { class: 'muted', text: Math.round((s.zoom || 1) * 100) + '%' });
             const r = h('input', { type: 'range', min: 0.8, max: 1.4, step: 0.05, value: s.zoom || 1, class: 'plain-range' });

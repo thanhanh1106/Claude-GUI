@@ -822,6 +822,8 @@
     const m = CG.modal('Robot của tôi', box, [h('button', { class: 'btn primary', text: 'Xong', onclick: () => m.close() })], { cls: 'm-wide' });
     const host = h('div', {}); stage.prepend(host);
     const b = createBot(host, 130);
+    // đổi phụ kiện / màu mắt → mặc lại cho robot ngoài app ngay (ở chế độ nuôi robot, vòng cập nhật không tự mặc lại)
+    const redress = () => { if (R.bot) dressBot(R.bot, R.life ? R.life.prop || null : R.prop); petSync(); };
     const draw = () => {
       const c = cfg(), L = BK.levelOf(c.mascotXp + R.xpAdd), ev = season();
       dressBot(b, null); b.state(ev ? 'costume' : 'idle');
@@ -832,12 +834,12 @@
       const wear = new Set(c.mascotWear || []);
       right.append(h('h4', { text: 'Phụ kiện' }), h('div', { class: 'mp-grid' }, ACC.map((a) => {
         const lock = a.lv > L.lv;
-        return h('button', { class: wear.has(a.id) && !lock ? 'on' : '', disabled: lock, onclick: async () => { wear.has(a.id) ? wear.delete(a.id) : wear.add(a.id); await quietSave({ mascotWear: [...wear] }); draw(); } },
+        return h('button', { class: wear.has(a.id) && !lock ? 'on' : '', disabled: lock, onclick: async () => { wear.has(a.id) ? wear.delete(a.id) : wear.add(a.id); await quietSave({ mascotWear: [...wear] }); redress(); draw(); } },
           a.name, h('small', { text: lock ? `mở ở cấp ${a.lv}` : wear.has(a.id) ? 'đang đeo' : 'bấm để đeo' }));
       })));
       right.append(h('h4', { text: 'Màu mắt' }), h('div', { class: 'mp-grid' }, COLORS.map((col) => {
         const lock = col.lv > L.lv, on = colorOf().id === col.id;
-        return h('button', { class: on ? 'on' : '', disabled: lock, onclick: async () => { await quietSave({ mascotColor: col.id }); draw(); } },
+        return h('button', { class: on ? 'on' : '', disabled: lock, onclick: async () => { await quietSave({ mascotColor: col.id }); redress(); draw(); } },
           col.name, h('small', { text: lock ? `mở ở cấp ${col.lv}` : on ? 'đang dùng' : '●', style: !lock && col.c ? { color: `rgb(${col.c})` } : {} }));
       })));
       const got = c.mascotBadges || {};

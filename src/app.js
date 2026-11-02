@@ -3272,6 +3272,10 @@
     setTimeout(applyTermTheme, 60);
   }
   CG.applyTheme = applyTheme;
+  // kiểu làm nổi tiêu đề / chữ đậm / đầu mục trong markdown (mặc định: không thêm gì)
+  const MD_HL = ['accent', 'marker', 'chip', 'contrast', 'level'];
+  function applyMdHl(v) { if (MD_HL.includes(v)) document.documentElement.dataset.mdhl = v; else delete document.documentElement.dataset.mdhl; }
+  CG.applyMdHl = applyMdHl;
   if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => setTimeout(applyTermTheme, 30));
 
   // ---------- Wiring ----------
@@ -3487,6 +3491,7 @@
     S.appInfo = await api.appInfo();
     api.setZoom(S.settings.zoom || 1);
     applyTheme(S.settings.theme);
+    applyMdHl(S.settings.mdHl);
     try { S.claudeSettings = (await api.claudeSettings()).data || {}; } catch {}
     applyViewMode();
     bind();

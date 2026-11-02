@@ -965,3 +965,47 @@ body.fx-reduce .modal, body.fx-reduce .toast { animation: none; }
 .sess .s-star:hover { color: #e0a800; }
 .sess.starred .s-star { display: inline-flex; color: #e0a800; }
 .grp-head.star-head .g-star { color: #e0a800; font-size: 13px; width: 14px; text-align: center; }
+
+/* ---- Kiểu làm nổi tiêu đề / chữ đậm / đầu mục (Cài đặt › Chung › Giao diện) ----
+   Màu lấy từ biến của theme; trộn với --text nên tự sáng lên ở nền tối, tự đậm lại ở nền sáng. */
+:root {
+  --hl-strong-accent: color-mix(in srgb, var(--accent) 72%, var(--text));
+  --hl-marker: color-mix(in srgb, #facc15 38%, transparent);
+  --hl-l2: color-mix(in srgb, var(--blue) 82%, var(--text));
+  --hl-l3: color-mix(in srgb, #a974f0 76%, var(--text));
+  --hl-l4: color-mix(in srgb, #2fb3d6 76%, var(--text));
+  --hl-strong-lv: color-mix(in srgb, #e0a030 76%, var(--text));
+  --hl-hc-body: color-mix(in srgb, var(--text) 80%, var(--bg));
+}
+/* Màu nhấn */
+:root[data-mdhl="accent"] .md { color: var(--text-2); }
+:root[data-mdhl="accent"] .md :is(h1, h2, h3) { color: var(--accent); }
+:root[data-mdhl="accent"] .md h4 { color: var(--text); }
+:root[data-mdhl="accent"] .md strong { color: var(--hl-strong-accent); font-weight: 650; }
+:root[data-mdhl="accent"] .md li::marker { color: var(--accent); font-weight: 650; }
+/* Bút dạ quang */
+:root[data-mdhl="marker"] .md strong { background: linear-gradient(transparent 38%, var(--hl-marker) 38%, var(--hl-marker) 94%, transparent 94%); padding: 0 .12em; margin: 0 -.06em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+:root[data-mdhl="marker"] .md :is(h1, h2, h3) { border-left: 4px solid var(--accent); padding-left: 10px; }
+:root[data-mdhl="marker"] .md li::marker { color: var(--accent); font-weight: 700; }
+/* Nhãn nền */
+:root[data-mdhl="chip"] .md strong { background: var(--accent-soft); color: var(--hl-strong-accent); border-radius: 5px; padding: .04em .38em; font-weight: 650; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+:root[data-mdhl="chip"] .md :is(h1, h2, h3) { padding-bottom: .3em; background: linear-gradient(var(--accent), var(--accent)) left bottom / 42px 3px no-repeat, linear-gradient(var(--border), var(--border)) left bottom / 100% 1px no-repeat; }
+:root[data-mdhl="chip"] .md li::marker { color: var(--accent); font-weight: 700; }
+/* Tương phản cao */
+:root[data-mdhl="contrast"] .md { color: var(--hl-hc-body); }
+:root[data-mdhl="contrast"] .md :is(h1, h2, h3, h4), :root[data-mdhl="contrast"] .md strong, :root[data-mdhl="contrast"] .md li::marker { color: var(--text); font-weight: 760; }
+:root[data-mdhl="contrast"] .md h2 { font-size: 1.3em; padding-bottom: .25em; border-bottom: 1px solid var(--border-strong); }
+/* Màu theo cấp */
+:root[data-mdhl="level"] .md :is(h1, h2) { color: var(--accent); }
+:root[data-mdhl="level"] .md h3 { color: var(--hl-l2); }
+:root[data-mdhl="level"] .md h4 { color: var(--hl-l3); }
+:root[data-mdhl="level"] .md strong { color: var(--hl-strong-lv); font-weight: 650; }
+:root[data-mdhl="level"] .md li::marker { color: var(--hl-l2); font-weight: 700; }
+:root[data-mdhl="level"] .md li li::marker { color: var(--hl-l3); }
+:root[data-mdhl="level"] .md li li li::marker { color: var(--hl-l4); }
+/* chữ đậm nằm trong khối code / đường dẫn không bị tô */
+:root[data-mdhl] .md pre strong { background: none; color: inherit; padding: 0; margin: 0; }
+/* xem trước trong Cài đặt */
+.st-hlprev { margin-top: 8px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); font-size: 13px; }
+.st-hlprev h3 { margin: 0 0 .35em !important; font-size: 1.05em; }
+.st-hlprev ul { margin: 0 !important; }

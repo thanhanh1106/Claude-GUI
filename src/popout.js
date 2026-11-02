@@ -6,6 +6,7 @@
   const p = q.get('path') || '';
   const theme = q.get('theme') || '';
   if (theme) document.documentElement.dataset.theme = theme;
+  try { const st = await api.getSettings(); if (st && st.mdHl && st.mdHl !== 'default') document.documentElement.dataset.mdhl = st.mdHl; } catch {}
   const ext = (p.split('.').pop() || '').toLowerCase();
   document.getElementById('po-name').textContent = p.split(/[\\/]/).pop();
   document.getElementById('po-path').textContent = p;

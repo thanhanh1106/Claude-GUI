@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.19.2-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.19.3-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -88,6 +88,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - **Cài đặt hết giật**: khung trang giữ nguyên, chuyển mục chỉ đổi phần nội dung (viên chọn trượt theo), đổi tuỳ chọn sửa tại chỗ (giữ vị trí cuộn, video / ảnh thu nhỏ không nạp lại), phần tải chậm (Quyền, MCP) giữ sẵn chỗ bằng khối xương; mở / đóng có hiệu ứng.
 - **Chuyển sang phiên chưa nạp**: viên chọn + tiêu đề đổi ngay, chờ quá 150 ms thì hiện khối xương, nạp xong nội dung mới hiện so le (không còn bật ra + nhảy); lần đầu chỉ dựng ~1 màn hình, phần ngoài màn hình trong lượt dài được bỏ qua khi tính bố cục (thời gian đứng hình khi mở phiên 250 MB giảm từ ~0.5 s xuống ~0.15 s); **rê chuột lên phiên ~0.1 s là đọc trước**, bấm vào hiện ngay.
 - **Animation**: chữ stream hiện dần như mực thấm, "Đang suy nghĩ…" có vệt sáng, khối mới trồi lên, thẻ xin quyền trượt lên / thu lại, thẻ lỗi rung nhẹ, số +N −M đếm lên, chip "↓ n tin mới" khi đang cuộn lên, sao chép → dấu tick; thanh bên: các dòng trượt khi đổi chỗ / thêm / lưu trữ, phiên xong thì chấm thành tick xanh có sóng, huy hiệu nảy, đổi tên trôi lên, mở nhóm so le; ô nhập giãn mượt, chip đính kèm vào / ra, kéo thả có khung nét đứt chạy, nút Gửi ↔ Dừng có vòng quay, menu `/` `@` so le + nền chọn trượt; khung xem trước, sổ tài liệu, khung chia đôi trượt vào / trượt ra (chỉ transform, khung chat đổi cỡ một lần), tab giãn ra; màn hình phiên mới hiện so le, gửi tin đầu tiên thì ô nhập trượt từ giữa xuống đáy; git stage trượt sang nhóm Đã stage; thanh hạn mức đầy dần; hộp thoại / menu / thông báo có hiệu ứng lúc đóng; nút lún khi nhấn, công tắc nảy; thẻ "giới hạn hồi" có vòng đếm ngược. Tất cả tắt khi bật "Giảm hiệu ứng".
+- **Kiểu làm nổi tiêu đề và chữ đậm** (Cài đặt → Chung → Giao diện, có khung xem trước): Mặc định (chỉ in đậm, như cũ), **Màu nhấn** (tiêu đề + số thứ tự màu nhấn, chữ đậm sáng màu nhấn), **Bút dạ quang** (chữ đậm có vệt vàng, tiêu đề có vạch màu), **Nhãn nền** (chữ đậm thành nhãn nền nhạt, tiêu đề gạch chân), **Tương phản cao** (thân chữ dịu xuống, tiêu đề / chữ đậm sáng hẳn — hợp với ảnh nền), **Màu theo cấp** (mỗi cấp tiêu đề một màu, dấu đầu dòng đổi màu theo cấp lồng). Áp cho câu trả lời của Claude, Sổ tài liệu, khung xem trước Markdown và cửa sổ tách riêng; màu đi theo chủ đề, tự đổi đậm / nhạt cho nền sáng và nền tối.
 
 **Khung xem tệp & web** (nút con mắt trên thanh tiêu đề, `Ctrl+Shift+B`; `Ctrl+P` mở nhanh tệp trong dự án):
 - **Mỗi phiên một bộ tab riêng** (giống app gốc): đổi phiên thì khung đổi theo, phiên chưa có xem trước thì khung đóng; mở lại phiên cũ (kể cả sau khi tắt app) vẫn thấy đúng tab của nó. Phiên chạy nền tạo tệp / bật server → tab vào đúng phiên đó, chấm xanh ở thanh bên, mở phiên ra là khung tự mở. Thẻ lệnh in địa chỉ `localhost` có nút **Mở xem trước**.
