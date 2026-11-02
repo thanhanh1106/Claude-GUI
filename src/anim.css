@@ -23,11 +23,16 @@
 
 /* ---------- Nút Gửi ↔ Dừng: vòng mảnh chạy quanh khi Claude đang làm ---------- */
 .send { position: relative; }
+/* khung viền giữ nguyên hình nút, chỉ vệt sáng chạy vòng quanh (xoay cả khung vuông thì lệch ra ngoài nút) */
+@property --m-ring { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 .send.stop::after {
-  content: ''; position: absolute; inset: -4px; border-radius: 13px; border: 2px solid transparent;
-  border-top-color: var(--accent); border-right-color: color-mix(in srgb, var(--accent) 35%, transparent);
-  animation: m-spin 1.1s linear infinite; pointer-events: none;
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 2px; pointer-events: none;
+  background: conic-gradient(from var(--m-ring), transparent 0deg, transparent 200deg, color-mix(in srgb, var(--accent) 40%, transparent) 280deg, var(--accent) 355deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: m-ring 1.3s linear infinite;
 }
+@keyframes m-ring { to { --m-ring: 360deg; } }
 @keyframes m-spin { to { transform: rotate(360deg); } }
 .ctl { transition: transform .1s ease-out, background-color .25s, color .25s, border-color .25s; }
 
