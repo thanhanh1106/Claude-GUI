@@ -549,11 +549,7 @@
       const t = r.target;
       if (t === vw) {
         const hid = vw.classList.contains('hidden');
-        if (hid !== vwHidden && !hid && on()) {
-          const w = vw.getBoundingClientRect().width;
-          if (w > 0) A(vw, [{ width: '0px', minWidth: '0px', opacity: 0.3 }, { width: w + 'px', minWidth: '0px', opacity: 1 }], 260);
-        }
-        vwHidden = hid;
+        vwHidden = hid; // mở / đóng khung: paneIn / paneOut (gọi từ viewer.js)
       } else if (t.classList.contains('vw-saved') && t.classList.contains('ok') && !/\bok\b/.test(r.oldValue || '') && on()) {
         A(t, [{ opacity: 0, transform: 'translateX(-4px) scale(.9)' }, { opacity: 1, transform: 'none' }], 260, { easing: SPRING });
       }
@@ -565,6 +561,74 @@
     enter(el) { A(el, [{ maxWidth: '0px', opacity: 0, paddingLeft: '0px', paddingRight: '0px' }, { maxWidth: '200px', opacity: 1 }], 180); },
   });
   if (TB) watch(tabs, TB.scan, { childList: true });
+
+  // ---------------------------------------------------------------------
+  // Khung bên (xem trước, sổ tài liệu, khung chia đôi): mở thì trượt vào, đóng thì tách khỏi bố cục rồi trượt ra.
+  // Chỉ dùng transform / opacity → khung chat đổi cỡ đúng một lần, không tính lại bố cục từng khung hình.
+  // ---------------------------------------------------------------------
+  const sideOf = (el) => { const p = el.parentElement.getBoundingClientRect(), r = el.getBoundingClientRect(); return r.left + r.width / 2 < p.left + p.width / 2 ? -1 : 1; };
+  // gọi khi sắp mở: trả về true nếu khung đang ẩn / đang đóng (→ sau khi bỏ hidden thì gọi paneIn)
+  function paneWillOpen(el) {
+    if (!el) return false;
+    const closing = !!el._mOut;
+    if (closing) el._mOut();
+    return closing || el.classList.contains('hidden');
+  }
+  function paneIn(el) {
+    if (!el || el.classList.contains('hidden') || !on()) return;
+    const d = sideOf(el);
+    A(el, [{ transform: `translateX(${d * 36}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], 260);
+  }
+  function paneOut(el, hide) {
+    if (!el) return hide();
+    if (el._mOut) return;
+    if (el.classList.contains('hidden') || !on() || !el.offsetWidth) return hide();
+    const par = el.parentElement, pr = par.getBoundingClientRect(), r = el.getBoundingClientRect(), d = sideOf(el);
+    const prev = el.getAttribute('style');
+    if (getComputedStyle(par).position === 'static') par.style.position = 'relative';
+    Object.assign(el.style, { position: 'absolute', top: r.top - pr.top + 'px', left: r.left - pr.left + 'px', width: r.width + 'px', height: r.height + 'px', minWidth: '0', zIndex: '4', pointerEvents: 'none' });
+    const a = A(el, [{ transform: 'none', opacity: 1 }, { transform: `translateX(${d * Math.min(60, r.width * 0.25)}px)`, opacity: 0 }], 200, { easing: OUT, fill: 'forwards' });
+    let done = false;
+    // mở lại giữa chừng → trả khung về chỗ cũ, không ẩn
+    const restore = () => { if (done) return; done = true; el._mOut = null; if (a) a.cancel(); if (prev == null) el.removeAttribute('style'); else el.setAttribute('style', prev); };
+    el._mOut = restore;
+    const fin = () => { if (done) return; restore(); hide(); };
+    if (a) a.onfinish = fin;
+    setTimeout(fin, 320);
+  }
+  M.paneWillOpen = paneWillOpen;
+  M.paneIn = paneIn;
+  M.paneOut = paneOut;
+
+  // ---------------------------------------------------------------------
+  // Màn hình phiên mới (hero): lời chào + ô nhập + gợi ý hiện lên so le; gửi tin đầu tiên → ô nhập trượt từ giữa
+  // xuống đáy (FLIP) thay vì nhảy.
+  // ---------------------------------------------------------------------
+  const main = $('#main'), comp = $('#composer');
+  let wasHero = main ? main.classList.contains('hero') : false, heroRect = null;
+  const keepHeroRect = () => requestAnimationFrame(() => { if (main.classList.contains('hero') && comp) heroRect = comp.getBoundingClientRect(); });
+  if (wasHero) setTimeout(keepHeroRect, 500);
+  window.addEventListener('resize', () => { if (wasHero) keepHeroRect(); });
+  watch(main, () => {
+    const hero = main.classList.contains('hero');
+    if (hero === wasHero) return;
+    wasHero = hero;
+    if (hero) {
+      if (on()) {
+        const parts = [$('#welcome .welcome-logo') || $('#welcome svg'), $('#welcome-title'), comp, ...(($('#hero-below') && [...$('#hero-below').children]) || [])].filter(Boolean).slice(0, 10);
+        parts.forEach((p, i) => A(p, [{ opacity: 0, transform: `translateY(${p === comp ? 18 : 12}px)` }, { opacity: 1, transform: 'none' }], 320, { delay: 30 + 45 * i, fill: 'backwards' }));
+      }
+      keepHeroRect();
+      return;
+    }
+    // rời màn hình chào → ô nhập trượt xuống chỗ mới
+    const old = heroRect;
+    heroRect = null;
+    if (!old || !comp || !on()) return;
+    const nu = comp.getBoundingClientRect();
+    const dy = old.top - nu.top, dx = old.left - nu.left;
+    if (Math.abs(dy) > 4 || Math.abs(dx) > 4) A(comp, [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], 360, { easing: 'cubic-bezier(.2,.9,.25,1)' });
+  }, { attributes: true, attributeFilter: ['class'] });
 
   M.ink = ink;
   M.countUp = countUp;

@@ -577,8 +577,10 @@
     if (p) NB.cur = p.sid;
     const e = ent(NB.cur);
     const open = !!(e && e.open && p);
-    $('#nb-col').classList.toggle('hidden', !open);
+    const col = $('#nb-col'), M = CG.motion;
     $('#nb-resize').classList.toggle('hidden', !open);
+    if (!open) { if (M && M.paneOut) M.paneOut(col, () => col.classList.add('hidden')); else col.classList.add('hidden'); }
+    else { const anim = M && M.paneWillOpen ? M.paneWillOpen(col) : false; col.classList.remove('hidden'); if (anim && M.paneIn) M.paneIn(col); }
     const btn = $('#btn-nb');
     btn.classList.toggle('on', open);
     btn.classList.toggle('nb-has', !!(e && e.topics.length));

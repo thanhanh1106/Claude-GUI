@@ -61,9 +61,14 @@
   // ---------- Khung & tab ----------
   function showPane(on) {
     if (on && !V.sized) { V.sized = true; $('#viewer').style.width = ((S().settings || {}).viewerWidth || 46) + '%'; }
-    $('#viewer').classList.toggle('hidden', !on);
+    const vw = $('#viewer'), M = CG.motion;
     $('#viewer-resize').classList.toggle('hidden', !on);
     $('#btn-viewer').classList.toggle('on', on);
+    // mở: trượt vào · đóng: trượt ra rồi mới ẩn (mở lại giữa chừng thì huỷ)
+    if (!on) { if (M && M.paneOut) M.paneOut(vw, () => vw.classList.add('hidden')); else vw.classList.add('hidden'); return; }
+    const anim = M && M.paneWillOpen ? M.paneWillOpen(vw) : false;
+    vw.classList.remove('hidden');
+    if (anim && M.paneIn) M.paneIn(vw);
   }
   function setOpen(on) {
     CUR.open = on;

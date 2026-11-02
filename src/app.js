@@ -3118,8 +3118,10 @@
   function updateSide(full) {
     const c = S.side;
     const on = !!c;
-    $('#split-col').classList.toggle('hidden', !on);
+    const col = $('#split-col'), M = CG.motion;
     $('#split-resize').classList.toggle('hidden', !on);
+    if (!on) { if (M && M.paneOut) M.paneOut(col, () => col.classList.add('hidden')); else col.classList.add('hidden'); }
+    else { const anim = M && M.paneWillOpen ? M.paneWillOpen(col) : false; col.classList.remove('hidden'); if (anim && M.paneIn) M.paneIn(col); }
     $('#btn-split').classList.toggle('on', on);
     const inp = $('#split-input');
     if (full) {
