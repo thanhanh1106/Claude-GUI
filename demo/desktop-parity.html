@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo · 12 tính năng theo bản desktop gốc</title>
+<style>
+  :root { --bg:#1e1f22; --surface:#26282c; --surface2:#2d3035; --border:#3a3d43; --text:#e6e6e6; --text2:#b8bcc4; --muted:#8a8f98; --accent:#d97757; --blue:#5aa9ff; --green:#5cc98a; --red:#ef6b6b; --warn:#e5b45a; --purple:#b48cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.55 "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; overflow:hidden; }
+  button { font:inherit; cursor:pointer; color:inherit; }
+  code, .mono { font-family:"Cascadia Code", Consolas, monospace; font-size:12.5px; }
+  .nav { width:250px; flex:none; background:#18191c; border-right:1px solid var(--border); padding:14px 10px; overflow:auto; }
+  .nav h3 { margin:2px 8px 10px; font-size:13px; color:var(--muted); font-weight:600; }
+  .nav button { display:flex; gap:8px; width:100%; text-align:left; background:none; border:0; padding:7px 9px; border-radius:8px; color:var(--text2); font-size:13px; align-items:flex-start; }
+  .nav button:hover { background:var(--surface); }
+  .nav button.on { background:var(--surface2); color:var(--text); }
+  .nav .n { flex:none; width:20px; height:20px; border-radius:6px; background:var(--surface2); display:grid; place-items:center; font-size:11px; font-weight:700; color:var(--muted); }
+  .nav button.on .n { background:var(--accent); color:#fff; }
+  .nav .grp { margin:12px 8px 4px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .page { flex:1; overflow:auto; padding:22px 28px 60px; }
+  .page > section { display:none; max-width:1100px; }
+  .page > section.on { display:block; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .lead { color:var(--text2); margin:0 0 14px; }
+  .how { margin-top:16px; border:1px dashed var(--border); border-radius:10px; padding:10px 14px; color:var(--text2); font-size:13px; }
+  .how b { color:var(--text); }
+  .how ul { margin:4px 0 0; padding-left:18px; }
+  .frame { border:1px solid var(--border); border-radius:12px; background:var(--surface); overflow:hidden; position:relative; }
+  .tb { display:flex; align-items:center; gap:10px; padding:8px 14px; border-bottom:1px solid var(--border); font-weight:600; font-size:13px; }
+  .tb .sp { flex:1; }
+  .chat { padding:16px 22px; display:flex; flex-direction:column; gap:12px; min-height:260px; }
+  .u { align-self:flex-end; background:linear-gradient(135deg,#6a7dff,#b06ad8); padding:7px 13px; border-radius:15px; max-width:70%; }
+  .tool { border:1px solid var(--border); border-radius:9px; padding:6px 10px; font-size:13px; color:var(--text2); display:flex; gap:8px; align-items:center; background:var(--bg); }
+  .tool .ok { color:var(--green); margin-left:auto; }
+  .composer { margin:0 22px 16px; border:1px solid var(--border); border-radius:14px; background:var(--surface2); padding:10px 12px; }
+  .composer .ph { color:var(--muted); min-height:22px; }
+  .composer .row { display:flex; gap:8px; align-items:center; margin-top:8px; font-size:12.5px; color:var(--muted); }
+  .composer .row .sp { flex:1; }
+  .send { width:28px; height:28px; border-radius:8px; border:0; background:var(--accent); color:#fff; }
+  .btn { border:1px solid var(--border); background:var(--surface2); border-radius:8px; padding:4px 11px; font-size:12.5px; }
+  .btn:hover { border-color:var(--muted); }
+  .btn.pri { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.xs { padding:2px 8px; font-size:12px; }
+  .chip { display:inline-flex; gap:6px; align-items:center; border:1px solid var(--border); border-radius:8px; padding:3px 8px; font-size:12.5px; background:var(--bg); }
+  .kbd { border:1px solid var(--border); border-bottom-width:2px; border-radius:5px; padding:0 5px; font-size:11.5px; color:var(--text2); }
+  .card { border:1px solid var(--border); border-radius:12px; padding:12px 14px; background:var(--bg); }
+  .muted { color:var(--muted); }
+  .warn { color:var(--warn); } .red { color:var(--red); } .green { color:var(--green); } .blue { color:var(--blue); }
+  .row { display:flex; gap:8px; align-items:center; }
+  .sp { flex:1; }
+  .split2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  label.ck { display:flex; gap:8px; align-items:center; cursor:pointer; }
+  .menu { position:absolute; background:#2a2c31; border:1px solid var(--border); border-radius:10px; padding:5px; box-shadow:0 10px 30px #0008; min-width:230px; z-index:5; font-size:13px; }
+  .menu .mi { padding:6px 10px; border-radius:6px; display:flex; gap:8px; align-items:center; cursor:pointer; }
+  .menu .mi:hover { background:var(--surface2); }
+  .menu .hd { padding:4px 10px; color:var(--muted); font-size:11.5px; }
+  .menu hr { border:0; border-top:1px solid var(--border); margin:4px 0; }
+  .hidden { display:none !important; }
+
+  /* 1 */
+  .limit { border:1px solid color-mix(in srgb,var(--warn) 50%,var(--border)); background:color-mix(in srgb,var(--warn) 7%,var(--bg)); border-radius:12px; padding:12px 14px; }
+  .limit .t { font-weight:600; display:flex; gap:8px; align-items:center; }
+  .bar { height:6px; border-radius:3px; background:var(--surface2); overflow:hidden; margin:8px 0; }
+  .bar i { display:block; height:100%; background:var(--warn); }
+  /* 2 */
+  .btw { position:absolute; right:16px; bottom:16px; width:380px; border:1px solid color-mix(in srgb,var(--purple) 50%,var(--border)); border-radius:14px; background:#25232c; box-shadow:0 14px 40px #000a; }
+  .btw .h { display:flex; gap:8px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); font-size:13px; font-weight:600; }
+  .btw .b { padding:10px 12px; display:flex; flex-direction:column; gap:8px; font-size:13px; max-height:230px; overflow:auto; }
+  .btw .q { align-self:flex-end; background:var(--surface2); padding:5px 10px; border-radius:11px; }
+  .btw input { width:100%; border:0; border-top:1px solid var(--border); background:none; padding:9px 12px; color:var(--text); outline:none; }
+  /* 3 */
+  .diff { font-family:"Cascadia Code", Consolas, monospace; font-size:12.5px; }
+  .dl { display:grid; grid-template-columns:22px 42px 1fr; align-items:center; position:relative; }
+  .dl .plus { visibility:hidden; width:18px; height:18px; border-radius:5px; border:0; background:var(--blue); color:#fff; font-size:13px; line-height:16px; padding:0; }
+  .dl:hover .plus { visibility:visible; }
+  .dl .ln { color:var(--muted); text-align:right; padding-right:10px; }
+  .dl.add { background:#5cc98a18; } .dl.del { background:#ef6b6b18; }
+  .dl .tx { white-space:pre; padding:1px 0; }
+  .cmt { margin:4px 10px 6px 64px; border:1px solid color-mix(in srgb,var(--blue) 50%,var(--border)); border-radius:9px; padding:7px 10px; background:var(--surface); font-family:"Segoe UI",sans-serif; font-size:13px; }
+  .cmt textarea { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:7px; color:var(--text); padding:6px; font:inherit; resize:vertical; }
+  /* 4 */
+  .site { background:#f5f6fa; color:#222; padding:18px; min-height:250px; font-family:system-ui; }
+  .site .hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+  .site .logo { font-weight:800; font-size:18px; color:#6a4cff; }
+  .site .cardx { background:#fff; border-radius:12px; padding:16px; box-shadow:0 2px 8px #0001; max-width:330px; }
+  .site .bp { background:#6a4cff; color:#fff; border:0; border-radius:8px; padding:8px 16px; margin-top:10px; }
+  .picking .site * { cursor:crosshair !important; }
+  .hl { outline:2px solid #ff7a45 !important; outline-offset:1px; }
+  .tag { position:absolute; background:#ff7a45; color:#fff; font:11px Consolas,monospace; padding:1px 6px; border-radius:4px; pointer-events:none; z-index:4; }
+  /* 5 */
+  .code { font-family:"Cascadia Code", Consolas, monospace; font-size:12.5px; background:var(--bg); padding:10px 0; min-height:200px; outline:none; white-space:pre; }
+  .code .l { display:grid; grid-template-columns:40px 1fr; }
+  .code .l span:first-child { color:var(--muted); text-align:right; padding-right:12px; user-select:none; }
+  .conflict { background:color-mix(in srgb,var(--warn) 12%,var(--surface)); border-bottom:1px solid var(--border); padding:7px 14px; font-size:13px; display:flex; gap:8px; align-items:center; }
+  /* 6 */
+  .rv { border:1px solid color-mix(in srgb,var(--accent) 45%,var(--border)); border-radius:12px; overflow:hidden; }
+  .rv .h { padding:9px 14px; background:color-mix(in srgb,var(--accent) 8%,var(--surface)); display:flex; gap:8px; align-items:center; font-weight:600; }
+  .fi { padding:10px 14px; border-top:1px solid var(--border); display:grid; grid-template-columns:auto 1fr auto; gap:4px 10px; align-items:start; }
+  .sev { font-size:11px; font-weight:700; padding:1px 7px; border-radius:6px; }
+  .sev.hi { background:#ef6b6b30; color:var(--red); } .sev.md { background:#e5b45a30; color:var(--warn); } .sev.lo { background:#5aa9ff30; color:var(--blue); }
+  .fi .acts { display:flex; gap:6px; }
+  .fi.done { opacity:.5; }
+  /* 7 */
+  .ac { position:absolute; bottom:64px; left:22px; width:360px; }
+  .xmsg { border:1px solid color-mix(in srgb,var(--green) 45%,var(--border)); background:color-mix(in srgb,var(--green) 6%,var(--bg)); border-radius:12px; padding:9px 12px; font-size:13px; }
+  /* 8 */
+  .lay { display:grid; gap:6px; height:300px; background:var(--bg); padding:6px; border-radius:10px; transition:all .25s; }
+  .pane { border:1px solid var(--border); border-radius:9px; background:var(--surface); display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+  .pane .ph2 { display:flex; gap:6px; align-items:center; padding:5px 8px; border-bottom:1px solid var(--border); font-size:12.5px; cursor:grab; background:var(--surface2); }
+  .pane .ph2 .grip { color:var(--muted); letter-spacing:-2px; }
+  .pane .bd { flex:1; padding:10px; color:var(--muted); font-size:12.5px; }
+  .pane.drag { outline:2px dashed var(--blue); }
+  .ib { border:0; background:none; color:var(--muted); padding:1px 4px; border-radius:4px; }
+  .ib:hover { background:var(--bg); color:var(--text); }
+  /* 9 */
+  .srv { display:grid; grid-template-columns:14px 1fr auto auto; gap:8px; align-items:center; padding:6px 10px; border-radius:7px; }
+  .srv:hover { background:var(--surface2); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); }
+  .dot.on { background:var(--green); box-shadow:0 0 6px var(--green); }
+  /* 10 */
+  .pr { display:inline-flex; gap:8px; align-items:center; border:1px solid var(--border); border-radius:8px; padding:3px 10px; font-size:12.5px; cursor:pointer; background:var(--bg); font-weight:400; }
+  /* 11 */
+  .seg { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .seg button { border:0; background:none; padding:4px 12px; font-size:12.5px; color:var(--text2); }
+  .seg button.on { background:var(--surface2); color:var(--text); }
+  details.th { border-left:3px solid var(--purple); padding:2px 10px; color:var(--text2); font-size:13px; }
+  details.th summary { cursor:pointer; color:var(--purple); }
+  /* 12 */
+  .sch { display:grid; grid-template-columns:auto 1fr auto; gap:6px 12px; align-items:center; padding:10px 14px; border-top:1px solid var(--border); font-size:13px; }
+  .pill { font-size:11.5px; border-radius:6px; padding:1px 8px; }
+  .pill.miss { background:#e5b45a30; color:var(--warn); } .pill.ok { background:#5cc98a30; color:var(--green); } .pill.next { background:#5aa9ff30; color:var(--blue); }
+  .toast { position:fixed; right:20px; bottom:20px; background:#2a2c31; border:1px solid var(--border); padding:9px 14px; border-radius:10px; box-shadow:0 8px 24px #0008; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.on { opacity:1; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <h3>Demo · bắt kịp bản desktop gốc</h3>
+  <div class="grp">Đáng làm</div>
+  <button data-p="1" class="on"><span class="n">1</span>Tự chạy tiếp khi giới hạn hồi</button>
+  <button data-p="2"><span class="n">2</span>Hỏi bên lề /btw (Ctrl+;)</button>
+  <button data-p="3"><span class="n">3</span>Góp ý từng dòng trên diff</button>
+  <button data-p="4"><span class="n">4</span>Chọn phần tử trên trang web</button>
+  <button data-p="5"><span class="n">5</span>Sửa tệp trong khung xem</button>
+  <button data-p="6"><span class="n">6</span>Thẻ /code-review</button>
+  <div class="grp">Tốn công hơn</div>
+  <button data-p="7"><span class="n">7</span>Phiên nói chuyện với nhau (@phiên)</button>
+  <button data-p="8"><span class="n">8</span>Kéo thả khung · cửa sổ riêng</button>
+  <button data-p="9"><span class="n">9</span>Dev servers · launch.json</button>
+  <button data-p="10"><span class="n">10</span>PR: tự sửa CI · merge khi sẵn sàng</button>
+  <button data-p="11"><span class="n">11</span>Chế độ xem "Suy nghĩ"</button>
+  <button data-p="12"><span class="n">12</span>Lịch: chạy bù · giữ máy thức</button>
+</nav>
+<main class="page">
+
+<!-- 1 -->
+<section id="p1" class="on">
+  <h1>1 · Tự chạy tiếp khi giới hạn hồi</h1>
+  <p class="lead">Phiên đang làm thì hết giới hạn 5 giờ → thay vì đứng im, hiện thẻ đếm ngược với ô "Tự chạy tiếp". Tới giờ hồi GUI tự gửi "tiếp tục" vào đúng phiên.</p>
+  <div class="frame">
+    <div class="tb">Sửa luồng nạp tiền Shop <span class="sp"></span><span id="l-side" class="muted" style="font-weight:400;font-size:12px"></span></div>
+    <div class="chat">
+      <div class="u">Làm tiếp phần 3: viết test cho ShopPurchaseHandler</div>
+      <div class="tool">✎ Sửa ShopPurchaseHandler.cs <span class="ok">+42 −8 ✓</span></div>
+      <div class="tool">▶ dotnet test GameServer.Tests <span class="ok">✓</span></div>
+      <div class="limit">
+        <div class="t">⏳ Đã hết giới hạn 5 giờ <span class="sp"></span><span class="muted" style="font-weight:400">hồi lúc <b id="l-at">14:20</b> · còn <b id="l-left" class="mono">0:00:15</b></span></div>
+        <div class="bar"><i id="l-bar" style="width:0%"></i></div>
+        <label class="ck"><input type="checkbox" id="l-ck" checked> Tự chạy tiếp khi giới hạn hồi</label>
+        <div class="row" style="margin-top:8px">
+          <span class="muted" style="font-size:12.5px">Lời nhắn sẽ gửi:</span>
+          <input id="l-msg" value="Tiếp tục việc đang làm dở." style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:3px 8px">
+          <button class="btn xs" onclick="toast('Đã gửi ngay (có thể lỗi nếu chưa hồi)')">Gửi ngay</button>
+        </div>
+      </div>
+      <div id="l-after" class="hidden">
+        <div class="u">Tiếp tục việc đang làm dở. <span style="opacity:.7;font-size:11.5px">· tự gửi lúc giới hạn hồi</span></div>
+        <div class="tool">✎ Sửa ShopPurchaseHandlerTests.cs <span class="ok">…</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Nhận biết hết giới hạn từ <code>rate_limit_event</code> / lỗi "limit reached" của CLI; giờ hồi lấy từ <code>resetsAt</code> (đã có cho vòng mức sử dụng).</li>
+    <li>Ô tick nhớ theo phiên (mặc định bật, tắt ở Cài đặt). Phiên nào đang chờ hồi có biểu tượng ⏳ ở thanh bên; robot đếm ngược như hiện nay.</li>
+    <li>Nhiều phiên cùng chờ → gửi lần lượt cách nhau vài giây. Giới hạn <b>tuần</b> thì cũng hẹn (bản gốc không có, mình có thêm).</li>
+  </ul></div>
+</section>
+
+<!-- 2 -->
+<section id="p2">
+  <h1>2 · Hỏi bên lề <code>/btw</code> <span class="kbd">Ctrl</span>+<span class="kbd">;</span></h1>
+  <p class="lead">Hỏi nhanh một câu về việc đang làm mà không chen vào phiên chính (kể cả khi Claude đang chạy). Câu hỏi không ghi vào lịch sử phiên chính.</p>
+  <div class="frame" style="min-height:400px">
+    <div class="tb">Refactor InventoryService <span class="sp"></span><span class="muted" style="font-weight:400;font-size:12px">● Claude đang sửa tệp…</span></div>
+    <div class="chat">
+      <div class="u">Tách InventoryService thành 3 lớp nhỏ</div>
+      <div class="tool">✎ Sửa InventoryService.cs <span class="ok">+120 −340 ✓</span></div>
+      <div class="tool">✎ Tạo InventoryQuery.cs <span class="ok">…</span></div>
+      <div><button class="btn" onclick="btwOpen()">Mở hỏi bên lề (Ctrl+;)</button></div>
+    </div>
+    <div class="btw hidden" id="btw">
+      <div class="h">💬 Hỏi bên lề <span class="muted" style="font-weight:400;font-size:11.5px">· đọc được phiên chính, không ghi vào đó</span><span class="sp"></span><button class="ib" onclick="btwClose()">✕</button></div>
+      <div class="b" id="btw-b">
+        <div class="q">Sao nó lại tách InventoryQuery ra riêng vậy?</div>
+        <div>Vì các hàm đọc (GetItems, CountByType) không đổi trạng thái — tách ra để test không cần mock repo ghi, và lớp ghi gọn còn ~180 dòng.</div>
+        <div class="row"><button class="btn xs" onclick="toast('Đã chèn câu trả lời vào ô nhập của phiên chính')">Chèn vào chat</button><button class="btn xs" onclick="toast('Đã gửi thành tin nhắn ở phiên chính')">Gửi vào phiên chính</button><span class="sp"></span><span class="muted" style="font-size:11.5px">Haiku · ~$0.004</span></div>
+      </div>
+      <input placeholder="Hỏi tiếp… (Enter gửi, Esc đóng)" onkeydown="if(event.key==='Escape')btwClose()">
+    </div>
+  </div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Chạy một phiên CLI tạm: <code>--resume &lt;phiên&gt; --fork-session --no-session-persistence</code> → đọc được toàn bộ cuộc trò chuyện chính, không ghi jsonl, không đụng phiên chính.</li>
+    <li>Model mặc định: Haiku (rẻ, nhanh); đổi được trong khung. Không dùng công cụ sửa tệp (chỉ Read/Grep/Glob).</li>
+    <li>Đóng khung là bỏ; muốn giữ thì "Chèn vào chat" / "Gửi vào phiên chính".</li>
+  </ul></div>
+</section>
+
+<!-- 3 -->
+<section id="p3">
+  <h1>3 · Góp ý từng dòng trên diff</h1>
+  <p class="lead">Rê chuột vào một dòng trong diff (bảng Thay đổi hoặc thẻ Sửa tệp) → bấm <b>+</b> → gõ góp ý. Gom nhiều góp ý rồi <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> gửi một lần.</p>
+  <div class="frame">
+    <div class="tb">GameServer/Shop/ShopPurchaseHandler.cs <span class="muted" style="font-weight:400">+6 −2</span><span class="sp"></span><button class="btn pri xs" id="d-send" onclick="sendCmts()" disabled>Gửi 0 góp ý cho Claude</button></div>
+    <div class="diff" id="diff"></div>
+  </div>
+  <div id="d-out" class="card hidden" style="margin-top:12px"><div class="muted" style="font-size:12px;margin-bottom:4px">Tin gửi vào phiên:</div><div id="d-msg" class="mono" style="white-space:pre-wrap"></div></div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Dùng chung cho diff ở bảng Thay đổi và thẻ Edit/Write trong chat. Góp ý chưa gửi được giữ theo phiên (chuyển phiên không mất), có số đếm trên nút Thay đổi.</li>
+    <li>Tin gửi đi gồm <code>tệp:dòng</code> + đoạn code + góp ý → Claude sửa đúng chỗ. Claude đang chạy thì gửi kiểu "bổ sung giữa lượt" như hiện nay.</li>
+  </ul></div>
+</section>
+
+<!-- 4 -->
+<section id="p4">
+  <h1>4 · Chọn phần tử trên trang web <span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">S</span></h1>
+  <p class="lead">Trong khung xem trang localhost / HTML: bật chế độ chọn → rê chuột thấy khung cam → bấm để đính phần tử đó vào chat (thẻ, class, chữ, kích thước, ảnh chụp nhỏ).</p>
+  <div class="split2">
+    <div class="frame" id="pk">
+      <div class="tb"><span class="muted">localhost:5173</span><span class="sp"></span><button class="btn xs" id="pk-btn" onclick="pickToggle()">⌖ Chọn phần tử</button></div>
+      <div class="site" id="site">
+        <div class="hdr"><span class="logo">VõLâm GenZ</span><nav style="display:flex;gap:14px;font-size:13px"><a>Tin tức</a><a>Bang hội</a><a>Nạp</a></nav></div>
+        <div class="cardx"><h3 style="margin:0 0 6px">Đăng ký nhận quà</h3><p style="margin:0;color:#666;font-size:13px">Nhập email để nhận gói tân thủ.</p><input placeholder="email@..." style="margin-top:10px;width:100%;padding:7px;border:1px solid #ccc;border-radius:7px"><button class="bp">Đăng ký</button></div>
+      </div>
+    </div>
+    <div class="frame">
+      <div class="tb">Ô nhập của phiên</div>
+      <div class="composer" style="margin:14px">
+        <div id="pk-chips" class="row" style="flex-wrap:wrap;margin-bottom:6px"></div>
+        <div class="ph">Nút này lệch màu so với design, sửa giúp…</div>
+        <div class="row"><span>+</span><span class="sp"></span><button class="send">↑</button></div>
+      </div>
+      <div class="muted" style="padding:0 14px 14px;font-size:12.5px">Claude nhận: selector, thẻ HTML rút gọn, style tính toán chính (màu, cỡ chữ, padding), vị trí và ảnh chụp vùng đó.</div>
+    </div>
+  </div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Tiêm script nhỏ vào webview (<code>executeJavaScript</code>) để vẽ khung và lấy thông tin phần tử; <code>capturePage(rect)</code> để chụp vùng.</li>
+    <li>Phần tử đính kèm hiện là chip trong ô nhập (bấm để xem / bỏ), gửi đi dưới dạng văn bản + ảnh. Esc thoát chế độ chọn.</li>
+  </ul></div>
+</section>
+
+<!-- 5 -->
+<section id="p5">
+  <h1>5 · Sửa tệp ngay trong khung xem</h1>
+  <p class="lead">Bấm <b>Sửa</b> trên tab tệp → gõ thẳng, tự lưu sau 1 giây. Claude sửa cùng tệp lúc bạn đang gõ → báo xung đột. Chuột phải tab / đường dẫn có menu mới.</p>
+  <div class="frame" id="ed" style="position:relative">
+    <div class="tb"><span>🗎 ShopConfig.json</span><span class="sp"></span><span id="ed-st" class="muted" style="font-weight:400;font-size:12px">Chỉ xem</span><button class="btn xs" id="ed-btn" onclick="edToggle()">✎ Sửa</button><button class="btn xs" oncontextmenu="return false" onclick="edMenu(event)">⋯</button></div>
+    <div class="conflict hidden" id="ed-cf">⚠ Claude vừa sửa tệp này trong lúc bạn đang gõ. <span class="sp"></span><button class="btn xs" onclick="cf('Giữ bản của bạn — ghi đè')">Giữ bản của tôi</button><button class="btn xs" onclick="cf('Đã lấy bản của Claude')">Lấy bản mới</button><button class="btn xs" onclick="cf('Mở so sánh hai bản')">So sánh</button></div>
+    <div class="code" id="ed-code" spellcheck="false"></div>
+    <div class="menu hidden" id="ed-menu" style="right:14px;top:40px">
+      <div class="mi">📎 Đính vào chat (làm ngữ cảnh)</div>
+      <div class="mi">⧉ Mở bằng VS Code</div>
+      <div class="mi">⧉ Mở bằng Rider</div>
+      <div class="mi">📁 Hiện trong thư mục</div>
+      <div class="mi">⎘ Sao chép đường dẫn</div>
+      <hr><div class="hd">Ứng dụng tự dò: VS Code, Rider, Cursor, Notepad++…</div>
+    </div>
+  </div>
+  <div class="row" style="margin-top:10px"><button class="btn" onclick="edConflict()">Thử: Claude sửa cùng lúc</button></div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Trình sửa nhẹ trên nền khung code hiện có (tô màu lại khi ngừng gõ), <span class="kbd">Ctrl</span>+<span class="kbd">S</span> lưu ngay; tắt tự lưu trong Cài đặt → khung xem thì có nút Lưu / Huỷ.</li>
+    <li>Ghi tệp qua main process, so sánh thời điểm sửa để phát hiện xung đột (đã có watchFile).</li>
+    <li>Markdown / HTML: sửa ở tab "Mã nguồn", xem trước tự cập nhật.</li>
+  </ul></div>
+</section>
+
+<!-- 6 -->
+<section id="p6">
+  <h1>6 · Thẻ <code>/code-review</code></h1>
+  <p class="lead">Gõ <code>/code-review</code> (hoặc nút trong bảng Thay đổi) → kết quả hiện thành thẻ: mỗi lỗi một dòng, có mức độ, vị trí và nút xử lý.</p>
+  <div class="rv">
+    <div class="h">🔍 Code review · 3 vấn đề <span class="sp"></span><button class="btn pri xs" onclick="fixAll()">Sửa tất cả</button></div>
+    <div class="fi" id="f1"><span class="sev hi">Cao</span><div><b>Cộng tiền hai lần khi retry</b><div class="muted" style="font-size:12.5px">ShopPurchaseHandler.cs:88 — không kiểm tra <code>orderId</code> đã xử lý trước khi cộng KNB.</div></div><div class="acts"><button class="btn xs" onclick="toast('Mở bảng Thay đổi tại ShopPurchaseHandler.cs:88')">Xem trong diff</button><button class="btn xs" onclick="fix('f1')">Sửa lỗi này</button></div></div>
+    <div class="fi" id="f2"><span class="sev md">Vừa</span><div><b>Bỏ qua lỗi DB</b><div class="muted" style="font-size:12.5px">ShopRepo.cs:41 — <code>catch {}</code> nuốt lỗi khi ghi log giao dịch.</div></div><div class="acts"><button class="btn xs" onclick="toast('Mở bảng Thay đổi tại ShopRepo.cs:41')">Xem trong diff</button><button class="btn xs" onclick="fix('f2')">Sửa lỗi này</button></div></div>
+    <div class="fi" id="f3"><span class="sev lo">Nhẹ</span><div><b>Hằng số lặp lại</b><div class="muted" style="font-size:12.5px">ShopConfig.cs:12 — giá 9999 viết cứng ở 3 chỗ.</div></div><div class="acts"><button class="btn xs" onclick="toast('Mở bảng Thay đổi tại ShopConfig.cs:12')">Xem trong diff</button><button class="btn xs" onclick="fix('f3')">Sửa lỗi này</button></div></div>
+  </div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Lệnh <code>/code-review</code> của CLI trả kết quả dạng danh sách; GUI nhận ra và vẽ thành thẻ (giữ nguyên chữ gốc trong "Chi tiết").</li>
+    <li>"Sửa lỗi này" gửi tin "Sửa vấn đề #n: …" vào phiên; "Xem trong diff" mở bảng Thay đổi đúng tệp, đúng dòng.</li>
+  </ul></div>
+</section>
+
+<!-- 7 -->
+<section id="p7">
+  <h1>7 · Phiên nói chuyện với nhau</h1>
+  <p class="lead">Gõ <b>@</b> để nhắc một phiên khác (Claude đọc được phiên đó). Claude cũng tự liệt kê / đọc / nhắn các phiên khác khi cần — tin nhắn hiện thành thẻ có tên phiên gửi.</p>
+  <div class="frame" style="position:relative">
+    <div class="tb">Client: màn Shop</div>
+    <div class="chat">
+      <div class="u">Làm theo API mà <span class="chip" style="background:#5cc98a22;border-color:#5cc98a66">@GameServer: Shop API</span> vừa làm xong</div>
+      <div class="tool">🔗 Đọc phiên "GameServer: Shop API" (24 lượt cuối) <span class="ok">✓</span></div>
+      <div class="xmsg"><b>✉ Từ phiên "GameServer: Shop API"</b> <span class="muted">· 2 phút trước</span><br>Đã đổi field <code>price</code> → <code>priceKnb</code> trong PurchaseResponse, nhớ sửa phía client.</div>
+      <div class="tool">✉ Nhắn phiên "GameServer: Shop API": "Client đã cập nhật xong, nhờ chạy test tích hợp" <span class="ok">✓</span></div>
+    </div>
+    <div class="composer"><div class="ph">@Game</div><div class="row"><span>+</span><span class="sp"></span><button class="send">↑</button></div></div>
+    <div class="menu ac">
+      <div class="hd">Phiên</div>
+      <div class="mi">💬 GameServer: Shop API <span class="sp"></span><span class="muted" style="font-size:11.5px">GameServer · 2 ph</span></div>
+      <div class="mi">💬 GameServer: sửa log giao dịch <span class="sp"></span><span class="muted" style="font-size:11.5px">hôm qua</span></div>
+      <div class="hd">Tệp</div>
+      <div class="mi">🗎 GameServer/Shop/ShopApi.cs</div>
+    </div>
+  </div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>GUI kèm một MCP server nhỏ (qua <code>--mcp-config</code>, không đụng cấu hình của bạn): <code>list_sessions</code>, <code>read_session</code>, <code>send_to_session</code>.</li>
+    <li>Nhắn sang phiên đang chạy → vào dạng "bổ sung giữa lượt"; phiên đang rảnh → hiện thẻ chờ bạn bấm Gửi (mặc định) hoặc tự gửi (tuỳ chọn).</li>
+    <li>@phiên trong ô nhập → chèn tóm tắt / các lượt cuối của phiên đó làm ngữ cảnh.</li>
+  </ul></div>
+</section>
+
+<!-- 8 -->
+<section id="p8">
+  <h1>8 · Kéo thả khung · tách ra cửa sổ riêng</h1>
+  <p class="lead">Kéo đầu khung (Chat, Thay đổi, Xem trước, Terminal, Sổ tài liệu) để đổi chỗ; nút ⧉ tách khung ra cửa sổ riêng (đặt sang màn hình thứ 2), đóng cửa sổ là khung tự gắn lại. Chuột phải phiên → <b>Mở ở cửa sổ mới</b>.</p>
+  <div class="row" style="margin-bottom:8px"><button class="btn xs" onclick="lay(0)">Bố cục: Chat | Xem trước</button><button class="btn xs" onclick="lay(1)">Chat | Thay đổi / Terminal</button><button class="btn xs" onclick="lay(2)">Xem trước bên trái</button></div>
+  <div class="lay" id="lay"></div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Gom các khung hiện có vào một hệ bố cục lưới (nhớ theo cửa sổ). Kéo đầu khung → thả vào 4 mép của khung khác.</li>
+    <li>Tách cửa sổ: mở một BrowserWindow phụ nhận nội dung khung qua IPC (Thay đổi, Xem trước, Terminal, Sổ tài liệu). Chat thì mở phiên ở cửa sổ app mới.</li>
+    <li>Việc lớn nhất trong 12 mục — làm sau cùng.</li>
+  </ul></div>
+</section>
+
+<!-- 9 -->
+<section id="p9">
+  <h1>9 · Dev servers · <code>.claude/launch.json</code></h1>
+  <p class="lead">Nút <b>Servers</b> trên khung xem: liệt kê cấu hình trong <code>.claude/launch.json</code> của dự án, bật/tắt từng cái, tự mở tab xem trước khi server lên. Claude cũng dùng được (giống bản gốc tự chạy server sau khi sửa code).</p>
+  <div class="split2">
+    <div class="frame" style="position:relative;min-height:240px">
+      <div class="tb"><span class="muted">localhost:5173</span><span class="sp"></span><button class="btn xs" onclick="document.getElementById('srvm').classList.toggle('hidden')">▤ Servers (1/3)</button></div>
+      <div class="menu" id="srvm" style="right:10px;top:40px;width:330px">
+        <div class="hd">.claude/launch.json · VoLamGenZ</div>
+        <div class="srv"><span class="dot on"></span><span>web-client <span class="muted">· vite</span></span><span class="muted mono">:5173</span><button class="btn xs" onclick="srv(this)">■ Tắt</button></div>
+        <div class="srv"><span class="dot"></span><span>gm-tool <span class="muted">· npm run dev</span></span><span class="muted mono">:3000</span><button class="btn xs" onclick="srv(this)">▶ Bật</button></div>
+        <div class="srv"><span class="dot"></span><span>docs <span class="muted">· http.server</span></span><span class="muted mono">:8000</span><button class="btn xs" onclick="srv(this)">▶ Bật</button></div>
+        <hr><div class="mi">＋ Thiết lập… (Claude tự dò và viết launch.json)</div><div class="mi">■ Tắt tất cả</div>
+      </div>
+    </div>
+    <pre class="card mono" style="margin:0;white-space:pre;overflow:auto">{
+  "configurations": [
+    { "name": "web-client",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173, "autoPort": true },
+    { "name": "gm-tool", "cwd": "tools/gm",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"], "port": 3000 },
+    { "name": "docs", "url": "http://localhost:8000" }
+  ]
+}</pre>
+  </div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Đọc đúng định dạng launch.json của bản gốc (dự án dùng chung được cho cả hai). Server chạy là tiến trình con của GUI, log xem ở terminal tích hợp; tắt app → tắt server.</li>
+    <li>Server thuộc phiên nào thì tab xem trước vào phiên đó (khung xem theo phiên vừa làm ở 1.17.11).</li>
+  </ul></div>
+</section>
+
+<!-- 10 -->
+<section id="p10">
+  <h1>10 · PR: tự sửa CI · merge khi sẵn sàng</h1>
+  <p class="lead">Nhánh của phiên có PR → chip PR trên thanh tiêu đề (trạng thái CI, review). Menu: tự sửa CI / review comment, bật auto-merge, mở trên GitHub. Tuỳ chọn tự lưu trữ phiên khi PR đã merge.</p>
+  <div class="frame" style="position:relative;min-height:230px">
+    <div class="tb">Shop: chống cộng tiền hai lần <span class="sp"></span><span class="pr" onclick="document.getElementById('prm').classList.toggle('hidden')">⇅ #142 · <span class="red">CI ✗ 1</span> · <span class="warn">2 góp ý</span> ▾</span></div>
+    <div class="menu" id="prm" style="right:14px;top:40px;width:300px">
+      <div class="hd">PR #142 → main · github.com/sabo/gameserver</div>
+      <div class="mi" onclick="toast('Gửi Claude: đọc log CI fail + 2 review comment rồi sửa và push')">🛠 Tự sửa CI &amp; góp ý review</div>
+      <div class="mi" onclick="toast('Đã bật auto-merge (squash) — merge khi CI xanh và được duyệt')">⇢ Merge khi sẵn sàng</div>
+      <div class="mi">↗ Mở trên GitHub</div>
+      <hr><div class="mi">☐ Theo dõi: CI xong / có review mới → báo + tự giao Claude sửa</div>
+    </div>
+    <div class="chat"><div class="muted" style="font-size:13px">Cài đặt → Claude Code: ☑ Tự lưu trữ phiên khi PR của nó đã merge hoặc đóng.</div></div>
+  </div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Dùng <code>gh</code> CLI (cần đăng nhập <code>gh auth login</code>; chưa có thì ẩn chip và chỉ cách cài). Hỏi trạng thái mỗi vài phút khi phiên đang mở.</li>
+    <li>Repo không phải GitHub (vd GitLab nội bộ) thì chưa hỗ trợ — bạn cho mình biết repo team dùng gì nhé.</li>
+  </ul></div>
+</section>
+
+<!-- 11 -->
+<section id="p11">
+  <h1>11 · Chế độ xem "Suy nghĩ"</h1>
+  <p class="lead">Thêm một chế độ giữa Bình thường và Chi tiết: mở sẵn phần suy nghĩ của Claude nhưng vẫn thu gọn thẻ công cụ. <span class="kbd">Ctrl</span>+<span class="kbd">O</span> xoay vòng.</p>
+  <div class="seg" id="vm"><button data-m="n" class="on">Bình thường</button><button data-m="t">Suy nghĩ</button><button data-m="v">Chi tiết</button><button data-m="s">Tóm tắt</button></div>
+  <div class="frame" style="margin-top:10px"><div class="chat" id="vmc"></div></div>
+</section>
+
+<!-- 12 -->
+<section id="p12">
+  <h1>12 · Lịch: chạy bù · giữ máy thức</h1>
+  <p class="lead">Lịch bị lỡ vì máy tắt / ngủ → lần mở app tiếp theo chạy bù <b>một lần</b> (trong vòng 7 ngày) và báo. Tuỳ chọn giữ máy không ngủ khi sắp có lịch.</p>
+  <div class="frame">
+    <div class="tb">Lịch &amp; hàng đợi</div>
+    <div class="sch"><span class="pill miss">Bị lỡ</span><div><b>Báo cáo build đêm</b><div class="muted">Hằng ngày 02:00 · lỡ lúc 02:00 hôm nay (máy ngủ)</div></div><div class="row"><button class="btn xs pri" onclick="toast('Đang chạy bù…')">Chạy bù ngay</button><button class="btn xs" onclick="toast('Đã bỏ qua lần này')">Bỏ qua</button></div></div>
+    <div class="sch"><span class="pill ok">Đã chạy bù</span><div><b>Dọn log GameServer</b><div class="muted">Thứ 2 07:00 · lỡ (máy tắt) → tự chạy bù lúc 08:12 khi mở app</div></div><span class="muted">✓ xong</span></div>
+    <div class="sch"><span class="pill next">Sắp chạy</span><div><b>Review PR mở</b><div class="muted">Hằng ngày 17:30 · còn 25 phút</div></div><span class="muted">☕ đang giữ máy thức</span></div>
+    <div class="sch" style="grid-template-columns:1fr"><label class="ck"><input type="checkbox" checked> Chạy bù lịch bị lỡ (tối đa 1 lần, trong 7 ngày) — mặc định: <select style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px"><option>tự chạy bù</option><option>hỏi trước</option><option>bỏ qua</option></select></label><label class="ck"><input type="checkbox" checked> Giữ máy không ngủ khi có lịch trong 30 phút tới hoặc đang chạy kế hoạch</label></div>
+  </div>
+  <div class="how"><b>Cách làm</b><ul>
+    <li>Lưu "lần chạy kế tiếp" của mỗi lịch; mở app thấy đã quá giờ → đánh dấu bị lỡ, xử lý theo tuỳ chọn. Có ghi vào lịch sử chạy (kèm lý do).</li>
+    <li>Giữ máy thức bằng <code>powerSaveBlocker</code> của Electron (chỉ chặn ngủ, màn hình vẫn tắt được).</li>
+  </ul></div>
+</section>
+
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const toast = (t) => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove('on'), 2200); };
+document.querySelectorAll('.nav button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.nav button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.page > section').forEach((s) => s.classList.toggle('on', s.id === 'p' + b.dataset.p));
+});
+// 1
+let left = 15; const tot = 15;
+setInterval(() => {
+  if (left < 0) return;
+  $('#l-left').textContent = '0:00:' + String(Math.max(0, left)).padStart(2, '0');
+  $('#l-bar').style.width = ((tot - left) / tot * 100) + '%';
+  $('#l-side').textContent = left > 0 ? '⏳ chờ giới hạn hồi' : '';
+  if (left === 0) { if ($('#l-ck').checked) { $('#l-after').classList.remove('hidden'); toast('Giới hạn đã hồi — tự gửi "tiếp tục"'); } else toast('Giới hạn đã hồi (không tự chạy tiếp)'); }
+  left--;
+}, 1000);
+// 2
+const btwOpen = () => $('#btw').classList.remove('hidden');
+const btwClose = () => $('#btw').classList.add('hidden');
+addEventListener('keydown', (e) => { if (e.ctrlKey && e.key === ';') { e.preventDefault(); btwOpen(); } });
+// 3
+const D = [[' ', 85, '    var order = await repo.GetOrder(req.OrderId);'], ['-', 86, '    player.Knb += order.Amount;'], ['+', 86, '    if (order.Processed) return Result.Duplicate;'], ['+', 87, '    player.Knb += order.Amount;'], ['+', 88, '    order.Processed = true;'], [' ', 89, '    await repo.Save(player, order);'], ['-', 90, '    log.Info("ok");'], ['+', 90, '    log.Info($"nap {order.Amount} knb cho {player.Id}");']];
+const cm = {};
+function drawDiff() {
+  const box = $('#diff'); box.innerHTML = '';
+  D.forEach((d, i) => {
+    const el = document.createElement('div');
+    el.className = 'dl' + (d[0] === '+' ? ' add' : d[0] === '-' ? ' del' : '');
+    el.innerHTML = `<span><button class="plus" title="Góp ý dòng này">+</button></span><span class="ln">${d[1]}</span><span class="tx">${d[0]} ${d[2].replace(/</g, '&lt;')}</span>`;
+    el.querySelector('.plus').onclick = () => { if (!(i in cm)) cm[i] = ''; drawDiff(); setTimeout(() => { const t = box.querySelector(`[data-i="${i}"] textarea`); t && t.focus(); }); };
+    box.append(el);
+    if (i in cm) {
+      const c = document.createElement('div'); c.className = 'cmt'; c.dataset.i = i;
+      c.innerHTML = `<textarea rows="2" placeholder="Góp ý cho dòng ${d[1]}… (Ctrl+Enter gửi tất cả)"></textarea><div class="row" style="margin-top:4px"><span class="muted" style="font-size:12px">dòng ${d[1]}</span><span class="sp"></span><button class="btn xs">Bỏ</button></div>`;
+      const ta = c.querySelector('textarea'); ta.value = cm[i];
+      ta.oninput = () => { cm[i] = ta.value; upd(); };
+      ta.onkeydown = (e) => { if (e.ctrlKey && e.key === 'Enter') sendCmts(); };
+      c.querySelector('button').onclick = () => { delete cm[i]; drawDiff(); };
+      box.append(c);
+    }
+  });
+  upd();
+}
+function upd() { const n = Object.values(cm).filter((v) => v.trim()).length; $('#d-send').textContent = `Gửi ${n} góp ý cho Claude`; $('#d-send').disabled = !n; }
+function sendCmts() {
+  const L = Object.entries(cm).filter(([, v]) => v.trim()).map(([i, v]) => `• ShopPurchaseHandler.cs:${D[i][1]}  \`${D[i][2].trim()}\`\n  → ${v.trim()}`);
+  if (!L.length) return;
+  $('#d-msg').textContent = 'Góp ý cho các thay đổi vừa rồi:\n' + L.join('\n');
+  $('#d-out').classList.remove('hidden');
+  for (const k in cm) delete cm[k]; drawDiff(); toast('Đã gửi góp ý vào phiên');
+}
+drawDiff();
+// 4
+let picking = false, tag = null;
+function pickToggle() { picking = !picking; $('#pk').classList.toggle('picking', picking); $('#pk-btn').classList.toggle('pri', picking); $('#pk-btn').textContent = picking ? '⌖ Đang chọn… (Esc)' : '⌖ Chọn phần tử'; if (!picking) clearHl(); }
+function clearHl() { document.querySelectorAll('.hl').forEach((x) => x.classList.remove('hl')); tag && tag.remove(); tag = null; }
+const desc = (el) => el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : '');
+$('#site').addEventListener('mouseover', (e) => { if (!picking || e.target.id === 'site') return; clearHl(); e.target.classList.add('hl'); tag = document.createElement('div'); tag.className = 'tag'; const r = e.target.getBoundingClientRect(), p = $('#pk').getBoundingClientRect(); tag.style.left = (r.left - p.left) + 'px'; tag.style.top = (r.top - p.top - 18) + 'px'; tag.textContent = `${desc(e.target)} · ${Math.round(r.width)}×${Math.round(r.height)}`; $('#pk').append(tag); });
+$('#site').addEventListener('click', (e) => { if (!picking) return; e.preventDefault(); const t = e.target; const c = document.createElement('span'); c.className = 'chip'; c.innerHTML = `⌖ &lt;${desc(t)}&gt; <span class="muted">"${(t.textContent || t.placeholder || '').trim().slice(0, 18)}"</span> <span style="cursor:pointer">✕</span>`; c.lastChild.onclick = () => c.remove(); $('#pk-chips').append(c); pickToggle(); toast('Đã đính phần tử vào ô nhập'); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && picking) pickToggle(); if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's' && $('#p4').classList.contains('on')) { e.preventDefault(); pickToggle(); } });
+// 5
+const SRC = ['{', '  "shop": {', '    "knbPack1": 9999,', '    "knbPack2": 49999,', '    "firstBuyBonus": true', '  }', '}'];
+const drawCode = () => { $('#ed-code').innerHTML = SRC.map((l, i) => `<div class="l"><span>${i + 1}</span><span>${l}</span></div>`).join(''); };
+drawCode();
+let editing = false, saveT;
+function edToggle() { editing = !editing; const c = $('#ed-code'); c.contentEditable = editing; $('#ed-btn').textContent = editing ? '✓ Xong' : '✎ Sửa'; $('#ed-st').textContent = editing ? 'Đang sửa · tự lưu' : 'Chỉ xem'; if (editing) c.focus(); }
+$('#ed-code').addEventListener('input', () => { $('#ed-st').textContent = 'Đang sửa…'; clearTimeout(saveT); saveT = setTimeout(() => { $('#ed-st').innerHTML = '<span class="green">✓ Đã lưu</span>'; }, 900); });
+function edMenu(e) { e.stopPropagation(); $('#ed-menu').classList.toggle('hidden'); }
+addEventListener('click', () => $('#ed-menu').classList.add('hidden'));
+function edConflict() { if (!editing) edToggle(); $('#ed-cf').classList.remove('hidden'); }
+function cf(t) { $('#ed-cf').classList.add('hidden'); toast(t); }
+// 6
+function fix(id) { const f = $('#' + id); f.classList.add('done'); f.querySelector('.acts').innerHTML = '<span class="green">✓ đã giao Claude sửa</span>'; toast('Đã gửi: "Sửa vấn đề này: ' + f.querySelector('b').textContent + '"'); }
+function fixAll() { ['f1', 'f2', 'f3'].forEach((id) => { const f = $('#' + id); if (!f.classList.contains('done')) { f.classList.add('done'); f.querySelector('.acts').innerHTML = '<span class="green">✓ đã giao Claude sửa</span>'; } }); toast('Đã gửi: sửa cả 3 vấn đề'); }
+// 8
+const LAYS = [
+  { cols: '1.2fr 1fr', rows: '1fr', areas: '"chat view"', panes: [['chat', 'Chat'], ['view', 'Xem trước · localhost:5173']] },
+  { cols: '1.3fr 1fr', rows: '1fr 1fr', areas: '"chat diff" "chat term"', panes: [['chat', 'Chat'], ['diff', 'Thay đổi'], ['term', 'Terminal']] },
+  { cols: '1fr 1.2fr', rows: '1fr', areas: '"view chat"', panes: [['view', 'Xem trước'], ['chat', 'Chat']] },
+];
+function lay(i) {
+  const L = LAYS[i], box = $('#lay');
+  box.style.gridTemplateColumns = L.cols; box.style.gridTemplateRows = L.rows; box.style.gridTemplateAreas = L.areas;
+  box.innerHTML = '';
+  for (const [a, t] of L.panes) {
+    const p = document.createElement('div'); p.className = 'pane'; p.style.gridArea = a; p.draggable = true;
+    p.innerHTML = `<div class="ph2"><span class="grip">⋮⋮</span><b>${t}</b><span class="sp"></span>${a !== 'chat' ? '<button class="ib" title="Tách ra cửa sổ riêng">⧉</button><button class="ib" title="Đóng (Ctrl+\\)">✕</button>' : ''}</div><div class="bd">${a === 'chat' ? 'Cuộc trò chuyện…' : 'Kéo đầu khung để đổi chỗ'}</div>`;
+    const pop = p.querySelector('.ib'); if (pop) pop.onclick = () => { p.style.opacity = .35; toast(`Đã tách "${t}" ra cửa sổ riêng — đóng cửa sổ đó là gắn lại`); };
+    p.ondragstart = (e) => { e.dataTransfer.setData('a', a); p.classList.add('drag'); };
+    p.ondragend = () => p.classList.remove('drag');
+    p.ondragover = (e) => e.preventDefault();
+    p.ondrop = (e) => { e.preventDefault(); const from = e.dataTransfer.getData('a'); if (from === a) return; const A = [...box.children].find((x) => x.style.gridArea.startsWith(from)); A.style.gridArea = a; p.style.gridArea = from; toast('Đã đổi chỗ hai khung'); };
+    box.append(p);
+  }
+}
+lay(0);
+// 9
+function srv(b) { const r = b.closest('.srv'), d = r.querySelector('.dot'), on = !d.classList.contains('on'); d.classList.toggle('on', on); b.textContent = on ? '■ Tắt' : '▶ Bật'; toast(on ? 'Đang bật server… tab xem trước sẽ tự mở khi lên' : 'Đã tắt server'); }
+// 11
+const VM = { n: 'Bình thường', t: 'Suy nghĩ', v: 'Chi tiết', s: 'Tóm tắt' };
+function drawVm(m) {
+  const th = m === 't' || m === 'v', tools = m === 'v';
+  $('#vmc').innerHTML = `<div class="u">Sao test ShopPurchase fail?</div>` +
+    (m === 's' ? '' : `<details class="th" ${th ? 'open' : ''}><summary>Suy nghĩ</summary>Test gọi Handle() hai lần với cùng orderId; lần hai đáng lẽ trả Duplicate nhưng order.Processed chưa được lưu trước khi Save… cần kiểm tra thứ tự ghi.</details>` +
+    `<details class="tool" ${tools ? 'open' : ''} style="display:block"><summary>▶ dotnet test --filter ShopPurchase <span class="red">✗</span></summary>${tools ? '<pre class="mono" style="margin:6px 0 0">Expected: Duplicate\nActual:   Ok</pre>' : ''}</details>`) +
+    `<div>Lỗi do <code>order.Processed</code> được gán sau khi <code>Save</code> — đổi thứ tự là test qua.</div>`;
+}
+document.querySelectorAll('#vm button').forEach((b) => b.onclick = () => { document.querySelectorAll('#vm button').forEach((x) => x.classList.toggle('on', x === b)); drawVm(b.dataset.m); });
+drawVm('n');
+</script>
+</body>
+</html>

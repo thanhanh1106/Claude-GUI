@@ -10,7 +10,7 @@
 | **Trang tải (mở bằng trình duyệt)** | `http://192.168.1.35:8765` — hoặc tải thẳng bản mới nhất: `http://192.168.1.35:8765/download` |
 | Thư mục chia sẻ (máy khác bị hỏi tài khoản — không dùng nữa) | `\\192.168.1.35\ClaudeGUI` |
 | Máy phát hành | `ADMIN` — IP `192.168.1.35` |
-| Phiên bản hiện tại | 1.17.11 |
+| Phiên bản hiện tại | 1.18.0 |
 
 ---
 

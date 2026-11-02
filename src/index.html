@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="lark.css">
   <link rel="stylesheet" href="pack.css">
   <link rel="stylesheet" href="usage.css">
+  <link rel="stylesheet" href="parity.css">
 </head>
 <body>
   <div id="app">
@@ -52,6 +53,7 @@
         </div>
         <div class="spacer"></div>
         <button id="tb-folder" class="tb-chip hidden" title="Mở thư mục"><span data-icon="folder" data-size="14"></span><span id="tb-folder-name" class="ellipsis"></span><span id="tb-branch" class="tb-branch hidden"><span data-icon="branch" data-size="13"></span><span></span></span></button>
+        <button id="pr-chip" class="hidden" title="Merge request / pull request của nhánh này"></button>
         <button id="btn-changes" class="tb-btn hidden" title="Thay đổi (Ctrl+Shift+D)"><span data-icon="fileDiff" data-size="15"></span><span id="changes-count"></span></button>
         <button id="btn-nb" class="icon-btn" title="Sổ tài liệu của phiên này — hỏi nhanh tài liệu/design bằng model rẻ (Ctrl+Shift+L)" data-icon="book"></button>
         <button id="btn-split" class="icon-btn" title="Chia đôi màn hình — xem 2 phiên song song (Ctrl+\)" data-icon="columns" data-pop-anchor></button>
@@ -146,7 +148,9 @@
             <div id="vw-tablist"></div>
             <button id="vw-alltabs" class="icon-btn sm hidden" title="Tất cả tab" data-pop-anchor></button>
             <button id="vw-open" class="icon-btn sm" title="Mở tệp trong dự án (Ctrl+P)" data-icon="file" data-size="15" data-pop-anchor></button>
+            <button id="vw-srv" class="icon-btn sm" title="Dev servers của dự án (.claude/launch.json)" data-icon="play" data-size="15" data-pop-anchor></button>
             <button id="vw-web" class="icon-btn sm" title="Mở trang web / localhost" data-icon="globe" data-size="15"></button>
+            <button id="vw-pop" class="icon-btn sm" title="Tách tab này ra cửa sổ riêng" data-icon="external" data-size="15"></button>
             <button id="vw-close" class="icon-btn sm" title="Đóng khung xem" data-icon="x" data-size="15"></button>
           </div>
           <div id="vw-bar"></div>
@@ -199,6 +203,8 @@
   <script src="gitpanel.js"></script>
   <script src="autopilot.js"></script>
   <script src="notebook.js"></script>
+  <script src="btw.js"></script>
+  <script src="parity.js"></script>
   <script src="lark.js"></script>
   <script src="lark-guide.js"></script>
   <script src="pack.js"></script>

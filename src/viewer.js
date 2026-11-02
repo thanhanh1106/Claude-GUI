@@ -134,6 +134,7 @@
         h('span', { class: 'ellipsis', text: tabLabel(t) }), x);
       el.onclick = () => select(t);
       el.onauxclick = (e) => { if (e.button === 1) closeTab(t); };
+      if (t.kind === 'file') el.oncontextmenu = (e) => { e.preventDefault(); fileMenu(t, el); };
       list.append(el);
       if (t === V.cur) requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
     }
@@ -231,7 +232,8 @@
         if (e.key === 'Escape') t.urlIn.value = t.url;
       };
       t.urlIn.onfocus = () => t.urlIn.select();
-      bar.append(t.back, t.fwd, t.reload, t.urlIn,
+      t.pickBtn = btn('target', 'Chọn phần tử trên trang để đính vào chat (Ctrl+Shift+S)', () => pickElement(t));
+      bar.append(t.back, t.fwd, t.reload, t.urlIn, t.pickBtn,
         btn('code', 'DevTools của trang', () => wv.isDevToolsOpened() ? wv.closeDevTools() : wv.openDevTools()),
         btn('external', 'Mở bằng trình duyệt', () => api.openExternal(t.url)));
       updateNav(t);
@@ -249,11 +251,189 @@
         h('button', { class: t.mode === 'code' ? 'on' : '', text: 'Mã nguồn', onclick: () => { t.mode = 'code'; renderFile(t); renderBar(); } }));
       bar.append(seg);
     }
+    if (t.mode === 'preview' && /^(html?|svg)$/.test(t.ext)) { t.pickBtn = btn('target', 'Chọn phần tử trên trang để đính vào chat (Ctrl+Shift+S)', () => pickElement(t)); bar.append(t.pickBtn); }
+    const editable = t.info && t.info.kind === 'text' && !t.info.truncated;
+    if (editable) {
+      if (t.editing) {
+        t.savedEl = h('span', { class: 'vw-saved' + (t.dirty ? '' : ' ok'), text: t.dirty ? (autoSave() ? 'Đang sửa…' : 'Chưa lưu') : '✓ Đã lưu' });
+        bar.append(t.savedEl);
+        if (!autoSave()) bar.append(h('button', { class: 'btn xs primary', text: 'Lưu (Ctrl+S)', onclick: () => saveEdit(t) }), h('button', { class: 'btn xs', text: 'Huỷ', onclick: () => { t.dirty = false; t.editing = false; loadFile(t, true); } }));
+      }
+      bar.append(h('button', { class: 'btn xs' + (t.editing ? ' primary' : ''), text: t.editing ? '✓ Xong' : '✎ Sửa', title: t.editing ? 'Thoát chế độ sửa' : 'Sửa tệp ngay tại đây (tự lưu)', onclick: () => toggleEdit(t) }));
+    }
     bar.append(
       btn('refresh', 'Tải lại', () => loadFile(t, true)),
-      btn('copy', 'Sao chép đường dẫn', () => { navigator.clipboard.writeText(t.path); toast('Đã sao chép đường dẫn'); }),
-      btn('folderOpen', 'Hiện trong thư mục', () => api.showItem(t.path)),
-      btn('external', 'Mở bằng ứng dụng mặc định', () => api.openPath(t.path)));
+      btn('moreH', 'Thêm…', (e) => fileMenu(t, e.currentTarget)));
+  }
+  // Menu tệp (nút ⋯ hoặc chuột phải tab): đính vào chat, mở bằng trình sửa khác, hiện trong thư mục, sao chép đường dẫn
+  async function fileMenu(t, anchor) {
+    const eds = await api.listEditors().catch(() => []);
+    menu(anchor, [
+      { label: 'Đính vào chat (làm ngữ cảnh)', icon: 'paperclip', onClick: () => attachToChat(t) },
+      ...eds.map((e) => ({ label: 'Mở bằng ' + e.name, icon: 'external', onClick: () => api.openWith(e.id, t.path, t.markLine || 0) })),
+      { label: 'Mở bằng ứng dụng mặc định', icon: 'external', onClick: () => api.openPath(t.path) },
+      { label: 'Hiện trong thư mục', icon: 'folderOpen', onClick: () => api.showItem(t.path) },
+      { label: 'Sao chép đường dẫn', icon: 'copy', onClick: () => { navigator.clipboard.writeText(t.path); toast('Đã sao chép đường dẫn'); } },
+    ]);
+  }
+  function attachToChat(t) {
+    const s = S(), c = s.active;
+    const base = (c && c.cwd) || '';
+    const r = base && t.path.toLowerCase().startsWith(base.replace(/[\\/]+$/, '').toLowerCase() + '\\') ? t.path.slice(base.replace(/[\\/]+$/, '').length + 1) : t.path;
+    if (CG.app) CG.app.insertText('@' + (/\s/.test(r) ? `"${r}"` : r) + ' ');
+    toast('Đã đính tệp vào ô nhập');
+  }
+  // Tách tab đang xem ra cửa sổ riêng (vd đặt sang màn hình thứ 2); tab vẫn còn ở đây
+  async function popOut(t) {
+    if (!t) return toast('Chưa có tab nào để tách.', true);
+    const title = tabLabel(t) + ' · Claude GUI';
+    if (t.kind === 'web') return api.popout({ url: t.url, title });
+    if (t.fileKind === 'pdf') return api.popout({ url: fileUrl(t.path), title });
+    if (/^(html?|svg)$/.test(t.ext)) { const s = S(); const u = await api.previewUrl(t.path, (s.active && s.active.cwd) || ''); return api.popout({ url: u || fileUrl(t.path), title }); }
+    api.popout({ path: t.path, theme: document.documentElement.dataset.theme || '' });
+  }
+
+  // ---------- Dev servers (.claude/launch.json, giống menu Dev servers của bản desktop) ----------
+  const LAUNCH_HELP = 'Hãy tạo tệp .claude/launch.json ở thư mục gốc dự án này để Claude GUI bật được dev server. Đọc package.json / cấu hình dự án để biết lệnh chạy, rồi ghi theo định dạng:\n{\n  "configurations": [\n    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173, "autoPort": true },\n    { "name": "docs", "url": "http://localhost:8000" }\n  ]\n}\nCác trường: name, runtimeExecutable, runtimeArgs, cwd (tương đối), env, port, autoPort, url. Chỉ ghi các server thật sự có trong dự án.';
+  function serversMenu(anchor) {
+    const c = S().active;
+    const root = c && c.cwd;
+    if (!root) return toast('Chưa chọn thư mục dự án.', true);
+    popover(anchor, (el, close) => {
+      el.classList.add('srv-pop');
+      const draw = async () => {
+        const L = await api.devList(root);
+        el.innerHTML = '';
+        el.append(h('div', { class: 'menu-header', text: `.claude/launch.json · ${basename(root)}` }));
+        if (L.error) el.append(h('div', { class: 'note', text: L.error }));
+        for (const it of L.items || []) {
+          const on = it.state === 'up' || it.state === 'starting';
+          el.append(h('div', { class: 'srv-row', title: it.cmd || it.url },
+            h('span', { class: 'srv-dot' + (it.state === 'up' ? ' on' : it.state === 'exited' || it.state === 'error' ? ' err' : '') }),
+            h('span', { class: 'ellipsis' }, h('b', { text: it.name }), h('span', { class: 'muted', text: it.state === 'starting' ? ' · đang bật…' : it.state === 'exited' ? ` · đã dừng (mã ${it.code})` : it.urlOnly ? ' · server ngoài' : '' })),
+            h('span', { class: 'muted', style: 'font-size:12px', text: it.port ? ':' + it.port : '' }),
+            h('span', { class: 'row', style: 'gap:4px' },
+              it.state === 'up' && it.url ? h('button', { class: 'btn xs', text: 'Xem', onclick: () => { close(); openUrl(it.url, { newTab: false }); } }) : null,
+              !it.urlOnly && (it.state === 'exited' || it.state === 'error' || on) ? h('button', { class: 'btn xs', text: 'Log', onclick: async () => { const t = await api.devLog(root, it.name); close(); const m = CG.modal('Log · ' + it.name, h('pre', { class: 'srv-log', text: t || '(chưa có)' }), [h('button', { class: 'btn', text: 'Đóng', onclick: () => m.close() })]); } }) : null,
+              on && !it.urlOnly ? h('button', { class: 'btn xs', text: '■ Tắt', onclick: () => api.devStop(root, it.name).then(draw) })
+                : h('button', { class: 'btn xs primary', text: '▶ Bật', onclick: async () => { const p = api.devStart(root, it.name); setTimeout(draw, 300); const r = await p; draw(); if (r && r.ok && r.url) autoShow({ url: r.url, key: c.key }); else if (r && r.error) toast(r.error, true); } }))));
+        }
+        if (!L.items || !L.items.length) el.append(h('div', { class: 'note', style: 'max-width:300px', text: L.exists ? 'launch.json chưa có cấu hình nào.' : 'Dự án chưa có .claude/launch.json — bấm "Thiết lập" để Claude tự dò và viết.' }));
+        el.append(h('div', { class: 'menu-sep' }),
+          h('div', { class: 'menu-item', onclick: () => { close(); c.send(LAUNCH_HELP, 'Thiết lập dev servers (.claude/launch.json)'); } }, icon('plus', 14, 'mi-icon'), h('span', { text: L.exists ? 'Nhờ Claude cập nhật launch.json' : 'Thiết lập… (Claude tự dò và viết launch.json)' })),
+          L.exists ? h('div', { class: 'menu-item', onclick: () => { close(); openFile(L.file); } }, icon('file', 14, 'mi-icon'), h('span', { text: 'Mở launch.json' })) : null,
+          (L.items || []).some((x) => x.state === 'up' || x.state === 'starting') ? h('div', { class: 'menu-item', onclick: () => api.devStop(root).then(draw) }, icon('square', 14, 'mi-icon'), h('span', { text: 'Tắt tất cả' })) : null);
+      };
+      V.srvPop = el; V.srvDraw = draw;
+      draw();
+    }, { place: 'bottom', align: 'right' });
+  }
+
+  // ---------- Chọn phần tử trên trang (giống bản desktop, Ctrl+Shift+S) ----------
+  // Tiêm script vào webview: rê chuột thấy khung cam + nhãn, bấm để chọn (Esc huỷ) → thông tin phần tử + ảnh chụp vùng đó
+  const PICK_JS = `new Promise((done) => {
+    if (window.__cgPick) { window.__cgPick(null); }
+    const box = document.createElement('div'), tag = document.createElement('div');
+    box.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483646;border:2px solid #ff7a45;background:rgba(255,122,69,.12);border-radius:3px;transition:all .05s';
+    tag.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;background:#ff7a45;color:#fff;font:11px Consolas,monospace;padding:1px 6px;border-radius:4px';
+    document.documentElement.append(box, tag);
+    const old = document.documentElement.style.cursor; document.documentElement.style.cursor = 'crosshair';
+    const desc = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + [...el.classList].slice(0, 2).map((c) => '.' + c).join('');
+    const sel = (el) => { const p = []; for (let e = el; e && e.nodeType === 1 && p.length < 5; e = e.parentElement) { if (e.id) { p.unshift('#' + CSS.escape(e.id)); break; } let s = e.tagName.toLowerCase(); const cl = [...e.classList].slice(0, 2).map((c) => '.' + CSS.escape(c)).join(''); s += cl; const par = e.parentElement; if (par) { const same = [...par.children].filter((x) => x.tagName === e.tagName); if (same.length > 1) s += ':nth-of-type(' + (same.indexOf(e) + 1) + ')'; } p.unshift(s); } return p.join(' > '); };
+    let cur = null;
+    const move = (e) => { const el = document.elementFromPoint(e.clientX, e.clientY); if (!el || el === cur) return; cur = el; const r = el.getBoundingClientRect(); Object.assign(box.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' }); tag.textContent = desc(el) + ' · ' + Math.round(r.width) + '×' + Math.round(r.height); tag.style.left = Math.max(0, r.left) + 'px'; tag.style.top = Math.max(0, r.top - 18) + 'px'; };
+    const end = (v) => { removeEventListener('mousemove', move, true); removeEventListener('click', click, true); removeEventListener('keydown', key, true); removeEventListener('mousedown', stop, true); removeEventListener('mouseup', stop, true); box.remove(); tag.remove(); document.documentElement.style.cursor = old; window.__cgPick = null; done(v); };
+    const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+    const click = (e) => { stop(e); const el = cur || e.target; const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+      const st = {}; for (const k of ['color', 'background-color', 'font-family', 'font-size', 'font-weight', 'line-height', 'padding', 'margin', 'border', 'border-radius', 'display', 'position', 'width', 'height', 'gap', 'opacity']) { const v = cs.getPropertyValue(k); if (v && v !== 'normal' && v !== 'none' && v !== 'auto' && v !== '0px') st[k] = v; }
+      let html = el.outerHTML; if (html.length > 700) html = html.slice(0, 700) + '…';
+      box.remove(); tag.remove();
+      setTimeout(() => end({ desc: desc(el), selector: sel(el), text: (el.innerText || el.value || el.placeholder || '').trim().slice(0, 160), html, style: st, rect: { x: Math.max(0, Math.round(r.left)), y: Math.max(0, Math.round(r.top)), width: Math.round(r.width), height: Math.round(r.height) }, url: location.href }), 30); };
+    const key = (e) => { if (e.key === 'Escape') { stop(e); end(null); } };
+    window.__cgPick = end;
+    addEventListener('mousemove', move, true); addEventListener('click', click, true); addEventListener('keydown', key, true); addEventListener('mousedown', stop, true); addEventListener('mouseup', stop, true);
+  })`;
+  async function pickElement(t) {
+    const wv = t.kind === 'web' ? t.wv : t.previewWv;
+    if (!wv) return toast('Trang chưa tải xong.', true);
+    if (t.picking) { try { await wv.executeJavaScript('window.__cgPick && window.__cgPick(null)'); } catch {} return; }
+    t.picking = true;
+    if (t.pickBtn) t.pickBtn.classList.add('on-pick');
+    toast('Rê chuột lên trang rồi bấm vào phần tử cần đính (Esc để huỷ)');
+    try { wv.focus(); } catch {}
+    let info = null;
+    try { info = await wv.executeJavaScript(PICK_JS, true); } catch (e) { toast('Không chọn được phần tử: ' + e.message, true); }
+    t.picking = false;
+    if (t.pickBtn) t.pickBtn.classList.remove('on-pick');
+    if (!info) return;
+    // ảnh chụp đúng vùng phần tử (thêm chút lề), tối đa ~1200px
+    let url = '', data = '';
+    try {
+      const r = info.rect, pad = 6;
+      if (r.width > 2 && r.height > 2) {
+        let img = await wv.capturePage({ x: Math.max(0, r.x - pad), y: Math.max(0, r.y - pad), width: Math.min(r.width + pad * 2, 1600), height: Math.min(r.height + pad * 2, 1200) });
+        const sz = img.getSize(); if (sz.width > 1200) img = img.resize({ width: 1200 });
+        url = img.toDataURL(); data = url.split(',')[1];
+      }
+    } catch {}
+    const style = Object.entries(info.style || {}).map(([k, v]) => `${k}: ${v}`).join('; ');
+    const text = [`Phần tử đã chọn trên trang ${info.url}:`, `- Selector: ${info.selector}`, info.text ? `- Chữ: "${info.text}"` : '', `- Kích thước: ${info.rect.width}×${info.rect.height} tại (${info.rect.x}, ${info.rect.y})`, style ? `- Style: ${style}` : '', `- HTML: ${info.html}`, url ? '- (kèm ảnh chụp vùng phần tử)' : ''].filter(Boolean).join('\n');
+    if (CG.app && CG.app.addAttachment) CG.app.addAttachment({ kind: 'ctx', name: `<${info.desc}>${info.text ? ' "' + info.text.slice(0, 24) + '"' : ''}`, text, url, data, mime: 'image/png' });
+    toast('Đã đính phần tử vào ô nhập');
+  }
+
+  // ---------- Sửa tệp (tự lưu, báo xung đột khi Claude / chương trình khác sửa cùng lúc) ----------
+  const autoSave = () => (S().settings || {}).viewerAutoSave !== false;
+  function toggleEdit(t) {
+    if (t.editing && t.dirty) saveEdit(t);
+    t.editing = !t.editing;
+    renderFile(t); renderBar();
+    if (t.editing && t.editor) t.editor.focus();
+  }
+  async function saveEdit(t, force) {
+    if (!t.editor) return;
+    clearTimeout(t.saveT);
+    let text = t.editor.value;
+    if (t.crlf) text = text.replace(/\r?\n/g, '\r\n');
+    const r = await api.writeFile(t.path, text, force ? 0 : t.info.mtime, t.bom);
+    if (r && r.ok) {
+      t.info.mtime = r.mtime; t.info.text = t.editor.value; t.dirty = false; t.ownWrite = Date.now();
+      if (t.conflictEl) { t.conflictEl.remove(); t.conflictEl = null; }
+      if (t.savedEl) { t.savedEl.textContent = '✓ Đã lưu'; t.savedEl.classList.add('ok'); }
+      return true;
+    }
+    if (r && r.conflict) { showConflict(t); return false; }
+    toast('Không lưu được: ' + ((r && r.error) || 'lỗi'), true);
+    return false;
+  }
+  function showConflict(t) {
+    if (t.conflictEl && t.conflictEl.isConnected) return;
+    t.conflictEl = h('div', { class: 'vw-conflict' }, icon('alert', 14), h('span', { text: 'Tệp vừa bị sửa ở nơi khác (vd Claude) trong lúc bạn đang sửa.' }), h('span', { class: 'spacer' }),
+      h('button', { class: 'btn xs', text: 'Giữ bản của tôi', title: 'Ghi đè bằng nội dung đang sửa', onclick: () => saveEdit(t, true) }),
+      h('button', { class: 'btn xs', text: 'Lấy bản mới', title: 'Bỏ phần đang sửa, nạp nội dung mới nhất', onclick: () => { t.dirty = false; t.conflictEl = null; loadFile(t, true); } }));
+    const box = t.body.querySelector('.vw-editbox');
+    if (box) box.prepend(t.conflictEl);
+  }
+  function editView(t, text) {
+    const ta = h('textarea', { class: 'vw-edit', spellcheck: 'false', wrap: 'off' });
+    ta.value = text;
+    t.crlf = /\r\n/.test(text);
+    t.bom = !!(t.info && t.info.bom);
+    if (t.crlf) ta.value = text.replace(/\r\n/g, '\n');
+    ta.oninput = () => {
+      t.dirty = true;
+      if (t.savedEl) { t.savedEl.textContent = autoSave() ? 'Đang sửa…' : 'Chưa lưu'; t.savedEl.classList.remove('ok'); }
+      clearTimeout(t.saveT);
+      if (autoSave()) t.saveT = setTimeout(() => saveEdit(t), 1000);
+    };
+    ta.onkeydown = (e) => {
+      if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); saveEdit(t); }
+      else if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); ta.setRangeText('    ', ta.selectionStart, ta.selectionEnd, 'end'); ta.oninput(); }
+    };
+    t.editor = ta;
+    const box = h('div', { class: 'vw-editbox' }, ta);
+    if (t.conflictEl) box.prepend(t.conflictEl);
+    return box;
   }
 
   // ---------- Tệp ----------
@@ -316,6 +496,8 @@
         h('button', { class: 'btn sm', text: 'Mở bằng ứng dụng mặc định', onclick: () => api.openPath(t.path) })));
       return;
     }
+    t.editor = null;
+    if (t.editing && info.kind === 'text') { b.append(editView(t, info.text)); return; }
     if (t.mode === 'preview' && (t.ext === 'html' || t.ext === 'htm' || t.ext === 'svg')) {
       // Qua máy chủ cục bộ (http://127.0.0.1) để module JS / fetch() chạy được như trên web thật
       const s = S();
@@ -365,6 +547,7 @@
     if (t.mode !== 'code' && PREVIEW_EXT.has(t.ext)) { t.mode = 'code'; renderFile(t); renderBar(); }
     const box = t.scroller;
     if (!box || !t.mark) return;
+    t.markLine = line;
     const lh = lineH(box);
     t.mark.style.top = 12 + (line - 1) * lh + 'px';
     t.mark.style.height = lh + 'px';
@@ -376,6 +559,10 @@
   api.onFileChanged((p) => {
     for (const t of [...new Set([...SETS.values(), CUR])].flatMap((s) => s.tabs)) {
       if (t.kind !== 'file' || !t.loaded || !samePath(t.path, p)) continue;
+      if (t.editing) {
+        if (t.ownWrite && Date.now() - t.ownWrite < 1500) continue; // chính mình vừa lưu
+        if (t.dirty) { showConflict(t); continue; }
+      }
       if (t.previewWv) { try { t.previewWv.reload(); } catch {} } else loadFile(t, true);
     }
   });
@@ -588,6 +775,9 @@
     $('#btn-viewer').onclick = toggle;
     $('#vw-close').onclick = () => setOpen(false);
     $('#vw-web').onclick = askUrl;
+    $('#vw-srv').onclick = () => serversMenu($('#vw-srv'));
+    $('#vw-pop').onclick = () => popOut(V.cur);
+    api.onDevState(() => { if (V.srvPop && V.srvPop.isConnected && V.srvDraw) V.srvDraw(); });
     $('#vw-open').onclick = () => quickOpen($('#vw-open'));
     $('#vw-alltabs').onclick = allTabsMenu;
     // lăn chuột dọc trên thanh tab → cuộn ngang
@@ -600,7 +790,8 @@
       // webview nuốt sự kiện chuột khi kéo qua → tạm che
       const shield = h('div', { class: 'drag-shield' });
       document.body.append(shield);
-      const move = (ev) => { col.style.width = Math.max(20, Math.min(78, ((w0 - (ev.clientX - x0)) / ws.clientWidth) * 100)) + '%'; };
+      const sg = CG.paneSign ? CG.paneSign('viewer') : 1; // khung đặt bên trái chat → kéo ngược chiều
+      const move = (ev) => { col.style.width = Math.max(20, Math.min(78, ((w0 - (ev.clientX - x0) * sg) / ws.clientWidth) * 100)) + '%'; };
       const up = () => {
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
@@ -637,6 +828,7 @@
       if (e.ctrlKey && !e.shiftKey && !e.altKey && k === 'p') { e.preventDefault(); quickOpen(V.open ? $('#vw-open') : $('#btn-viewer')); }
       else if (e.ctrlKey && e.shiftKey && (k === 'p' || k === 'b')) { e.preventDefault(); toggle(); } // Ctrl+Shift+B như bản desktop
       else if (e.ctrlKey && k === 'w' && V.open && V.cur && document.activeElement && document.activeElement.closest && document.activeElement.closest('#viewer')) { e.preventDefault(); closeTab(V.cur); }
+      else if (e.ctrlKey && e.shiftKey && k === 's' && V.open && V.cur && (V.cur.wv || V.cur.previewWv)) { e.preventDefault(); pickElement(V.cur); }
       else if (e.key === 'F5' && V.cur && V.cur.kind === 'web' && document.activeElement && document.activeElement.closest && document.activeElement.closest('#viewer')) { e.preventDefault(); V.cur.wv.reload(); }
     });
   }

@@ -984,7 +984,8 @@
       ev.preventDefault();
       const x0 = ev.clientX, w0 = col.offsetWidth;
       document.body.classList.add('resizing-h');
-      const move = (e2) => { col.style.width = Math.max(300, Math.min(900, w0 - (e2.clientX - x0))) + 'px'; };
+      const sg = CG.paneSign ? CG.paneSign('nb') : 1;
+      const move = (e2) => { col.style.width = Math.max(300, Math.min(900, w0 - (e2.clientX - x0) * sg)) + 'px'; };
       const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); document.body.classList.remove('resizing-h'); CG.saveSettings({ nbWidth: col.offsetWidth }); };
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);

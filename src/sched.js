@@ -140,8 +140,14 @@
       }
       const t = nextFire(p);
       if (t == null || now < t) continue;
-      // lỡ giờ (app tắt / máy ngủ) quá 3 phút
-      if (now - t > 180e3 && p.trig.missed === 'skip') { r.firedAt = now; markReset(p); save(); render(); continue; }
+      // lỡ giờ (app tắt / máy ngủ) quá 3 phút — giống bản desktop: chỉ chạy bù MỘT lần, và chỉ khi lỡ trong 7 ngày gần nhất
+      const late = now - t > 180e3 && (p.trig.type === 'at' || p.trig.type === 'repeat');
+      if (late && (p.trig.missed === 'skip' || now - t > 7 * 864e5)) { r.firedAt = now; r.note = `Bỏ qua lần lỡ lúc ${fmtTime(t)} (${p.trig.missed === 'skip' ? 'theo cài đặt' : 'quá 7 ngày'}).`; save(); render(); continue; }
+      if (late && p.trig.missed === 'ask') {
+        if (r.missedAt !== t) { r.missedAt = t; r.note = `Bị lỡ lúc ${fmtTime(t)} (app tắt / máy ngủ) — bấm "Chạy bù" hoặc "Bỏ qua".`; save(); render(); notify('Claude GUI · lịch bị lỡ', `${p.name}: lỡ lúc ${fmtTime(t)} — mở Lịch & hàng đợi để chạy bù.`); }
+        continue;
+      }
+      if (late) { r.note = `Chạy bù lần lỡ lúc ${fmtTime(t)} (app tắt / máy ngủ).`; notify('Claude GUI · chạy bù lịch', `${p.name}: lỡ lúc ${fmtTime(t)}, đang chạy bù.`); }
       if (p.trig.type.startsWith('reset') && p.trig.minLeft) {
         // chỉ chạy khi giới hạn sau khi hồi còn đủ; lấy số liệu mới trước
         const L = limits(), x = p.trig.type === 'reset5' ? L.s : L.w;
@@ -151,6 +157,11 @@
       fire(p);
     }
     api.schedPending(pendingCount());
+    // Giữ máy không ngủ khi đang chạy kế hoạch hoặc có lịch trong 30 phút tới (chỉ chặn ngủ, màn hình vẫn tắt được)
+    if (api.schedAwake) {
+      const soon = S().settings && S().settings.keepAwake !== false && D.plans.some((p) => !p.demo && p.on && (running.has(p.id) || p.run.state === 'running' || (() => { const n = nextFire(p); return n != null && n - now < 30 * 60e3; })()));
+      if (soon !== tick.awake) { tick.awake = soon; api.schedAwake(soon); }
+    }
   }
   function markReset(p) { const L = limits(), x = p.trig.type === 'reset5' ? L.s : L.w; if (x) p.run.firedReset = x.reset; }
   function fire(p) {
@@ -219,6 +230,7 @@
           if (node.effort || node.mode) c.respawn = true; // áp dụng effort/quyền mới cho tiến trình CLI
         }
         r.sids[i] = c.sid;
+        c.managed = true; // kế hoạch tự chạy tiếp khi giới hạn hồi
         const startT = Date.now();
         if (resume && i === from && r.sids[i] && r.resumeNote) {
           r.resumeNote = '';
@@ -360,9 +372,12 @@
     flow.append(head);
     if (CG.pack) { const b = CG.pack.banner(p); if (b) flow.append(b); }
     if (r.note) flow.append(h('div', { class: 'sc-note ' + (r.state === 'error' ? 'err' : '') , text: r.note }));
+    if (r.missedAt && p.trig.missed === 'ask' && nextFire(p) === r.missedAt) flow.append(h('div', { class: 'row', style: 'gap:8px;margin:-4px 0 10px' },
+      h('button', { class: 'btn sm primary', text: 'Chạy bù ngay', onclick: () => { r.missedAt = 0; r.note = 'Chạy bù theo yêu cầu.'; fire(p); render(); } }),
+      h('button', { class: 'btn sm', text: 'Bỏ qua lần này', onclick: () => { r.missedAt = 0; r.firedAt = Date.now(); r.note = ''; save(); render(); } })));
     const trig = h('div', { class: 'sc-node trig' + (U.node === 'trig' ? ' sel' : '') },
       h('div', { class: 'top' }, h('span', { class: 'tag trg', text: 'Kích hoạt' }), h('span', { class: 'st', text: statusText(p) })),
-      h('div', { class: 'pr', text: trigText(p) + (p.trig.type === 'at' || p.trig.type === 'repeat' ? ` · app đang tắt lúc đó: ${p.trig.missed === 'skip' ? 'bỏ qua' : 'chạy bù khi mở lại'}` : '') }));
+      h('div', { class: 'pr', text: trigText(p) + (p.trig.type === 'at' || p.trig.type === 'repeat' ? ` · app đang tắt lúc đó: ${p.trig.missed === 'skip' ? 'bỏ qua' : p.trig.missed === 'ask' ? 'hỏi trước khi chạy bù' : 'chạy bù khi mở lại'}` : '') }));
     trig.onclick = () => { U.node = 'trig'; render(); };
     flow.append(trig);
     p.nodes.forEach((n, i) => {
@@ -516,7 +531,7 @@
     const sessList = [...A().convs().filter((c) => c.count && c.busy), ...A().convs().filter((c) => c.count && !c.busy)];
     const sessSel = selectEl(sessList.map((c) => [c.sid, (c.busy ? '● ' : '') + (c.title || c.sid).slice(0, 70)]), t.sess && t.sess.id);
     if (t.sess && !sessList.some((c) => c.sid === t.sess.id)) sessSel.append(h('option', { value: t.sess.id, text: t.sess.title, selected: true }));
-    const missed = selectEl([['run', 'Chạy bù ngay khi mở app'], ['skip', 'Bỏ qua lần đó']], t.missed || 'run');
+    const missed = selectEl([['run', 'Chạy bù một lần khi mở app (lỡ trong 7 ngày)'], ['ask', 'Hỏi trước khi chạy bù'], ['skip', 'Bỏ qua lần đó']], t.missed || 'run');
     const blocks = {
       at: field('Thời điểm', h('div', { class: 'two' }, date, time)),
       repeat: h('div', {}, field('Giờ', rtime), field('Các ngày', dayBox)),

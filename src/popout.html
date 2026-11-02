@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: file:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Claude GUI · Xem</title>
+  <link rel="stylesheet" href="../node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="themes.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); }
+    .po-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+    .po-bar b { color: var(--text); }
+    .po-body { flex: 1; overflow: auto; padding: 14px 20px; }
+    .po-body pre.code { margin: 0; font: 12.8px/19px "Cascadia Code", Consolas, monospace; white-space: pre; }
+    .po-body img { max-width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="po-bar"><b id="po-name"></b><span id="po-path" class="ellipsis"></span><span style="flex:1"></span><button id="po-reload" class="btn sm">Tải lại</button></div>
+  <div id="po-body" class="po-body"></div>
+  <script src="../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="../node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
+  <script src="lib.js"></script>
+  <script src="popout.js"></script>
+</body>
+</html>

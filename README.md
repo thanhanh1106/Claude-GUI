@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.17.11-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.18.0-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -67,7 +67,20 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - Thẻ công cụ: lệnh Bash/PowerShell kèm output, diff có số dòng khi sửa tệp, todo, tác tử phụ.
 - **Tác tử phụ & tác vụ chạy nền**: thẻ tác tử hiện tiến độ trực tiếp (đang chạy nền · số công cụ · token · thời gian · công cụ đang dùng) và vẫn quay cho tới khi tác tử thật sự xong. Khi lượt chính đã trả lời mà tác tử vẫn chạy: dòng "Đang chờ N tác vụ chạy nền…", thanh tác vụ trên ô nhập (bấm để xem danh sách, bấm một dòng để nhảy tới thẻ, nút dừng từng tác vụ), chấm vòng ở thanh bên. Tác tử xong → Claude tự tiếp tục và hiện là đang chạy.
 - Hộp xin quyền (Cho phép / Luôn cho phép / Từ chối / bảo Claude làm khác), trả lời câu hỏi trắc nghiệm, duyệt kế hoạch.
-- 3 chế độ xem: Bình thường / Chi tiết / Tóm tắt (`Ctrl O`).
+- 4 chế độ xem: Bình thường / **Suy nghĩ** (mở sẵn phần suy nghĩ, thẻ công cụ vẫn thu gọn) / Chi tiết / Tóm tắt (`Ctrl O`).
+
+**Bắt kịp bản desktop gốc (1.18)**
+- **Tự chạy tiếp khi giới hạn hồi**: hết giới hạn 5 giờ / tuần giữa chừng → thẻ đếm ngược tới giờ hồi, ô "Tự chạy tiếp" (mặc định bật), sửa được lời nhắn sẽ gửi; tới giờ GUI tự gửi vào đúng phiên (kể cả khi app vừa mở lại), phiên chờ có biểu tượng đồng hồ ở thanh bên. Phiên do Lịch / dự án tự động điều khiển thì để kế hoạch tự chạy tiếp.
+- **Hỏi bên lề** (`/btw câu hỏi` hoặc `Ctrl+;`): khung nổi hỏi nhanh về việc đang làm mà không chen vào phiên chính (kể cả khi Claude đang chạy). Chạy phiên rẽ nhánh `--resume … --fork-session` chỉ có công cụ đọc; vẫn ghi jsonl như mọi phiên nhưng ẩn khỏi danh sách. "Chèn vào chat" / "Gửi vào phiên chính". Model: theo phiên chính (dùng lại cache) hoặc Haiku / Sonnet.
+- **Góp ý từng dòng trên diff**: rê chuột vào dòng (thẻ Sửa tệp, diff trong bảng Thay đổi, diff git) → **+** → gõ góp ý; gom nhiều góp ý, `Ctrl+Enter` hoặc thanh "N góp ý" trên ô nhập để gửi một lần (kèm `tệp:dòng` và đoạn code).
+- **Thẻ /code-review**: kết quả review (công cụ ReportFindings của CLI) hiện thành danh sách vấn đề có mức độ, nút Xem trong tệp · Sửa lỗi này · Sửa tất cả.
+- **Chọn phần tử trên trang** (nút ⌖ trên khung xem trang web / HTML, `Ctrl+Shift+S`): rê chuột thấy khung cam, bấm để đính phần tử vào ô nhập — selector, chữ, style chính, HTML rút gọn và ảnh chụp đúng vùng đó.
+- **Sửa tệp trong khung xem**: nút ✎ Sửa trên tab tệp, tự lưu sau 1 giây (`Ctrl+S` lưu ngay; tắt tự lưu ở Cài đặt → Khung xem), giữ nguyên CRLF / BOM; Claude sửa cùng lúc → báo xung đột (Giữ bản của tôi / Lấy bản mới). Nút ⋯ / chuột phải tab: Đính vào chat, Mở bằng VS Code / Cursor / Rider / Zed / Notepad++ (tự dò), Hiện trong thư mục, Sao chép đường dẫn.
+- **Phiên nói chuyện với nhau**: GUI tự làm một MCP server HTTP nội bộ (`claude-gui`: list_sessions, read_session, send_to_session) cho mọi phiên — Claude đọc / nhắn được phiên khác; tin nhắn tới hiện thành thẻ, **bạn bấm Gửi** mới tới Claude ở phiên đó (biểu tượng tin nhắn ở thanh bên). Gõ `@` trong ô nhập để nhắc một phiên (kèm các lượt gần nhất của phiên đó). Tắt ở Cài đặt → Nhập liệu.
+- **Đổi chỗ khung**: kéo đầu khung Xem trước / Sổ tài liệu / khung phải sang trái hoặc phải vùng chat (hoặc chuột phải đầu khung). Nút ⧉ trên khung xem **tách tab ra cửa sổ riêng** (đặt sang màn hình thứ 2).
+- **Dev servers** (nút ▶ trên khung xem): đọc `.claude/launch.json` của dự án (cùng định dạng bản gốc: name, runtimeExecutable, runtimeArgs, cwd, env, port, autoPort, url), bật / tắt từng server, xem log, server lên thì tự mở tab xem trước của phiên. "Thiết lập…" nhờ Claude tự dò và viết launch.json. Tắt app là tắt server.
+- **PR / MR**: chip trên thanh tiêu đề cho nhánh hiện tại — trạng thái CI, số góp ý review, tự merge. Menu: **Tự sửa CI & góp ý** (GUI gom log job CI lỗi + góp ý chưa giải quyết rồi giao Claude sửa, push), **Merge khi sẵn sàng**, Mở trên web, Tạo MR / PR. **GitLab** (kể cả server nội bộ): nhập link server + Personal Access Token (quyền api, lưu mã hoá) ở Cài đặt → Claude Code → Git; GitHub dùng GitHub CLI (`gh`). Tuỳ chọn tự lưu trữ phiên khi MR / PR đã merge hoặc đóng.
+- **Lịch**: lần lỡ (máy tắt / ngủ) chỉ chạy bù **một lần** và chỉ trong 7 ngày; thêm lựa chọn "Hỏi trước khi chạy bù" (nút Chạy bù ngay / Bỏ qua). **Giữ máy không ngủ** khi có lịch trong 30 phút tới hoặc kế hoạch đang chạy.
 
 **Khung xem tệp & web** (nút con mắt trên thanh tiêu đề, `Ctrl+Shift+B`; `Ctrl+P` mở nhanh tệp trong dự án):
 - **Mỗi phiên một bộ tab riêng** (giống app gốc): đổi phiên thì khung đổi theo, phiên chưa có xem trước thì khung đóng; mở lại phiên cũ (kể cả sau khi tắt app) vẫn thấy đúng tab của nó. Phiên chạy nền tạo tệp / bật server → tab vào đúng phiên đó, chấm xanh ở thanh bên, mở phiên ra là khung tự mở. Thẻ lệnh in địa chỉ `localhost` có nút **Mở xem trước**.
@@ -143,11 +156,11 @@ npm run release -- "Ghi chú phát hành" --publish "\\server\share\ClaudeGUI"
 
 ## Phím tắt
 
-`Enter` gửi · `Shift+Enter` xuống dòng · `Esc` dừng / từ chối · `Shift+Tab` đổi chế độ quyền · `Ctrl+N` phiên mới · `Ctrl+Tab` / `Ctrl+Shift+Tab` chuyển phiên · `Ctrl+K` tìm phiên · `Ctrl+O` chế độ xem · `Ctrl+Shift+M` chế độ quyền · `Ctrl+Shift+I` model · `Ctrl+Shift+E` effort · `Ctrl+Shift+D` bảng Thay đổi · ``Ctrl+` `` terminal · `Ctrl+B` thanh bên · `Ctrl+,` cài đặt · `Ctrl+/` danh sách phím tắt · `F12` DevTools
+`Enter` gửi · `Shift+Enter` xuống dòng · `Esc` dừng / từ chối · `Shift+Tab` đổi chế độ quyền · `Ctrl+N` phiên mới · `Ctrl+Tab` / `Ctrl+Shift+Tab` chuyển phiên · `Ctrl+K` tìm phiên · `Ctrl+O` chế độ xem · `Ctrl+Shift+M` chế độ quyền · `Ctrl+Shift+I` model · `Ctrl+Shift+E` effort · `Ctrl+Shift+D` bảng Thay đổi · ``Ctrl+` `` terminal · `Ctrl+B` thanh bên · `Ctrl+Shift+B` khung xem trước · `Ctrl+;` hỏi bên lề · `Ctrl+Shift+S` chọn phần tử trên trang · `Ctrl+,` cài đặt · `Ctrl+/` danh sách phím tắt · `F12` DevTools
 
 ## Chưa có so với bản desktop chính thức
 
-Môi trường cloud/SSH, đồng bộ phiên giữa các máy (CLI chỉ lưu phiên trên máy này).
+Môi trường cloud/SSH/WSL, Remote Control & điều khiển từ điện thoại, Dispatch / Projects, computer use, Claude tự điều khiển trình duyệt trong khung xem (chụp / bấm / điền form), mở một phiên ở cửa sổ app thứ hai (GUI chạy một cửa sổ chính — tách được khung xem ra cửa sổ riêng), đồng bộ phiên giữa các máy (CLI chỉ lưu phiên trên máy này).
 
 ## Phát triển
 

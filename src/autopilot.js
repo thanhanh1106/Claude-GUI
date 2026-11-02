@@ -244,6 +244,7 @@ Nếu thấy kế hoạch sai: dùng skill claude-gui:xin-doi-lich (ghi ${join(P
     if (!c) c = await A().createConv({ cwd: P.dir, model: t.model, effort: t.effort, mode: P.mode, addDirs: P.addDirs, allowedTools: P.mcp });
     if (!resume) c.title = `🤖 ${p.name} · ${i + 1}. ${t.title}`.slice(0, 100);
     t.sid = c.sid;
+    c.managed = true; // dự án tự động tự chạy tiếp khi giới hạn hồi → phiên không hiện thẻ tự chạy tiếp riêng
     if (A().renderSidebar) A().renderSidebar();
     const startT = Date.now();
     if (resume) await c.send('Làm tiếp phần việc còn dở của task này cho xong (giới hạn đã hồi / app vừa mở lại), rồi ghi bàn giao như đã dặn.', 'Làm tiếp phần còn dở');

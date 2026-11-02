@@ -211,10 +211,11 @@
         h('span', { class: 'dv-title ellipsis', text: v.file, title: join(st.top, v.file) }),
         h('button', { class: 'icon-btn sm', html: svg('external', 14), title: 'Mở tệp trong khung xem', onclick: () => CG.viewer && CG.viewer.openFile(join(st.top, v.file)) }),
         h('label', { class: 'gp-lbl' }, cb, ' stage cả tệp')));
-    if (v.untracked) { box.append(h('div', { class: 'note', text: 'Tệp mới (chưa theo dõi) — stage cả tệp.' }), hunkEl({ h: '@@ tệp mới @@', lines: (v.text || '').split('\n').slice(0, 3000).map((l) => '+' + l) }, [])); return box; }
+    const full = join(st.top, v.file);
+    if (v.untracked) { box.append(h('div', { class: 'note', text: 'Tệp mới (chưa theo dõi) — stage cả tệp.' }), hunkEl({ h: '@@ -0,0 +1 @@', lines: (v.text || '').split('\n').slice(0, 3000).map((l) => '+' + l) }, [], full)); return box; }
     const sec = (title, P, btns) => {
       if (!P || !P.hunks.length) return null;
-      return h('div', {}, h('div', { class: 'gp-gh', text: title }), ...P.hunks.map((hk) => hunkEl(hk, btns(P, hk))));
+      return h('div', {}, h('div', { class: 'gp-gh', text: title }), ...P.hunks.map((hk) => hunkEl(hk, btns(P, hk), join(st.top, v.file))));
     };
     box.append(...[
       sec('Chưa stage', v.un, (P, hk) => [
@@ -226,11 +227,15 @@
     if ((!v.un || !v.un.hunks.length) && (!v.st || !v.st.hunks.length)) box.append(h('div', { class: 'note', text: v.un ? 'Không có khác biệt nội dung (có thể chỉ đổi quyền tệp / xuống dòng).' : 'Đang tải diff…' }));
     return box;
   }
-  function hunkEl(hk, btns) {
+  function hunkEl(hk, btns, file) {
     const body = h('div', { class: 'gp-hb' });
+    if (file) body.dataset.file = file; // góp ý từng dòng (parity.js)
+    let ln = +((/\+(\d+)/.exec(hk.h) || [])[1] || 0);
     for (const l of hk.lines.slice(0, 2000)) {
       const k = l[0] === '+' ? 'a' : l[0] === '-' ? 'd' : l[0] === '\\' ? 'm' : '';
-      body.append(h('div', { class: 'gp-dl ' + k, text: l || ' ' }));
+      const row = h('div', { class: 'gp-dl ' + k, text: l || ' ' });
+      if (k !== 'd' && k !== 'm' && ln) { row.dataset.ln = ln; ln++; }
+      body.append(row);
     }
     return h('div', { class: 'gp-hunk' }, h('div', { class: 'gp-hh' }, h('span', { class: 'ellipsis', text: hk.h }), h('span', { class: 'spacer' }), ...btns), body);
   }

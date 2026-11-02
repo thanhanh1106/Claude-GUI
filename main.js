@@ -287,9 +287,337 @@ function readViewerFile(p) {
     fs.readSync(fd, buf, 0, n, 0);
     if (buf.subarray(0, 8192).includes(0)) return { ...base, kind: 'binary' };
     let text = buf.toString('utf8');
-    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-    return { ...base, kind: 'text', text, truncated: st.size > n };
+    const bom = text.charCodeAt(0) === 0xfeff;
+    if (bom) text = text.slice(1);
+    return { ...base, kind: 'text', text, bom, truncated: st.size > n };
   } finally { fs.closeSync(fd); }
+}
+// ---------- Phiên nói chuyện với nhau (giống cross-session messaging của bản desktop) ----------
+// GUI tự làm một MCP server kiểu HTTP ở 127.0.0.1 (không chạy thêm tiến trình): mỗi phiên CLI nhận --mcp-config trỏ tới
+// /mcp/<mã>/<khoá phiên> → biết phiên nào đang gọi. Công cụ: list_sessions, read_session, send_to_session.
+const XS = { port: 0, token: crypto.randomBytes(12).toString('hex'), server: null, waits: new Map(), seq: 0 };
+const XS_TOOLS = [
+  { name: 'list_sessions', description: 'List the other recent Claude GUI sessions on this machine (id, title, project folder, running or idle). Use it to find a session to read or message.', inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max sessions (default 20)' } } } },
+  { name: 'read_session', description: 'Read the recent conversation (user and assistant messages) of another Claude GUI session. `session` = id, 8-char id prefix, or part of its title.', inputSchema: { type: 'object', properties: { session: { type: 'string' }, last_turns: { type: 'number', description: 'How many recent messages (default 16, max 60)' } }, required: ['session'] } },
+  { name: 'send_to_session', description: 'Send a message to another Claude GUI session (e.g. tell the backend session that the API changed). The message is shown to the user in that session as a card; the user decides whether to send it to that session\'s Claude.', inputSchema: { type: 'object', properties: { session: { type: 'string' }, message: { type: 'string' } }, required: ['session', 'message'] } },
+];
+// hỏi renderer (danh sách phiên đang hiện, gửi thẻ tin nhắn) rồi chờ trả lời
+function xsAsk(op, args) {
+  return new Promise((resolve) => {
+    if (!win || win.isDestroyed()) return resolve({ error: 'Claude GUI chưa sẵn sàng' });
+    const id = ++XS.seq;
+    const t = setTimeout(() => { XS.waits.delete(id); resolve({ error: 'Hết thời gian chờ Claude GUI' }); }, 20000);
+    XS.waits.set(id, (r) => { clearTimeout(t); resolve(r); });
+    send('xs:req', id, op, args);
+  });
+}
+// đoạn cuối hội thoại của một phiên (chỉ chữ của người dùng / Claude)
+function sessionTailText(id, n) {
+  const f = (idToFile && idToFile.get(id)) || findSessionFile(id);
+  if (!f) return null;
+  let raw = '';
+  try { raw = readPart(f, 4 * 1024 * 1024, true); } catch { return null; }
+  const out = [];
+  for (const line of raw.split('\n')) {
+    if (!line.includes('"message"')) continue;
+    let m; try { m = JSON.parse(line); } catch { continue; }
+    if (m.isMeta || m.isSidechain || !m.message || (m.type !== 'user' && m.type !== 'assistant')) continue;
+    const c = m.message.content;
+    let t = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n') : '';
+    t = String(t || '').replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+    if (!t || /^<(command|local-command)/.test(t)) continue;
+    out.push(`${m.type === 'user' ? 'Người dùng' : 'Claude'}: ${t.length > 2500 ? t.slice(0, 2500) + '…' : t}`);
+  }
+  return out.slice(-Math.max(1, Math.min(60, +n || 16))).join('\n\n');
+}
+async function xsCall(key, name, a) {
+  a = a || {};
+  if (name === 'list_sessions') {
+    const r = await xsAsk('list', { key, limit: a.limit });
+    return r.error ? r.error : JSON.stringify(r.items || [], null, 1);
+  }
+  const r = await xsAsk('resolve', { key, session: String(a.session || '') });
+  if (r.error) return r.error;
+  if (name === 'read_session') return sessionTailText(r.id, a.last_turns) || 'Không đọc được phiên này.';
+  if (name === 'send_to_session') {
+    const s = await xsAsk('send', { key, id: r.id, message: String(a.message || '').slice(0, 20000) });
+    return s.error || `Đã chuyển tin nhắn tới phiên "${r.title}". Người dùng sẽ xem và quyết định gửi cho Claude ở phiên đó.`;
+  }
+  return 'Không có công cụ ' + name;
+}
+function xsStart() {
+  if (XS.server) return;
+  XS.server = require('http').createServer((req, res) => {
+    const m = /^\/mcp\/([0-9a-f]+)\/([\w-]+)\/?$/.exec(req.url || '');
+    if (!m || m[1] !== XS.token) { res.writeHead(404); return res.end(); }
+    if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); return res.end(); }
+    let body = '';
+    req.on('data', (d) => { body += d; if (body.length > 2e6) req.destroy(); });
+    req.on('end', async () => {
+      let msg; try { msg = JSON.parse(body); } catch { res.writeHead(400); return res.end(); }
+      const one = async (q) => {
+        if (!q || q.id == null) return null; // notification
+        try {
+          if (q.method === 'initialize') return { jsonrpc: '2.0', id: q.id, result: { protocolVersion: (q.params && q.params.protocolVersion) || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'claude-gui', version: app.getVersion() } } };
+          if (q.method === 'ping') return { jsonrpc: '2.0', id: q.id, result: {} };
+          if (q.method === 'tools/list') return { jsonrpc: '2.0', id: q.id, result: { tools: XS_TOOLS } };
+          if (q.method === 'tools/call') { const t = await xsCall(m[2], q.params && q.params.name, q.params && q.params.arguments); return { jsonrpc: '2.0', id: q.id, result: { content: [{ type: 'text', text: String(t) }] } }; }
+          return { jsonrpc: '2.0', id: q.id, error: { code: -32601, message: 'Method not found' } };
+        } catch (e) { return { jsonrpc: '2.0', id: q.id, error: { code: -32603, message: e.message } }; }
+      };
+      const out = Array.isArray(msg) ? (await Promise.all(msg.map(one))).filter(Boolean) : await one(msg);
+      if (!out || (Array.isArray(out) && !out.length)) { res.writeHead(202); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(out));
+    });
+  });
+  XS.server.on('error', () => {});
+  XS.server.listen(0, '127.0.0.1', () => { XS.port = XS.server.address().port; });
+}
+function xsConfig(key) {
+  if (!XS.port || settings.crossSession === false) return '';
+  const d = path.join(app.getPath('userData'), 'xs'); fs.mkdirSync(d, { recursive: true });
+  const f = path.join(d, String(key).replace(/[^\w-]/g, '') + '.json');
+  fs.writeFileSync(f, JSON.stringify({ mcpServers: { 'claude-gui': { type: 'http', url: `http://127.0.0.1:${XS.port}/mcp/${XS.token}/${key}` } } }), 'utf8');
+  return f;
+}
+const XS_ALLOW = XS_TOOLS.map((t) => 'mcp__claude-gui__' + t.name);
+
+// ---------- PR (GitHub qua gh) / MR (GitLab qua API: link server + token trong Cài đặt) ----------
+function gitlabToken() {
+  if (!settings.gitlabTokenEnc) return '';
+  try { return safeStorage.decryptString(Buffer.from(settings.gitlabTokenEnc, 'base64')); } catch { return ''; }
+}
+const glBase = () => String(settings.gitlabUrl || '').trim().replace(/\/+$/, '');
+const hostOf = (u) => { try { return new URL(/^[a-z]+:\/\//i.test(u) ? u : 'https://' + u).hostname.toLowerCase(); } catch { return ''; } };
+// git@host:group/proj.git | https://host/group/proj.git | ssh://git@host:2222/group/proj.git → { host, path }
+function parseRemote(u) {
+  u = String(u || '').trim();
+  let m = /^[\w.-]+@([^:/]+):(?!\d+\/)(.+?)(?:\.git)?\/?$/.exec(u);
+  if (m) return { host: m[1].toLowerCase(), path: m[2] };
+  m = /^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+?)(?:\.git)?\/?$/i.exec(u);
+  return m ? { host: m[1].toLowerCase(), path: m[2] } : null;
+}
+async function glApi(p, opt = {}) {
+  const tok = gitlabToken();
+  if (!glBase() || !tok) throw new Error('Chưa nhập link GitLab / token (Cài đặt → Git)');
+  const r = await net.fetch(glBase() + '/api/v4' + p, { method: opt.method || 'GET', headers: { 'PRIVATE-TOKEN': tok, ...(opt.body ? { 'Content-Type': 'application/json' } : {}) }, body: opt.body ? JSON.stringify(opt.body) : undefined });
+  const ct = r.headers.get('content-type') || '';
+  const data = /json/.test(ct) ? await r.json().catch(() => null) : await r.text();
+  if (!r.ok) throw new Error(`GitLab ${r.status}: ${(data && (data.message || data.error)) ? JSON.stringify(data.message || data.error) : String(data).slice(0, 200)}`);
+  return data;
+}
+async function repoCtx(cwd) {
+  const top = (await git(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim();
+  if (!top) return null;
+  const branch = (await git(top, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();
+  const remote = (await git(top, ['remote', 'get-url', 'origin'])).stdout.trim();
+  const rm = parseRemote(remote);
+  if (!rm) return { top, branch, kind: 'none' };
+  const kind = rm.host === 'github.com' ? 'github' : glBase() && (hostOf(glBase()) === rm.host) ? 'gitlab' : 'none';
+  return { top, branch, kind, host: rm.host, path: rm.path };
+}
+async function prInfo(cwd) {
+  try {
+    const R = await repoCtx(cwd);
+    if (!R || !R.branch || R.branch === 'HEAD') return { kind: 'none' };
+    if (R.kind === 'gitlab') {
+      const pid = encodeURIComponent(R.path);
+      const L = await glApi(`/projects/${pid}/merge_requests?source_branch=${encodeURIComponent(R.branch)}&order_by=updated_at&per_page=5`);
+      const mr = (L || []).find((x) => x.state === 'opened') || (L || [])[0];
+      if (!mr) return { kind: 'gitlab', branch: R.branch, none: true };
+      const d = await glApi(`/projects/${pid}/merge_requests/${mr.iid}`);
+      let unresolved = 0;
+      try { const ds = await glApi(`/projects/${pid}/merge_requests/${mr.iid}/discussions?per_page=100`); unresolved = (ds || []).filter((x) => (x.notes || []).some((n) => n.resolvable && !n.resolved)).length; } catch {}
+      const pl = d.head_pipeline || d.pipeline;
+      return { kind: 'gitlab', branch: R.branch, num: mr.iid, title: d.title, url: d.web_url, state: d.state, target: d.target_branch,
+        ci: pl ? pl.status : '', ciId: pl ? pl.id : 0, reviews: unresolved, autoMerge: !!(d.merge_when_pipeline_succeeds || d.auto_merge_enabled), mergeable: d.detailed_merge_status || d.merge_status };
+    }
+    if (R.kind === 'github') {
+      const r = await run('gh', ['pr', 'view', '--json', 'number,title,url,state,baseRefName,statusCheckRollup,reviewDecision,autoMergeRequest,reviews'], { cwd: R.top, timeout: 20000 });
+      if (r.code !== 0) return /no pull requests found/i.test(r.stderr) ? { kind: 'github', branch: R.branch, none: true } : { kind: 'github', error: /not found|ENOENT|not recognized/i.test(r.stderr + (r.error || '')) ? 'Chưa cài GitHub CLI (gh)' : r.stderr.trim().slice(0, 200) };
+      const j = JSON.parse(r.stdout);
+      const checks = j.statusCheckRollup || [];
+      const bad = checks.filter((c) => /FAIL|ERROR|CANCEL/i.test(c.conclusion || c.state || '')).length;
+      const pend = checks.filter((c) => /PENDING|QUEUED|IN_PROGRESS|EXPECTED/i.test(c.status || c.state || '')).length;
+      return { kind: 'github', branch: R.branch, num: j.number, title: j.title, url: j.url, state: String(j.state).toLowerCase() === 'open' ? 'opened' : String(j.state).toLowerCase(), target: j.baseRefName,
+        ci: bad ? 'failed' : pend ? 'running' : checks.length ? 'success' : '', reviews: (j.reviews || []).filter((x) => x.state === 'CHANGES_REQUESTED' || x.state === 'COMMENTED').length, autoMerge: !!j.autoMergeRequest };
+    }
+    return { kind: 'none', host: R.host };
+  } catch (e) { return { kind: 'error', error: e.message }; }
+}
+// gom log CI fail + góp ý review chưa giải quyết → đưa cho Claude sửa
+async function prFixContext(cwd) {
+  const R = await repoCtx(cwd);
+  if (!R) return { error: 'Không phải repo git' };
+  if (R.kind === 'github') return { prompt: `PR của nhánh ${R.branch} có CI lỗi hoặc góp ý review. Dùng GitHub CLI: \`gh pr checks\`, \`gh run view --log-failed\`, \`gh pr view --comments\` để đọc lỗi CI và các góp ý chưa xử lý, rồi sửa code, chạy lại test liên quan, commit và push lên nhánh ${R.branch}. Trả lời ngắn từng góp ý đã sửa thế nào.` };
+  if (R.kind !== 'gitlab') return { error: 'Repo không thuộc GitHub hoặc GitLab đã cấu hình' };
+  const pid = encodeURIComponent(R.path);
+  const info = await prInfo(cwd);
+  if (!info.num) return { error: 'Nhánh chưa có merge request' };
+  let txt = `Merge request !${info.num} (${info.title}) của nhánh ${R.branch} → ${info.target}. Hãy sửa các lỗi CI và góp ý review dưới đây, chạy lại build / test liên quan, commit và push lên nhánh ${R.branch}. Trả lời ngắn từng góp ý đã sửa thế nào.\n`;
+  if (info.ciId && /fail/i.test(info.ci)) {
+    try {
+      const jobs = await glApi(`/projects/${pid}/pipelines/${info.ciId}/jobs?scope[]=failed&per_page=20`);
+      for (const j of (jobs || []).slice(0, 4)) {
+        let log = ''; try { log = String(await glApi(`/projects/${pid}/jobs/${j.id}/trace`)); } catch {}
+        log = log.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/section_(start|end):\d+:\S+\r?/g, '');
+        txt += `\n### Job CI lỗi: ${j.stage} / ${j.name}\n\`\`\`\n${log.slice(-4000)}\n\`\`\`\n`;
+      }
+    } catch (e) { txt += `\n(Không lấy được log CI: ${e.message})\n`; }
+  }
+  try {
+    const ds = await glApi(`/projects/${pid}/merge_requests/${info.num}/discussions?per_page=100`);
+    const open = (ds || []).filter((x) => (x.notes || []).some((n) => n.resolvable && !n.resolved));
+    if (open.length) txt += '\n### Góp ý review chưa giải quyết\n' + open.map((x, i) => { const n = x.notes[0]; const pos = n.position ? ` (${n.position.new_path || n.position.old_path}:${n.position.new_line || n.position.old_line || '?'})` : ''; return `${i + 1}. ${n.author ? n.author.name : ''}${pos}: ${x.notes.map((y) => y.body).join('\n   ↳ ')}`; }).join('\n');
+  } catch {}
+  return { prompt: txt };
+}
+async function prMergeWhenReady(cwd) {
+  const R = await repoCtx(cwd);
+  if (!R) return { ok: false, error: 'Không phải repo git' };
+  if (R.kind === 'github') { const r = await run('gh', ['pr', 'merge', '--auto', '--squash'], { cwd: R.top, timeout: 30000 }); return r.code === 0 ? { ok: true } : { ok: false, error: (r.stderr || r.error || '').trim().slice(0, 300) }; }
+  if (R.kind !== 'gitlab') return { ok: false, error: 'Repo không thuộc GitHub hoặc GitLab đã cấu hình' };
+  const info = await prInfo(cwd);
+  if (!info.num) return { ok: false, error: 'Nhánh chưa có merge request' };
+  const pid = encodeURIComponent(R.path);
+  try { await glApi(`/projects/${pid}/merge_requests/${info.num}/merge`, { method: 'PUT', body: { merge_when_pipeline_succeeds: true, auto_merge: true, should_remove_source_branch: false } }); return { ok: true }; }
+  catch (e) { return { ok: false, error: e.message }; }
+}
+async function prCreate(cwd, title, target) {
+  const R = await repoCtx(cwd);
+  if (!R) return { ok: false, error: 'Không phải repo git' };
+  if (R.kind === 'github') { const r = await run('gh', ['pr', 'create', '--fill', ...(title ? ['--title', title] : [])], { cwd: R.top, timeout: 60000 }); return r.code === 0 ? { ok: true, url: r.stdout.trim() } : { ok: false, error: (r.stderr || '').trim().slice(0, 300) }; }
+  if (R.kind !== 'gitlab') return { ok: false, error: 'Repo không thuộc GitHub hoặc GitLab đã cấu hình' };
+  const pid = encodeURIComponent(R.path);
+  try {
+    const p = await glApi(`/projects/${pid}`);
+    const mr = await glApi(`/projects/${pid}/merge_requests`, { method: 'POST', body: { source_branch: R.branch, target_branch: target || p.default_branch, title: title || R.branch } });
+    return { ok: true, url: mr.web_url };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
+// ---------- Dev servers theo .claude/launch.json (cùng định dạng với bản desktop) ----------
+// { "configurations": [ { "name", "runtimeExecutable", "runtimeArgs", "cwd", "env", "port", "autoPort", "url" } ] }
+const devSrv = new Map(); // `${root}|${name}` → { proc, port, url, log: [], state: 'starting'|'up'|'exited'|'error', code }
+function launchFile(root) { return path.join(root, '.claude', 'launch.json'); }
+function readLaunch(root) {
+  try {
+    const j = JSON.parse(fs.readFileSync(launchFile(root), 'utf8').replace(/^﻿/, '').replace(/^\s*\/\/.*$/gm, ''));
+    return (Array.isArray(j.configurations) ? j.configurations : []).filter((c) => c && c.name);
+  } catch (e) { return fs.existsSync(launchFile(root)) ? { error: 'launch.json lỗi: ' + e.message } : []; }
+}
+function portFree(port) {
+  return new Promise((res) => { const s = require('net').createServer(); s.once('error', () => res(false)); s.once('listening', () => s.close(() => res(true))); s.listen(port, '127.0.0.1'); });
+}
+function portOpen(port) {
+  return new Promise((res) => { const s = require('net').connect(port, '127.0.0.1'); s.once('connect', () => { s.destroy(); res(true); }); s.once('error', () => res(false)); s.setTimeout(800, () => { s.destroy(); res(false); }); });
+}
+function devList(root) {
+  const cfg = readLaunch(root);
+  if (cfg.error) return { error: cfg.error, items: [] };
+  return {
+    file: launchFile(root), exists: fs.existsSync(launchFile(root)),
+    items: cfg.map((c) => {
+      const s = devSrv.get(root.toLowerCase() + '|' + c.name);
+      return { name: c.name, cmd: [c.runtimeExecutable || c.program || '', ...(c.runtimeArgs || c.args || [])].join(' ').trim(), port: (s && s.port) || c.port || null, url: (s && s.url) || c.url || (c.port ? `http://localhost:${c.port}` : ''), urlOnly: !c.runtimeExecutable && !c.program, state: s ? s.state : 'off', code: s && s.code };
+    }),
+  };
+}
+async function devStart(root, name) {
+  const cfg = readLaunch(root);
+  const c = Array.isArray(cfg) && cfg.find((x) => x.name === name);
+  if (!c) return { ok: false, error: 'Không có cấu hình ' + name };
+  const k = root.toLowerCase() + '|' + name;
+  const old = devSrv.get(k);
+  if (old && (old.state === 'starting' || old.state === 'up')) return { ok: true, url: old.url };
+  let port = +c.port || 0;
+  if (!c.runtimeExecutable && !c.program) { const url = c.url || (port ? `http://localhost:${port}` : ''); return { ok: !!url, url, error: url ? '' : 'Cấu hình thiếu url / port' }; }
+  if (port && !(await portFree(port))) {
+    if (c.autoPort) { for (let p = port + 1; p < port + 50; p++) if (await portFree(p)) { port = p; break; } }
+    else if (await portOpen(port)) { const url = c.url || `http://localhost:${port}`; return { ok: true, url, note: 'Cổng đã có server chạy sẵn' }; }
+  }
+  const exe = c.runtimeExecutable || c.program;
+  const args = (c.runtimeArgs || c.args || []).map((a) => String(a).replace(/\$\{port\}/g, port));
+  const cwd = c.cwd ? path.resolve(root, c.cwd) : root;
+  const env = { ...childEnv(), ...(c.env || {}), ...(port ? { PORT: String(port) } : {}) };
+  const s = { port, url: c.url ? c.url.replace(/:\d+/, port ? ':' + port : '$&') : port ? `http://localhost:${port}` : '', log: [], state: 'starting', code: null };
+  try {
+    s.proc = spawn([quoteCmd(exe), ...args.map(quoteCmd)].join(' '), { cwd, env, shell: true, windowsHide: true });
+  } catch (e) { return { ok: false, error: e.message }; }
+  devSrv.set(k, s);
+  const push = (l) => { s.log.push(l); if (s.log.length > 400) s.log.shift(); if (!port) { const m = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::(\d+))?[^\s]*/i.exec(l); if (m) { s.url = m[0].replace('0.0.0.0', 'localhost'); if (m[1]) s.port = +m[1]; } } };
+  lineReader(s.proc.stdout, (l) => push(stripAnsiMain(l)));
+  lineReader(s.proc.stderr, (l) => push(stripAnsiMain(l)));
+  s.proc.on('error', (e) => { s.state = 'error'; push('Lỗi: ' + e.message); send('devsrv:state', root, name); });
+  s.proc.on('exit', (code) => { s.state = 'exited'; s.code = code; send('devsrv:state', root, name); });
+  // chờ server lên (cổng mở / in ra địa chỉ) tối đa 90 giây
+  const t0 = Date.now();
+  while (s.state === 'starting' && Date.now() - t0 < 90000) {
+    await new Promise((r) => setTimeout(r, 700));
+    if (s.port && (await portOpen(s.port))) { s.state = 'up'; break; }
+    if (!port && s.url) { s.state = 'up'; break; }
+  }
+  if (s.state === 'starting') s.state = 'up'; // không biết cổng → coi như đã chạy
+  send('devsrv:state', root, name);
+  return { ok: s.state === 'up', url: s.url, error: s.state !== 'up' ? `Server dừng (mã ${s.code})` : '' };
+}
+function devStop(root, name) {
+  const keys = [...devSrv.keys()].filter((k) => k.startsWith(root.toLowerCase() + '|') && (!name || k === root.toLowerCase() + '|' + name));
+  for (const k of keys) {
+    const s = devSrv.get(k);
+    if (s.proc && s.state !== 'exited') { try { execFile('taskkill', ['/pid', String(s.proc.pid), '/T', '/F'], { windowsHide: true }, () => {}); } catch {} }
+    devSrv.delete(k);
+  }
+  send('devsrv:state', root, name || '');
+  return true;
+}
+const stripAnsiMain = (s) => String(s).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+app.on('will-quit', () => { for (const s of devSrv.values()) if (s.proc && s.state !== 'exited') { try { execFile('taskkill', ['/pid', String(s.proc.pid), '/T', '/F'], { windowsHide: true }, () => {}); } catch {} } });
+
+// Sửa tệp ngay trong khung xem: ghi lại, phát hiện xung đột (tệp đã bị sửa nơi khác kể từ lúc đọc — vd Claude vừa sửa)
+function writeViewerFile(p, text, expectMtime, bom) {
+  try {
+    const st = fs.statSync(p);
+    if (expectMtime && Math.abs(st.mtimeMs - expectMtime) > 1) return { ok: false, conflict: true, mtime: st.mtimeMs };
+    fs.writeFileSync(p, (bom ? '\ufeff' : '') + String(text));
+    return { ok: true, mtime: fs.statSync(p).mtimeMs };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+// Trình sửa ngoài có trên máy (VS Code, Cursor, Rider, Notepad++…) — dò một lần
+let editorsCache = null;
+async function listEditors() {
+  if (editorsCache) return editorsCache;
+  const la = process.env.LOCALAPPDATA || '', pf = process.env.ProgramFiles || 'C:\\Program Files', pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const C = [
+    { id: 'vscode', name: 'VS Code', cmds: ['code'], paths: [path.join(la, 'Programs', 'Microsoft VS Code', 'bin', 'code.cmd'), path.join(pf, 'Microsoft VS Code', 'bin', 'code.cmd')], args: (f, l) => ['-g', l ? `${f}:${l}` : f] },
+    { id: 'cursor', name: 'Cursor', cmds: ['cursor'], paths: [path.join(la, 'Programs', 'cursor', 'resources', 'app', 'bin', 'cursor.cmd')], args: (f, l) => ['-g', l ? `${f}:${l}` : f] },
+    { id: 'rider', name: 'Rider', cmds: ['rider', 'rider64'], paths: [path.join(la, 'JetBrains', 'Toolbox', 'scripts', 'rider.cmd')], args: (f, l) => (l ? ['--line', String(l), f] : [f]) },
+    { id: 'zed', name: 'Zed', cmds: ['zed'], paths: [path.join(la, 'Programs', 'Zed', 'zed.exe')], args: (f, l) => [l ? `${f}:${l}` : f] },
+    { id: 'npp', name: 'Notepad++', cmds: [], paths: [path.join(pf, 'Notepad++', 'notepad++.exe'), path.join(pf86, 'Notepad++', 'notepad++.exe')], args: (f, l) => (l ? ['-n' + l, f] : [f]) },
+  ];
+  const where = (c) => run('where.exe', [c], { timeout: 4000 }).then((r) => (r.code === 0 ? r.stdout.split(/\r?\n/).map((x) => x.trim()).find((x) => /\.(exe|cmd|bat)$/i.test(x)) || '' : ''));
+  const out = [];
+  for (const e of C) {
+    let exe = e.paths.find((x) => x && fs.existsSync(x)) || '';
+    for (const c of e.cmds) { if (exe) break; exe = await where(c); }
+    if (exe) out.push({ id: e.id, name: e.name, exe, _args: e.args });
+  }
+  editorsCache = out;
+  return out.map(({ id, name }) => ({ id, name }));
+}
+async function openWithEditor(id, p, line) {
+  if (!editorsCache) await listEditors();
+  const e = editorsCache.find((x) => x.id === id);
+  if (!e) return { ok: false, error: 'Không tìm thấy trình sửa' };
+  try {
+    const args = e._args(p, +line || 0);
+    const opts = { detached: true, stdio: 'ignore', windowsHide: true };
+    const ch = /\.(cmd|bat)$/i.test(e.exe) ? spawn([quoteCmd(e.exe), ...args.map(quoteCmd)].join(' '), { ...opts, shell: true }) : spawn(e.exe, args, opts);
+    ch.on('error', () => {});
+    ch.unref();
+    return { ok: true };
+  } catch (err) { return { ok: false, error: err.message }; }
 }
 // Xem trước HTML qua http://127.0.0.1 thay vì file:// — demo dùng <script type="module">, fetch(),
 // import JSON… bị Chromium chặn khi mở bằng file://. Mỗi thư mục gốc có một mã ngẫu nhiên trong URL.
@@ -381,7 +709,9 @@ function startSession(key, o) {
     '--permission-prompt-tool', 'stdio',
   ];
   const sessionId = o.sessionId || key;
-  if (o.resume) args.push('--resume', sessionId);
+  // hỏi bên lề (/btw): rẽ nhánh từ phiên chính — đọc được toàn bộ hội thoại, ghi ra phiên mới (id CLI tự cấp)
+  if (o.forkFrom && UUID_RE.test(o.forkFrom)) args.push('--resume', o.forkFrom, '--fork-session');
+  else if (o.resume) args.push('--resume', sessionId);
   else {
     args.push('--session-id', sessionId);
     if (o.worktree) args.push('--worktree', 'gui-' + sessionId.slice(0, 8));
@@ -394,6 +724,9 @@ function startSession(key, o) {
   if (o.agent && /^[\w.:-]+$/.test(o.agent)) args.push('--agent', o.agent);
   // dự án tự động: cho phép trước các công cụ MCP chỉ đọc để hàng đợi không đứng chờ
   const allow = (o.allowedTools || []).filter((t) => /^[\w.:*()/ -]+$/.test(t));
+  // công cụ nhắn / đọc phiên khác (MCP nội bộ của GUI) — không áp cho phiên gọn (sổ tài liệu, hỏi bên lề)
+  const xsf = !o.lean && !o.mcpServers ? xsConfig(key) : '';
+  if (xsf) { args.push('--mcp-config', xsf); allow.push(...XS_ALLOW); }
   if (allow.length) args.push('--allowedTools', allow.join(','));
   // Sổ tài liệu (o.lean): phiên tra cứu gọn cho rẻ — chỉ công cụ đọc (--tools), chỉ nạp MCP cần dùng
   // (--strict-mcp-config), bỏ các tool MCP dạng ghi (--disallowedTools), system prompt riêng, không plugin/gợi ý
@@ -409,7 +742,7 @@ function startSession(key, o) {
   if (pd) args.push('--plugin-dir', pd);
   if (o.systemPrompt) args.push('--system-prompt', o.systemPrompt);
   else {
-    const sp = systemPromptExtra();
+    const sp = [systemPromptExtra(), typeof o.appendPrompt === 'string' ? o.appendPrompt : ''].filter(Boolean).join('\n\n');
     if (sp) args.push('--append-system-prompt', sp);
   }
   // Gợi ý câu nhắn tiếp theo sau mỗi lượt (giống bản desktop): CLI phát message prompt_suggestion
@@ -2238,6 +2571,12 @@ function registerIpc() {
   });
   // số kế hoạch còn chờ chạy → đóng cửa sổ thì thu xuống khay thay vì thoát
   ipcMain.on('sched:pending', (_e, n) => { schedPending = +n || 0; });
+  // Lịch sắp chạy / kế hoạch đang chạy → chặn máy ngủ (màn hình vẫn tắt được)
+  ipcMain.on('sched:awake', (_e, on) => {
+    const { powerSaveBlocker } = require('electron');
+    if (on && awakeId == null) awakeId = powerSaveBlocker.start('prevent-app-suspension');
+    else if (!on && awakeId != null) { try { powerSaveBlocker.stop(awakeId); } catch {} awakeId = null; }
+  });
   ipcMain.handle('win:show', () => { showWin(); return true; });
   ipcMain.handle('stats:add', (_e, r) => statsAdd(r));
   ipcMain.handle('lan:info', () => lanInfo());
@@ -2325,6 +2664,48 @@ function registerIpc() {
   ipcMain.handle('files:list', (_e, cwd) => listFiles(cwd));
   ipcMain.handle('file:resolve', (_e, base, p, hints) => resolveFile(base, p, Array.isArray(hints) ? hints.slice(0, 3000) : []));
   ipcMain.handle('file:read', (_e, p) => readViewerFile(p));
+  ipcMain.handle('file:write', (_e, p, text, expectMtime, bom) => writeViewerFile(p, text, expectMtime, bom));
+  ipcMain.handle('file:editors', () => listEditors());
+  ipcMain.on('xs:res', (_e, id, r) => { const w = XS.waits.get(id); if (w) { XS.waits.delete(id); w(r || {}); } });
+  ipcMain.handle('xs:tail', (_e, id, n) => sessionTailText(id, n));
+  xsStart();
+  ipcMain.handle('pr:info', (_e, cwd) => (cwd ? prInfo(cwd) : { kind: 'none' }));
+  ipcMain.handle('pr:fix', (_e, cwd) => prFixContext(cwd).catch((e) => ({ error: e.message })));
+  ipcMain.handle('pr:merge', (_e, cwd) => prMergeWhenReady(cwd));
+  ipcMain.handle('pr:create', (_e, cwd, title, target) => prCreate(cwd, title, target));
+  ipcMain.handle('gitlab:get', () => ({ url: settings.gitlabUrl || '', hasToken: !!settings.gitlabTokenEnc }));
+  ipcMain.handle('gitlab:set', async (_e, o) => {
+    o = o || {};
+    if (typeof o.url === 'string') settings.gitlabUrl = o.url.trim().replace(/\/+$/, '');
+    if (o.token) settings.gitlabTokenEnc = safeStorage.encryptString(String(o.token).trim()).toString('base64');
+    if (o.clear) delete settings.gitlabTokenEnc;
+    saveSettings();
+    if (!o.test) return { ok: true };
+    try { const u = await glApi('/user'); return { ok: true, user: u.name || u.username }; } catch (e) { return { ok: false, error: e.message }; }
+  });
+  // Tách tab xem trước ra cửa sổ riêng (đặt sang màn hình thứ 2…): web / HTML mở thẳng URL; md / code / ảnh qua popout.html
+  ipcMain.handle('popout:open', (_e, o) => {
+    o = o || {};
+    const base = { width: 1000, height: 760, autoHideMenuBar: true, backgroundColor: '#1e1f22', title: o.title || 'Claude GUI · Xem',
+      icon: path.join(__dirname.replace(/app\.asar$/, 'app.asar.unpacked'), 'assets', 'icon.ico') };
+    if (win && !win.isDestroyed()) { const b = win.getBounds(); base.x = b.x + 60; base.y = b.y + 60; }
+    let w;
+    if (o.url && /^(https?|file):/i.test(o.url)) {
+      w = new BrowserWindow({ ...base, webPreferences: { partition: 'persist:preview', contextIsolation: true, nodeIntegration: false, sandbox: true } });
+      w.loadURL(o.url);
+      w.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+    } else if (o.path) {
+      w = new BrowserWindow({ ...base, webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+      w.loadFile(path.join(__dirname, 'src', 'popout.html'), { query: { path: o.path, theme: o.theme || '' } });
+    } else return false;
+    w.on('page-title-updated', (ev) => { if (o.title) ev.preventDefault(); });
+    return true;
+  });
+  ipcMain.handle('devsrv:list', (_e, root) => (root ? devList(root) : { items: [] }));
+  ipcMain.handle('devsrv:start', (_e, root, name) => devStart(root, name));
+  ipcMain.handle('devsrv:stop', (_e, root, name) => devStop(root, name));
+  ipcMain.handle('devsrv:log', (_e, root, name) => { const s = devSrv.get(String(root).toLowerCase() + '|' + name); return s ? s.log.join('\n') : ''; });
+  ipcMain.handle('file:openWith', (_e, id, p, line) => openWithEditor(id, p, line));
   ipcMain.handle('file:previewUrl', (_e, p, base) => previewUrl(p, base).catch(() => null));
   ipcMain.handle('file:watch', (_e, p) => watchFile(p));
   ipcMain.handle('file:unwatch', (_e, p) => unwatchFile(p));
@@ -2550,7 +2931,7 @@ function petUpdate() {
     if (petState && petState.on) pet.webContents.send('pet:state', petState);
   }
 }
-let schedPending = 0, tray = null;
+let schedPending = 0, tray = null, awakeId = null;
 function showWin() { if (!win || win.isDestroyed()) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
 function toTray() {
   win.hide();

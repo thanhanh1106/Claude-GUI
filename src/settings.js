@@ -161,18 +161,23 @@
             r.onchange = () => set({ zoom: +r.value });
             return h('div', { class: 'row' }, r, val);
           })()),
-          row('Chế độ xem hội thoại', 'Có thể đổi nhanh bằng Ctrl+O.', select([['normal', 'Bình thường'], ['verbose', 'Chi tiết'], ['summary', 'Tóm tắt']], s.viewMode || 'normal', (v) => set({ viewMode: v }).then(() => CG.app.applyViewMode()))),
+          row('Chế độ xem hội thoại', 'Có thể đổi nhanh bằng Ctrl+O.', select([['normal', 'Bình thường'], ['thinking', 'Suy nghĩ (mở phần suy nghĩ)'], ['verbose', 'Chi tiết'], ['summary', 'Tóm tắt']], s.viewMode || 'normal', (v) => set({ viewMode: v }).then(() => CG.app.applyViewMode()))),
           row('Nhóm phiên ở thanh bên', null, select([['project', 'Theo dự án (thư mục)'], ['date', 'Theo thời gian']], s.groupBy || 'project', (v) => set({ groupBy: v }).then(() => CG.app.renderSidebar())))),
         group('Nhập liệu', null,
           row('Phím gửi', null, select([['enter', 'Enter gửi, Shift+Enter xuống dòng'], ['ctrlEnter', 'Ctrl+Enter gửi, Enter xuống dòng']], s.sendKey || 'enter', (v) => set({ sendKey: v }).then(() => CG.app.updateComposer()))),
           row('Tin gửi giữa chừng là bổ sung', 'Tin bạn gửi khi Claude đang làm được coi là ngữ cảnh thêm: Claude tiếp thu rồi làm tiếp việc đang dở, không bỏ ngang. Muốn bỏ việc cũ thì dùng "Đổi hướng" ở nút ▴ cạnh nút gửi.', toggle(s.midTurnContinue !== false, (v) => set({ midTurnContinue: v }))),
-          row('Dừng có tóm tắt', 'Khi bấm Dừng/Esc lúc Claude đang dùng công cụ, Claude trả lời thêm một đoạn ngắn: đã xong gì, còn dở gì, file nào đang sửa dở.', toggle(s.stopSummary !== false, (v) => set({ stopSummary: v })))),
+          row('Dừng có tóm tắt', 'Khi bấm Dừng/Esc lúc Claude đang dùng công cụ, Claude trả lời thêm một đoạn ngắn: đã xong gì, còn dở gì, file nào đang sửa dở.', toggle(s.stopSummary !== false, (v) => set({ stopSummary: v }))),
+          row('Tự chạy tiếp khi giới hạn hồi', 'Phiên đang làm mà hết giới hạn 5 giờ / tuần → hiện thẻ đếm ngược, tới giờ hồi tự gửi lời nhắn làm tiếp (bỏ tick trên thẻ nếu không muốn).', toggle(s.autoContinue !== false, (v) => set({ autoContinue: v }))),
+          row('Hỏi bên lề (/btw, Ctrl+;)', 'Model trả lời câu hỏi bên lề. "Theo phiên chính" dùng lại bộ nhớ đệm của phiên nên thường rẻ và đúng ngữ cảnh hơn.', select([['', 'Theo phiên chính'], ['haiku', 'Haiku (rẻ)'], ['sonnet', 'Sonnet']], s.btwModel || '', (v) => set({ btwModel: v }))),
+          row('Cho các phiên nhắn / đọc nhau', 'Claude trong một phiên có thể liệt kê, đọc và nhắn sang phiên khác (công cụ claude-gui). Tin nhắn tới hiện thành thẻ, bạn bấm Gửi mới tới Claude ở phiên đó. Gõ @ trong ô nhập để nhắc một phiên.', toggle(s.crossSession !== false, (v) => set({ crossSession: v })))),
         group('Terminal', 'Terminal tích hợp mở bằng nút >_ trên thanh tiêu đề hoặc Ctrl+`. Mỗi phiên có terminal riêng tại thư mục của phiên.',
           row('Shell', 'Áp dụng cho terminal mở mới (hoặc bấm "Khởi động lại" trong terminal).', select([['auto', 'Tự chọn (PowerShell 7 nếu có)'], ['powershell', 'Windows PowerShell'], ['pwsh', 'PowerShell 7 (pwsh)'], ['cmd', 'Command Prompt (cmd)'], ['gitbash', 'Git Bash']], s.terminalShell || 'auto', (v) => set({ terminalShell: v })))),
         group('Lịch & hàng đợi', 'Hẹn giờ mở phiên / gửi prompt và xếp nhiều bước nối đuôi (mục "Lịch & hàng đợi" ở thanh bên).',
+          row('Giữ máy không ngủ khi sắp có lịch', 'Chặn máy ngủ khi có lịch chạy trong 30 phút tới hoặc kế hoạch đang chạy (màn hình vẫn tắt được). Lịch bị lỡ vì máy tắt chỉ chạy bù một lần, trong vòng 7 ngày.', toggle(s.keepAwake !== false, (v) => set({ keepAwake: v }))),
           row('Thu xuống khay khi còn lịch chờ', 'Đóng cửa sổ lúc có lịch chưa chạy thì app chạy tiếp dưới khay hệ thống để tới giờ vẫn mở phiên. Tắt đi thì đóng cửa sổ là thoát hẳn.', toggle(s.trayOnClose !== false, (v) => set({ trayOnClose: v }))),
           row('Hướng dẫn', null, h('div', { class: 'row' }, btn('Xem lại hướng dẫn', () => { CG.closeSettings(); CG.sched.open(); setTimeout(() => CG.sched.tour(), 250); }), btn('Có gì mới', () => { CG.closeSettings(); CG.sched.whatsNew(true); })))),
         group('Khung xem', null,
+          row('Tự lưu khi sửa tệp trong khung xem', 'Bấm ✎ Sửa trên tab tệp để sửa trực tiếp. Tắt đi thì có nút Lưu / Huỷ (Ctrl+S vẫn lưu).', toggle(s.viewerAutoSave !== false, (v) => set({ viewerAutoSave: v }))),
           row('Tự mở khung xem bên cạnh', 'Claude tạo tệp web / md / pdf / ảnh hoặc chạy web localhost → mở luôn ở khung xem trong app (giống bản desktop), không mở sang trình duyệt ngoài.', toggle(s.autoPreview !== false, (v) => set({ autoPreview: v })))),
         group('Thông báo', 'Thông báo Windows chỉ hiện khi cửa sổ không được chọn.',
           row('Khi Claude xong việc', null, toggle(s.notifyDone, (v) => set({ notifyDone: v }))),
@@ -356,6 +361,27 @@
     },
 
     code(el) {
+      // PR / MR: GitHub dùng GitHub CLI (gh) đã đăng nhập; GitLab (kể cả server nội bộ) dùng link + Personal Access Token
+      function gitGroup(s) {
+        const out = h('div', { class: 'test-out' });
+        const url = text('', () => {}, { mono: true, placeholder: 'https://gitlab.congty.vn' });
+        const tok = h('input', { type: 'password', class: 'text-input mono', placeholder: 'Personal Access Token (quyền api)', autocomplete: 'off' });
+        api.gitlabGet().then((g) => { const i = url.querySelector ? url.querySelector('input') || url : url; i.value = g.url || ''; tok.placeholder = g.hasToken ? '•••••••• (đã lưu — nhập để thay)' : 'Personal Access Token (quyền api)'; });
+        const urlIn = () => (url.querySelector ? url.querySelector('input') || url : url);
+        const saveBtn = btn('Lưu & kiểm tra', async () => {
+          out.textContent = 'Đang kiểm tra…';
+          const r = await api.gitlabSet({ url: urlIn().value, token: tok.value, test: true });
+          tok.value = '';
+          out.textContent = r.ok ? `✓ Kết nối được — tài khoản ${r.user}` : '✗ ' + (r.error || 'Không kết nối được');
+          if (CG.parity) CG.parity.refreshPr(true);
+        });
+        return group('Git: pull request / merge request', 'Chip PR/MR trên thanh tiêu đề: trạng thái CI, góp ý review, "Tự sửa CI & góp ý" (Claude đọc log CI + góp ý rồi sửa, push), "Merge khi sẵn sàng". GitHub dùng GitHub CLI (gh) đã đăng nhập.',
+          row('Link GitLab server', 'Repo có remote trùng máy chủ này sẽ dùng GitLab API (merge request).', urlIn(), { stack: true }),
+          row('Token GitLab', 'Tạo ở GitLab › Preferences › Access Tokens, quyền "api". Lưu mã hoá trên máy này.', h('div', { class: 'row' }, tok, saveBtn), { stack: true }),
+          out,
+          row('Hiện chip PR / MR', null, toggle(s.prChip !== false, (v) => set({ prChip: v }).then(() => CG.parity && CG.parity.refreshPr(true)))),
+          row('Tự lưu trữ phiên khi PR / MR đã merge hoặc đóng', 'Kiểm tra khi bạn mở phiên đó.', toggle(!!s.autoArchiveMerged, (v) => set({ autoArchiveMerged: v }))));
+      }
       const s = S().settings;
       const models = (S().info && S().info.models) || [{ value: 'default', displayName: 'Mặc định' }];
       const cliOut = h('div', { class: 'test-out' });
@@ -373,6 +399,7 @@
               CG.app.updateComposer();
             })),
           row('System prompt bổ sung', 'Được thêm vào cuối system prompt (--append-system-prompt).', text(s.appendSystemPrompt, (v) => set({ appendSystemPrompt: v }), { area: true, rows: 3, placeholder: 'vd: Viết comment code bằng tiếng Anh.' }), { stack: true })),
+        gitGroup(s),
         group('Claude CLI', 'Mọi yêu cầu đều chạy qua CLI này nên đăng nhập, settings, hooks, MCP và chính sách của team vẫn được áp dụng.',
           row('Đường dẫn CLI', 'Mặc định "claude" (tìm trong PATH và ~/.local/bin).', h('div', { class: 'row' },
             text(s.cliPath || 'claude', (v) => set({ cliPath: v.trim() || 'claude' }), { mono: true }),

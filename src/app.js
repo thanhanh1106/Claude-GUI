@@ -30,6 +30,7 @@
   const LOCAL_COMMANDS = [
     { name: 'clear', description: 'Bắt đầu phiên mới (GUI)', local: true },
     { name: 'new', description: 'Bắt đầu phiên mới (GUI)', local: true },
+    { name: 'btw', description: 'Hỏi bên lề (Ctrl+;): hỏi nhanh về việc đang làm, không chen vào phiên chính', local: true },
     { name: 'usage', description: 'Mức sử dụng gói: giới hạn 5 giờ, hàng tuần, giờ làm mới, điều gì đang dùng nhiều', local: true },
   ];
   const SUGGESTIONS = [
@@ -42,7 +43,7 @@
     { value: 'default', displayName: 'Mặc định' }, { value: 'opus', displayName: 'Opus' },
     { value: 'sonnet', displayName: 'Sonnet' }, { value: 'haiku', displayName: 'Haiku' },
   ];
-  const VIEW_MODES = [['normal', 'Bình thường', 'Thu gọn công cụ, hiện đầy đủ câu trả lời'], ['verbose', 'Chi tiết', 'Mở mọi công cụ và phần suy nghĩ'], ['summary', 'Tóm tắt', 'Ẩn các bước, chỉ hiện câu trả lời']];
+  const VIEW_MODES = [['normal', 'Bình thường', 'Thu gọn công cụ, hiện đầy đủ câu trả lời'], ['thinking', 'Suy nghĩ', 'Mở sẵn phần suy nghĩ của Claude, thẻ công cụ vẫn thu gọn'], ['verbose', 'Chi tiết', 'Mở mọi công cụ và phần suy nghĩ'], ['summary', 'Tóm tắt', 'Ẩn các bước, chỉ hiện câu trả lời']];
 
   // ---------- State ----------
   const S = {
@@ -244,6 +245,33 @@
     }
     addNote(text) { this.addToTurn(h('div', { class: 'note', text })); }
     addError(text) { this.addToTurn(h('div', { class: 'errbox', text })); }
+    // Hết giới hạn 5 giờ / tuần giữa chừng → thẻ đếm ngược + ô "Tự chạy tiếp khi giới hạn hồi" (giống bản desktop)
+    async limitCard(text) {
+      const at0 = limitResetAt(text);
+      const on = !this.managed && S.settings.autoContinue !== false;
+      const msg = h('input', { class: 'lim-msg', value: 'Giới hạn sử dụng đã hồi. Hãy làm tiếp phần việc còn dở cho xong.', spellcheck: 'false' });
+      const ck = h('input', { type: 'checkbox' });
+      ck.checked = on;
+      const left = h('b', { class: 'lim-left' }), atEl = h('b'), bar = h('i');
+      const card = h('div', { class: 'limit-card' },
+        h('div', { class: 'lim-t' }, icon('clock', 15), h('span', { text: /tuần|week/i.test(text) ? 'Đã hết giới hạn tuần' : 'Đã hết giới hạn sử dụng' }), h('span', { class: 'spacer' }), h('span', { class: 'lim-at' }, 'hồi lúc ', atEl, ' · còn ', left)),
+        h('div', { class: 'lim-bar' }, bar),
+        this.managed ? h('div', { class: 'note', text: 'Phiên này do Lịch & hàng đợi / dự án tự động điều khiển — kế hoạch sẽ tự chạy tiếp khi giới hạn hồi.' })
+          : h('label', { class: 'chk' }, ck, ' Tự chạy tiếp khi giới hạn hồi'),
+        this.managed ? null : h('div', { class: 'lim-row' }, h('span', { class: 'muted', text: 'Lời nhắn sẽ gửi:' }), msg,
+          h('button', { class: 'btn sm', text: 'Gửi ngay', onclick: () => { const t = msg.value.trim(); if (t) { autoResOff(this); this.send(t, t); } } })),
+        h('div', { class: 'note lim-raw', text: text.slice(0, 300) }));
+      this.addToTurn(card);
+      const st = { at: at0 || Date.now() + 30 * 60e3, guess: !at0, t0: Date.now(), on: on && !this.managed, msg: msg.value, card, left, atEl, bar };
+      this.autoRes = st;
+      ck.onchange = () => { st.on = ck.checked; saveAutoRes(); renderSidebar(); };
+      msg.oninput = () => { st.msg = msg.value; saveAutoRes(); };
+      paintAutoRes(this);
+      saveAutoRes();
+      renderSidebar();
+      // giờ hồi chưa rõ (số liệu gói cũ) → lấy số liệu mới rồi tính lại
+      if (!at0) { await fetchUsage(true).catch(() => {}); const t = limitResetAt(text); if (t && this.autoRes === st) { st.at = t; st.guess = false; paintAutoRes(this); saveAutoRes(); } }
+    }
 
     renderUser(text, images, opts = {}) {
       this.closeTurn();
@@ -404,6 +432,7 @@
         if (m.model) this.modelName = m.model;
         if (m.permissionMode && MODES.some((x) => x.v === m.permissionMode)) this.mode = m.permissionMode;
         if (this.nb && CG.nb) CG.nb.onInit(this, m);
+        if (this.btw && CG.btw) CG.btw.onInit(this, m);
         if (this === S.active) { updateTitlebar(); updateComposer(); }
       } else if (m.subtype === 'compact_boundary') {
         this.closeTurn();
@@ -560,9 +589,9 @@
         } else if (b.type === 'thinking' || b.type === 'redacted_thinking') {
           const L = this.replaying ? null : this.takeLive('thinking');
           const text = b.thinking || (L && L.text) || '';
-          if (L && L.el.isConnected) { L.el.open = S.settings.viewMode === 'verbose'; if (text) L.body.textContent = text; }
+          if (L && L.el.isConnected) { L.el.open = showThinking(); if (text) L.body.textContent = text; }
           else if (text.trim()) {
-            this.addToTurn(h('details', { class: 'thinking', open: S.settings.viewMode === 'verbose' }, h('summary', {}, icon('chevronRight', 13), 'Suy nghĩ'), h('div', { class: 'md', text })));
+            this.addToTurn(h('details', { class: 'thinking', open: showThinking() }, h('summary', {}, icon('chevronRight', 13), 'Suy nghĩ'), h('div', { class: 'md', text })));
           }
         } else if (b.type === 'tool_use' || b.type === 'server_tool_use') {
           const L = this.replaying ? null : this.takeLive('tool_use', b.id);
@@ -710,8 +739,10 @@
       this.lastEnd = { kind: stopped ? 'stopped' : failed ? 'error' : 'done', long: Date.now() - (this.turnStart || Date.now()) > 15000, t: Date.now() };
       this.summarizing = false;
       if (failed) {
+        const errText = (typeof m.result === 'string' && m.result) || (m.errors || []).join('\n') || `Lỗi: ${m.subtype}`;
         if (this.interrupting) this.addNote('Đã dừng theo yêu cầu của bạn.');
-        else this.addError((typeof m.result === 'string' && m.result) || (m.errors || []).join('\n') || `Lỗi: ${m.subtype}`);
+        else if (isLimitHit(errText)) this.limitCard(errText);
+        else this.addError(errText);
       } else if (!this.turnText && typeof m.result === 'string' && m.result.trim()) {
         this.addToTurn(mdEl(m.result));
       }
@@ -843,11 +874,13 @@
       const body = h('div', { class: 'tool-body' }, inputBox, resBox);
       const sub = h('div', { class: 'tool-sub hidden' });
       const el = h('div', { class: 'tool' + (S.settings.viewMode === 'verbose' ? ' open' : '') }, head, sub, body);
+      // /code-review: kết quả báo qua công cụ ReportFindings → thẻ danh sách vấn đề có nút xử lý (giống bản desktop)
+      if (name === 'ReportFindings' && CG.parity) { el.classList.add('rv-tool'); el.insertBefore(CG.parity.reviewCard(this, inp), sub); }
       // Nội dung thẻ (diff, output) chỉ dựng khi mở ra — phiên dài có hàng nghìn thẻ công cụ
       let built = false, result = null, patch = null;
       const renderInput = () => {
         inputBox.innerHTML = '';
-        if (patch) inputBox.append(h('div', { class: 'diff-file', text: shortPath(inp.file_path, this.cwd) }), rowsView(patchRows(patch), 500));
+        if (patch) inputBox.append(h('div', { class: 'diff-file', text: shortPath(inp.file_path, this.cwd) }), rowsView(patchRows(patch), 500, inp.file_path));
         else inputBox.append(toolInputView(name, inp, this.cwd));
       };
       const renderResult = () => {
@@ -1259,6 +1292,7 @@
   let sideRaf = 0;
   function afterRender(conv) {
     if (conv && conv.nb) { if (CG.nb) CG.nb.afterRender(conv); return; }
+    if (conv && conv.btw) { if (CG.btw) CG.btw.afterRender(conv); return; }
     if (conv && conv === S.side && !conv.renderingOlder) {
       if (S.sideStick && !sideRaf) sideRaf = requestAnimationFrame(() => { sideRaf = 0; const s = $('#split-scroller'); s.scrollTop = s.scrollHeight; });
       return;
@@ -1285,7 +1319,8 @@
     const rec = $('#hero-recent');
     rec.innerHTML = '';
     const nbHidden = CG.nb ? CG.nb.hiddenSids() : null;
-    const list = S.all.filter((s) => c && samePath(s.cwd, c.cwd) && !isArchived(s.id) && !(nbHidden && nbHidden.has(s.id))).slice(0, 4);
+    const btwHidden = CG.btw ? CG.btw.hiddenSids() : null;
+    const list = S.all.filter((s) => c && samePath(s.cwd, c.cwd) && !isArchived(s.id) && !(nbHidden && nbHidden.has(s.id)) && !(btwHidden && btwHidden.has(s.id))).slice(0, 4);
     if (list.length) {
       rec.append(h('div', { class: 'hero-rec-title' }, `Phiên gần đây trong `, h('b', { text: basename(c.cwd) })));
       for (const it of list) {
@@ -1414,6 +1449,73 @@
     }
     return out;
   }
+  // ---------- Tự chạy tiếp khi giới hạn hồi ----------
+  const LIMIT_RE = /usage limit|hit your (?:\w+ )*limits?|limit (?:reached|exceeded)|out of (?:extra )?usage|hết giới hạn/i;
+  const isLimitHit = (t) => LIMIT_RE.test(String(t || '')) || planLimits().some((r) => r.pct >= 99.5 && (r.group === 'session' || r.group === 'weekly'));
+  // giờ hồi: giới hạn đang chạm 100% (từ get_usage / rate_limit_event), không có thì đọc trong câu lỗi ("resets 2:20pm", "|1730000000")
+  function limitResetAt(text) {
+    let at = 0;
+    for (const r of planLimits()) if (r.pct >= 99.5 && r.reset) { const t = new Date(r.reset).getTime(); if (t > Date.now() && t > at) at = t; }
+    if (at) return at + 60e3;
+    const s = String(text || '');
+    const ep = /\|(\d{10})\b/.exec(s);
+    if (ep) return +ep[1] * 1000 + 60e3;
+    const m = /resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(s);
+    if (m) {
+      let hh = +m[1];
+      if (m[3]) { hh = hh % 12; if (m[3].toLowerCase() === 'pm') hh += 12; }
+      const d = new Date(); d.setHours(hh, +(m[2] || 0), 0, 0);
+      if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
+      return d.getTime() + 60e3;
+    }
+    return 0;
+  }
+  const AR_KEY = 'cg.autoRes';
+  const readAR = () => { try { return JSON.parse(localStorage.getItem(AR_KEY) || '{}') || {}; } catch { return {}; } };
+  function saveAutoRes() {
+    const o = readAR();
+    for (const c of S.convs.values()) if (c.autoRes && c.sid) o[c.sid] = { at: c.autoRes.at, on: c.autoRes.on, msg: c.autoRes.msg };
+    try { localStorage.setItem(AR_KEY, JSON.stringify(o)); } catch {}
+  }
+  function autoResOff(c) {
+    if (c.autoRes && c.autoRes.card) c.autoRes.card.classList.add('done');
+    c.autoRes = null;
+    const o = readAR(); delete o[c.sid];
+    try { localStorage.setItem(AR_KEY, JSON.stringify(o)); } catch {}
+    renderSidebar();
+  }
+  const autoResWaiting = (sid) => { const v = readAR()[sid]; return !!(v && v.on); };
+  const fmtLeft = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60; return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`; };
+  function paintAutoRes(c) {
+    const a = c.autoRes;
+    if (!a || !a.card) return;
+    const p2 = (n) => String(n).padStart(2, '0'), d = new Date(a.at);
+    a.atEl.textContent = `${p2(d.getHours())}:${p2(d.getMinutes())}${d.toDateString() !== new Date().toDateString() ? ` ${d.getDate()}/${d.getMonth() + 1}` : ''}${a.guess ? ' (ước tính)' : ''}`;
+    a.left.textContent = fmtLeft(a.at - Date.now());
+    a.bar.style.width = Math.min(100, ((Date.now() - a.t0) / Math.max(1, a.at - a.t0)) * 100) + '%';
+  }
+  // mỗi giây: cập nhật đồng hồ; tới giờ → gửi lời nhắn vào đúng phiên (kể cả phiên đã đóng / app vừa mở lại)
+  let arBusy = false;
+  setInterval(async () => {
+    for (const c of S.convs.values()) if (c.autoRes) paintAutoRes(c);
+    if (arBusy || !S.settings) return;
+    const st = readAR();
+    const due = Object.entries(st).filter(([, v]) => v.on && v.at <= Date.now());
+    if (!due.length) return;
+    arBusy = true;
+    try {
+      for (const [sid, v] of due) {
+        const c = CG.app && (await CG.app.convFor(sid).catch(() => null));
+        if (!c) { const o = readAR(); delete o[sid]; localStorage.setItem(AR_KEY, JSON.stringify(o)); continue; }
+        if (c.busy) continue;
+        const msgText = (v.msg || '').trim() || 'Giới hạn sử dụng đã hồi. Hãy làm tiếp phần việc còn dở cho xong.';
+        autoResOff(c);
+        await c.send(msgText, msgText + ' · tự gửi khi giới hạn hồi');
+        if (!document.hasFocus()) api.notify('Claude GUI · chạy tiếp', `${c.title || 'Phiên'}: giới hạn đã hồi, đã tự gửi lời nhắn chạy tiếp.`);
+        await new Promise((r) => setTimeout(r, 4000)); // nhiều phiên cùng chờ → gửi cách nhau
+      }
+    } finally { arBusy = false; }
+  }, 1000);
   function fmtReset(v) {
     const d = new Date(v);
     if (!v || isNaN(d)) return '';
@@ -1866,7 +1968,8 @@
       const seq = ++acSeq;
       const files = await getFiles(c.cwd);
       if (seq !== acSeq) return;
-      return showAc({ type: 'mention', items: rankFiles(files, mm[2]), start: caret - mm[2].length - 1, end: caret });
+      const sess = CG.parity ? CG.parity.mentionItems(mm[2]) : [];
+      return showAc({ type: 'mention', items: [...sess, ...rankFiles(files, mm[2])], start: caret - mm[2].length - 1, end: caret });
     }
     closeAc();
   }
@@ -1884,6 +1987,9 @@
           h('span', { class: 'ac-name', text: '/' + it.name }),
           it.argumentHint ? h('span', { class: 'ac-hint', text: it.argumentHint }) : null,
           h('span', { class: 'ac-desc', text: it.description || '' }));
+      } else if (it.sess) {
+        row = h('div', { class: 'menu-item ac-row' + (i === S.ac.idx ? ' sel' : ''), title: `Nhắc tới phiên: ${it.sess.title}\n${it.sess.cwd || ''}` },
+          icon('message', 14, 'mi-icon'), h('span', { class: 'ac-name', text: it.sess.title }), h('span', { class: 'ac-desc', text: `${basename(it.sess.cwd || '')} · ${it.sess.status}` }));
       } else {
         const parts = it.split('/');
         row = h('div', { class: 'menu-item ac-row' + (i === S.ac.idx ? ' sel' : ''), title: it },
@@ -1904,7 +2010,7 @@
     const t = els.input;
     if (ac.type === 'slash') t.value = '/' + it.name + ' ';
     else {
-      const ins = '@' + it + ' ';
+      const ins = it.sess ? `@phiên:${it.sess.id.slice(0, 8)}(${(it.sess.title || '').replace(/[()\n]/g, ' ').slice(0, 40).trim()}) ` : '@' + it + ' ';
       t.value = t.value.slice(0, ac.start) + ins + t.value.slice(ac.end);
       t.selectionStart = t.selectionEnd = ac.start + ins.length;
     }
@@ -1995,6 +2101,7 @@
     S.attachments.forEach((a, i) => {
       const x = h('button', { class: 'x', html: svg('x', 12), title: 'Bỏ', onclick: () => { S.attachments.splice(i, 1); renderAttachments(); } });
       if (a.kind === 'image') box.append(h('div', { class: 'att', title: a.name }, h('img', { src: a.url }), x));
+      else if (a.kind === 'ctx') box.append(h('div', { class: 'ctx-chip', title: a.text }, a.url ? h('img', { src: a.url, style: 'height:18px;max-width:40px;border-radius:3px' }) : icon('code', 13), h('span', { class: 'ellipsis', text: a.name }), x));
       else box.append(h('div', { class: 'att file', title: a.path }, icon('file', 14), h('span', { text: a.name }), x));
     });
     updateComposer();
@@ -2010,6 +2117,9 @@
     if (!c.cwd) { toast('Hãy chọn thư mục dự án trước.', true); return folderMenu(); }
     const t = text.trim();
     if (/^\/(clear|new)\s*$/.test(t)) { els.input.value = ''; autosize(); closeAc(); newSession(c.cwd); return; }
+    // /btw <câu hỏi> → hỏi bên lề (không chen vào phiên chính)
+    const btwM = /^\/btw(?:\s+([\s\S]*))?$/.exec(t);
+    if (btwM && CG.btw) { els.input.value = ''; autosize(); closeAc(); updateComposer(); CG.btw.open(); if (btwM[1] && btwM[1].trim()) CG.btw.ask(btwM[1]); return; }
     if (/^\/usage\s*$/.test(t)) { els.input.value = ''; autosize(); closeAc(); updateComposer(); showUsageDialog(); return; }
     els.input.value = '';
     S.attachments = [];
@@ -2018,8 +2128,11 @@
     closeAc();
     const files = atts.filter((a) => a.kind === 'file').map((a) => a.path);
     let finalText = text.replace(/\s+$/, '');
+    if (CG.parity && /@phiên:/.test(finalText)) finalText = await CG.parity.expandMentions(finalText);
     if (files.length) finalText = (finalText ? finalText + '\n\n' : '') + 'Tệp đính kèm:\n' + files.map((f) => '- ' + f).join('\n');
-    const images = atts.filter((a) => a.kind === 'image');
+    // ngữ cảnh đính kèm (phần tử chọn trên trang web…): mô tả dạng chữ + ảnh chụp vùng đó
+    for (const a of atts.filter((x) => x.kind === 'ctx')) finalText = (finalText ? finalText + '\n\n' : '') + a.text;
+    const images = atts.filter((a) => a.kind === 'image' || (a.kind === 'ctx' && a.data));
     let content;
     if (!images.length) content = finalText;
     else {
@@ -2158,9 +2271,10 @@
     const showArchived = S.filter === 'archived';
     const map = new Map();
     const nbHidden = CG.nb ? CG.nb.hiddenSids() : null;
-    for (const d of S.all) if (!(nbHidden && nbHidden.has(d.id))) map.set(d.id, { ...d });
+    const btwHidden = CG.btw ? CG.btw.hiddenSids() : null;
+    for (const d of S.all) if (!(nbHidden && nbHidden.has(d.id)) && !(btwHidden && btwHidden.has(d.id))) map.set(d.id, { ...d });
     for (const c of S.convs.values()) {
-      if (!c.count || c.child || c.nb) continue;
+      if (!c.count || c.child || c.nb || c.btw) continue;
       const it = map.get(c.sid) || { id: c.sid, title: c.title || 'Phiên mới', cwd: c.cwd, mtime: c.lastActive };
       if (c.title) it.title = c.title;
       if (c.cwd) it.cwd = c.cwd;
@@ -2243,6 +2357,8 @@
     const row = h('div', { class: 'sess' + (active ? ' active' : '') + (side ? ' side' : '') + (starred ? ' starred' : ''), title: `${it.title}\n${it.cwd || ''}\n${relTime(it.mtime)}${bg ? `\n${bg} tác vụ đang chạy nền` : ''}${ext ? `\nĐang mở ở terminal khác (${ext.status === 'busy' ? 'đang chạy' : 'rảnh'})` : ''}` },
       h('span', { class: 'st ' + st }, st === 'ext' ? icon('terminal', 11) : null),
       h('span', { class: 's-title ellipsis', text: it.title }),
+      c && c.xsPending ? h('span', { class: 's-xs', title: `${c.xsPending} tin nhắn từ phiên khác đang chờ bạn xem`, html: svg('message', 12) }) : null,
+      autoResWaiting(it.id) ? h('span', { class: 's-ar', title: 'Đang chờ giới hạn hồi để tự chạy tiếp', html: svg('clock', 12) }) : null,
       CG.viewer && CG.viewer.fresh(c ? c.key : it.id) ? h('span', { class: 's-vw', title: 'Có xem trước mới (tệp / trang web Claude vừa tạo) — mở phiên để xem' }) : null,
       CG.lark && CG.lark.unread(it.id) ? h('span', { class: 's-lark', text: String(CG.lark.unread(it.id)), title: 'Tin Lark chưa xem' }) : null,
       showProject && it.cwd ? h('span', { class: 's-proj ellipsis', text: basename(it.cwd) }) : null,
@@ -2490,7 +2606,7 @@
           h('button', { class: 'icon-btn sm', html: svg('chevronLeft', 16), title: 'Quay lại', onclick: () => { S.diffView = null; refreshDetails(); } }),
           h('span', { class: 'dv-title ellipsis', text: dv.title, title: dv.full || dv.title }),
           dv.full ? h('button', { class: 'icon-btn sm', html: svg('external', 14), title: 'Mở tệp', onclick: () => api.openPath(dv.full) }) : null),
-        dv.rows ? rowsView(dv.rows, 4000) : h('div', { class: 'note', text: 'Đang tải diff…' }));
+        dv.rows ? rowsView(dv.rows, 4000, dv.full) : h('div', { class: 'note', text: 'Đang tải diff…' }));
       return;
     }
     // Thay đổi: "Phiên này" + mỗi repo có tệp Claude sửa (và repo của thư mục phiên) là một tab
@@ -2537,14 +2653,15 @@
   }
 
   // ---------- View mode ----------
+  // Chế độ "Suy nghĩ" (giống bản desktop): mở sẵn phần suy nghĩ, thẻ công cụ vẫn thu gọn
+  const showThinking = () => S.settings.viewMode === 'verbose' || S.settings.viewMode === 'thinking';
   function applyViewMode() {
     const vm = S.settings.viewMode || 'normal';
     els.convs.className = 'view-' + vm;
     $('#split-convs').className = 'view-' + vm;
-    if (vm === 'verbose' && S.active) {
-      const root = S.active.root;
-      $$('details.thinking', root).forEach((d) => (d.open = true));
-      $$('.tool', root).forEach((t) => { if (t._build) t._build(); t.classList.add('open'); });
+    for (const c of S.active ? [S.active, S.side].filter(Boolean) : []) {
+      $$('details.thinking', c.root).forEach((d) => (d.open = showThinking()));
+      if (vm === 'verbose') $$('.tool', c.root).forEach((t) => { if (t._build) t._build(); t.classList.add('open'); });
     }
   }
   function setViewMode(v) {
@@ -2594,6 +2711,8 @@
     if (CG.nb) CG.nb.onActivate(conv);
     if (CG.lark) CG.lark.onActivate(conv);
     if (CG.viewer) CG.viewer.useSession(conv.key);
+    if (CG.btw) CG.btw.onActivate(conv);
+    if (CG.parity) { CG.parity.paintBar(); CG.parity.refreshPr(); }
   }
   async function newSession(dir) {
     dir = dir || (S.active && S.active.cwd) || S.settings.lastDir || S.home;
@@ -2757,7 +2876,7 @@
     ['Ctrl N', 'Phiên mới'], ['Ctrl Tab / Ctrl Shift Tab', 'Phiên kế tiếp / trước'], ['Ctrl K', 'Tìm phiên'],
     ['Enter / Shift Enter', 'Gửi / xuống dòng'], ['Esc', 'Dừng Claude, từ chối yêu cầu đang chờ'], ['Shift Tab', 'Đổi chế độ quyền'],
     ['Ctrl Shift M', 'Menu chế độ quyền'], ['Ctrl Shift I', 'Chọn model'], ['Ctrl Shift E', 'Chỉnh effort'],
-    ['Ctrl O', 'Đổi chế độ xem (Bình thường / Chi tiết / Tóm tắt)'], ['Ctrl Shift D', 'Bảng Thay đổi'], ['Ctrl `', 'Ẩn/hiện terminal tích hợp'], ['Ctrl \\', 'Chia đôi màn hình (mở/đóng khung phải)'], ['Tab', 'Dùng câu gợi ý trong ô nhập'], ['Ctrl P', 'Mở nhanh tệp trong khung xem'], ['Ctrl Shift B', 'Ẩn/hiện khung xem trước (mỗi phiên một bộ tab riêng)'],
+    ['Ctrl O', 'Đổi chế độ xem (Bình thường / Suy nghĩ / Chi tiết / Tóm tắt)'], ['Ctrl ;', 'Hỏi bên lề (/btw) — không chen vào phiên chính'], ['Ctrl Shift S', 'Chọn phần tử trên trang ở khung xem để đính vào chat'], ['Ctrl Shift D', 'Bảng Thay đổi'], ['Ctrl `', 'Ẩn/hiện terminal tích hợp'], ['Ctrl \\', 'Chia đôi màn hình (mở/đóng khung phải)'], ['Tab', 'Dùng câu gợi ý trong ô nhập'], ['Ctrl P', 'Mở nhanh tệp trong khung xem'], ['Ctrl Shift B', 'Ẩn/hiện khung xem trước (mỗi phiên một bộ tab riêng)'],
     ['Ctrl B', 'Ẩn/hiện thanh bên'], ['Ctrl ,', 'Cài đặt'], ['Ctrl /', 'Danh sách phím tắt'], ['@', 'Nhắc tới tệp'], ['/', 'Lệnh slash'], ['F12', 'DevTools'],
   ];
   function showShortcuts() {
@@ -2921,11 +3040,12 @@
   function placeConvs() {
     const host = $('#split-convs'), nbHost = $('#nb-convs');
     const nbc = CG.nb ? CG.nb.shownConv() : null;
+    const btwc = CG.btw ? CG.btw.shownConv() : null, btwHost = $('#btw-convs');
     for (const c of S.convs.values()) {
       const side = c === S.side;
-      const parent = c === nbc ? nbHost : side ? host : els.convs;
+      const parent = c === btwc && btwHost ? btwHost : c === nbc ? nbHost : side ? host : els.convs;
       if (c.root.parentNode !== parent) parent.append(c.root);
-      c.root.classList.toggle('hidden', !(side || c === S.active || c === nbc));
+      c.root.classList.toggle('hidden', !(side || c === S.active || c === nbc || c === btwc));
     }
   }
   function sideAutosize() {
@@ -3067,7 +3187,8 @@
       const ws = col.parentElement, x0 = e.clientX, w0 = col.offsetWidth;
       const total = ws.clientWidth - ($('#details').classList.contains('hidden') ? 0 : $('#details').offsetWidth);
       document.body.classList.add('resizing-h');
-      const move = (ev) => { col.style.width = Math.max(22, Math.min(75, ((w0 - (ev.clientX - x0)) / total) * 100)) + '%'; };
+      const sg = CG.paneSign ? CG.paneSign('split') : 1;
+      const move = (ev) => { col.style.width = Math.max(22, Math.min(75, ((w0 - (ev.clientX - x0) * sg) / total) * 100)) + '%'; };
       const up = () => {
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
@@ -3286,6 +3407,8 @@
       return [...S.convs.values()].find((x) => x.sid === sid) || null;
     },
     convs: () => [...S.convs.values()],
+    archiveSession: (id, on) => archiveSession(id, on),
+    addAttachment: (a) => { S.attachments.push(a); renderAttachments(); els.input.focus(); },
     placeConvs,
     // chèn chữ vào ô nhập của phiên chính (sổ tài liệu → "Chèn vào chat")
     insertText: (text) => insertAtCaret(text),
