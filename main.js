@@ -2121,6 +2121,129 @@ async function packImport(o) {
   return { ok: true, plan, runDir: runNew, dead, git, written: written.length, me: { host: os.hostname(), user: os.userInfo().username }, from: pk.from, roots: pk.roots, attDir: attMap.length ? attDir : '' };
 }
 
+// ---------- Chuyển một phiên sang máy khác (tệp .cgsession) ----------
+// Gói = gzip(JSON): <id>.jsonl + thư mục <id>/ (tác tử phụ, tool-results) + thư mục làm việc (kèm trạng thái git).
+// Nhập: ghi vào ~/.claude/projects/<thư mục mã hoá theo đường dẫn ở máy này>/ → phiên hiện ngay trong danh sách, --resume được.
+// Chỉ đổi trường "cwd" của từng dòng; KHÔNG sửa nội dung tin nhắn (sửa có thể làm hỏng chữ ký khối suy nghĩ → CLI từ chối resume).
+// Lượt chat đầu tiên sau khi nhập, GUI tự kèm ghi chú CHUYỂN MÁY (đường dẫn cũ → mới) để Claude dùng đường dẫn ở máy này.
+const zlib = require('zlib');
+const SESS_MAX = 500 * 1024 * 1024;
+const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const sessInfoFile = () => path.join(app.getPath('userData'), 'imported-sessions.json');
+const sessInfoAll = () => { try { return JSON.parse(fs.readFileSync(sessInfoFile(), 'utf8')) || {}; } catch { return {}; } };
+const sessInfoSave = (m) => { try { fs.writeFileSync(sessInfoFile(), JSON.stringify(m, null, 1)); } catch {} };
+// đổi tiền tố trường "cwd" trong văn bản jsonl (đường dẫn trong JSON có \ nhân đôi)
+function sessRemapCwd(text, from, to) {
+  if (!from || !to || packNorm(from).toLowerCase() === packNorm(to).toLowerCase()) return text;
+  const a = JSON.stringify(packNorm(from)).slice(1, -1);
+  const b = JSON.stringify(packNorm(to)).slice(1, -1);
+  return text.replace(new RegExp('"cwd":"' + reEsc(a) + '(?=\\\\\\\\|")', 'gi'), () => '"cwd":"' + b);
+}
+function sessReadPack(file) {
+  let buf = fs.readFileSync(file);
+  if (buf[0] === 0x1f && buf[1] === 0x8b) buf = zlib.gunzipSync(buf);
+  const pk = JSON.parse(buf.toString('utf8'));
+  if (!pk || pk.format !== 'claude-gui-session' || !UUID_RE.test(pk.id || '') || !Array.isArray(pk.files) || !pk.files.length) throw new Error('Tệp không phải phiên xuất từ Claude GUI.');
+  return pk;
+}
+// o: { id, cwd?, out? }
+async function sessExport(o) {
+  const file = findSessionFile(o.id, o.cwd);
+  if (!file) return { ok: false, error: 'Không tìm thấy tệp phiên trên máy này.' };
+  const st = fs.statSync(file);
+  const meta = sessionMeta(file, st);
+  const cwd = packNorm(meta.cwd || o.cwd || '');
+  if (packSkip(cwd)) return { ok: false, error: `Phiên làm việc trong ${cwd} — thư mục này không được mang sang máy khác.` };
+  const budget = { left: SESS_MAX - st.size, skipped: [] };
+  const files = [{ rel: o.id + '.jsonl', data: fs.readFileSync(file).toString('base64'), size: st.size }];
+  const sub = file.slice(0, -6);
+  if (fs.existsSync(sub)) packWalk(sub, files, path.dirname(file), budget);
+  const pack = {
+    format: 'claude-gui-session', v: 1,
+    from: { host: os.hostname(), user: os.userInfo().username, t: Date.now(), gui: app.getVersion() },
+    id: o.id, title: meta.title, cwd, branch: meta.branch || '', git: await packGit(cwd), skipped: budget.skipped, files,
+  };
+  const safe = String(meta.title || 'phien').replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 60).trim() || 'phien';
+  const r = o.out ? { filePath: o.out } : await dialog.showSaveDialog(win, { title: 'Xuất phiên sang máy khác', defaultPath: path.join(app.getPath('desktop'), `${safe}.cgsession`), filters: [{ name: 'Phiên Claude GUI', extensions: ['cgsession'] }] });
+  if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+  fs.writeFileSync(r.filePath, zlib.gzipSync(Buffer.from(JSON.stringify(pack)), { level: 6 }));
+  return { ok: true, file: r.filePath, size: fs.statSync(r.filePath).size, raw: files.reduce((s, f) => s + (f.size || 0), 0), files: files.length, skipped: budget.skipped, git: pack.git, cwd, title: meta.title };
+}
+async function sessOpen(file) {
+  if (!file) {
+    const r = await dialog.showOpenDialog(win, { title: 'Nhập phiên từ máy khác', properties: ['openFile'], filters: [{ name: 'Phiên Claude GUI', extensions: ['cgsession'] }] });
+    if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+    file = r.filePaths[0];
+  }
+  let pk;
+  try { pk = sessReadPack(file); } catch (e) { return { ok: false, error: 'Không đọc được tệp: ' + e.message }; }
+  const exists = findSessionFile(pk.id);
+  return { ok: true, file, id: pk.id, title: pk.title, cwd: pk.cwd, branch: pk.branch, from: pk.from, git: pk.git, here: !!pk.cwd && fs.existsSync(pk.cwd),
+    files: pk.files.length, size: pk.files.reduce((s, f) => s + (f.size || 0), 0), skipped: pk.skipped || [], exists: exists || '', me: { host: os.hostname(), user: os.userInfo().username } };
+}
+// o: { file, cwd } — cwd = thư mục làm việc tương ứng ở máy này
+async function sessImport(o) {
+  let pk;
+  try { pk = sessReadPack(o.file); } catch (e) { return { ok: false, error: e.message }; }
+  const cwd = packNorm(o.cwd || pk.cwd);
+  if (!cwd || !fs.existsSync(cwd)) return { ok: false, error: `Thư mục ${cwd || '(trống)'} không có ở máy này — chọn thư mục tương ứng.` };
+  const dir = path.join(projectsDir(), encodeDir(cwd));
+  const out = pk.files.map((f) => {
+    let buf = Buffer.from(f.data, 'base64');
+    if (/\.jsonl$/i.test(f.rel)) buf = Buffer.from(sessRemapCwd(buf.toString('utf8'), pk.cwd, cwd), 'utf8');
+    return { dst: path.join(dir, ...String(f.rel).split('/')), buf };
+  });
+  if (out.some((x) => !path.resolve(x.dst).startsWith(path.resolve(dir) + path.sep))) return { ok: false, error: 'Tệp trong gói có đường dẫn không hợp lệ.' };
+  // máy này đã có phiên cùng id: chỉ cho cập nhật khi bản đang có là phần đầu của bản nhập (jsonl chỉ ghi thêm → không mất gì)
+  const main = out[0];
+  const old = findSessionFile(pk.id);
+  let mode = 'new';
+  if (old) {
+    const ob = fs.readFileSync(old);
+    if (path.resolve(old).toLowerCase() !== path.resolve(main.dst).toLowerCase()) return { ok: false, error: `Máy này đã có phiên này ở thư mục khác (${old}). Không nhập để tránh trùng.` };
+    if (ob.equals(main.buf)) mode = 'same';
+    else if (ob.length <= main.buf.length && main.buf.subarray(0, ob.length).equals(ob)) mode = 'update';
+    else return { ok: false, error: 'Máy này đã có phiên này và đã chat thêm khác với bản nhập — không ghi đè để tránh mất dữ liệu.' };
+  }
+  if (mode !== 'same') {
+    for (const x of out) {
+      if (x !== main && fs.existsSync(x.dst) && fs.statSync(x.dst).size > x.buf.length) continue; // tệp con ở máy này đã dài hơn → giữ
+      fs.mkdirSync(path.dirname(x.dst), { recursive: true });
+      fs.writeFileSync(x.dst, x.buf);
+    }
+  }
+  idToFile.set(pk.id, main.dst);
+  // đường dẫn tuyệt đối trong lịch sử mà máy này không có (sau khi đổi thư mục gốc) → báo cho Claude
+  const txt = main.buf.toString('utf8').replace(/\\\\/g, '\\');
+  const seen = new Set();
+  const dead = [];
+  const oldL = packNorm(pk.cwd).toLowerCase();
+  for (const m of txt.match(PATH_RE) || []) {
+    let x = m.replace(/[.,;)\]}]+$/, '').replace(/\\+$/, '');
+    if (x.length <= 3 || seen.has(x.toLowerCase())) continue;
+    seen.add(x.toLowerCase());
+    if (seen.size > 3000) break;
+    if (oldL && (x.toLowerCase() === oldL || x.toLowerCase().startsWith(oldL + '\\'))) x = cwd + x.slice(oldL.length);
+    try { if (!fs.existsSync(x)) dead.push(x); } catch {}
+  }
+  let here = null; let hasCommit = null;
+  if (pk.git && pk.git.head) {
+    here = await packGit(cwd);
+    if (here) { const c = await run('git', ['cat-file', '-e', pk.git.head + '^{commit}'], { cwd, timeout: 8000 }); hasCommit = c.code === 0; }
+  }
+  const info = {
+    t: Date.now(), from: pk.from, me: { host: os.hostname(), user: os.userInfo().username }, file: path.basename(o.file),
+    oldCwd: pk.cwd, cwd, dead: dead.slice(0, 40), deadCount: dead.length,
+    git: pk.git ? { branch: pk.git.branch, head: pk.git.head, ahead: pk.git.ahead, dirty: (pk.git.dirty || []).length, remote: pk.git.remote } : null,
+    here: here ? { branch: here.branch, head: here.head } : null, hasCommit, noted: false,
+  };
+  const all = sessInfoAll();
+  all[pk.id] = info;
+  sessInfoSave(all);
+  return { ok: true, id: pk.id, cwd, title: pk.title, mode, info };
+}
+function sessNoted(id) { const all = sessInfoAll(); if (all[id]) { all[id].noted = true; sessInfoSave(all); } return true; }
+
 // ---------- Terminal ----------
 function psQuote(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
 // Mở cửa sổ terminal riêng (Windows Terminal nếu có, không thì PowerShell).
@@ -2811,6 +2934,11 @@ function registerIpc() {
   ipcMain.handle('fs:exists', (_e, p) => { try { return !!p && fs.existsSync(p); } catch { return false; } });
   ipcMain.handle('pack:open', (_e, file) => (file ? packRead(file) : packOpen()));
   ipcMain.handle('pack:import', (_e, o) => packImport(o || {}));
+  ipcMain.handle('sess:export', (_e, o) => sessExport(o || {}));
+  ipcMain.handle('sess:open', (_e, file) => sessOpen(file));
+  ipcMain.handle('sess:import', (_e, o) => sessImport(o || {}));
+  ipcMain.handle('sess:imported', () => sessInfoAll());
+  ipcMain.handle('sess:noted', (_e, id) => sessNoted(id));
   ipcMain.handle('lark:info', () => larkInfo());
   ipcMain.handle('lark:creds', (_e, o) => larkSetCreds(o || {}));
   ipcMain.handle('lark:test', async () => { if (!lark || !lark.client) return { ok: false, error: 'Chưa kết nối' }; try { const b = await larkBot(lark); return { ok: !!b, bot: b, info: larkInfo() }; } catch (e) { return { ok: false, error: e.message }; } });

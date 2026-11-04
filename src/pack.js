@@ -177,5 +177,99 @@
     return null;
   }
 
-  CG.pack = { exportPlan, importPlan, banner, _rootsOf: rootsOf, _finish: finish };
+  // ---------- Chuyển MỘT PHIÊN sang máy khác (.cgsession) ----------
+  // Máy kia nhập → phiên hiện thẳng trong danh sách, chat tiếp được (--resume, đủ ngữ cảnh). Tin nhắn đầu tiên sau khi nhập
+  // tự kèm ghi chú CHUYỂN MÁY (thư mục cũ → mới, đường dẫn không còn, git) để Claude dùng đúng đường dẫn ở máy này.
+  let IMP = {};
+  const loadImp = () => api.sessImported().then((m) => { IMP = m || {}; }).catch(() => {});
+  loadImp();
+  const NOTE_A = '[Claude GUI · CHUYỂN MÁY]';
+  const NOTE_B = '[/CHUYỂN MÁY]';
+
+  async function exportSession(it) {
+    const conv = CG.app.convs().find((c) => c.sid === it.id);
+    if (conv && conv.busy) return toast('Phiên đang chạy — chờ xong lượt rồi xuất.', true);
+    const r = await api.sessExport({ id: it.id, cwd: it.cwd });
+    if (!r.ok) { if (!r.canceled) toast(r.error || 'Không xuất được.', true); return; }
+    const warns = gitWarn(r.git);
+    const m = modal('Đã xuất phiên', h('div', { class: 'pk-sum' },
+      h('p', {}, h('b', { text: r.title || it.title || '' })),
+      h('p', {}, 'Tệp: ', h('code', { text: r.file }), ` · ${size(r.size)} (lịch sử ${size(r.raw)}, ${r.files} tệp).`),
+      h('p', { text: 'Chép tệp sang máy kia, mở Claude GUI bên đó → nút lọc ở thanh bên → Nhập phiên từ máy khác… (hoặc kéo tệp vào cửa sổ). Phiên hiện ngay trong danh sách; tin nhắn đầu tiên ở máy đó tự kèm ghi chú đổi đường dẫn.' }),
+      r.git ? (warns.length ? h('div', { class: 'pk-warn' }, h('b', { text: `⚠ Git (${r.cwd}) — máy kia sẽ không có phần này nếu bạn không push:` }), h('ul', {}, warns.map((w) => h('li', { text: w }))))
+        : h('p', { class: 'pk-ok', text: `✓ Git sạch (${r.git.branch} @ ${String(r.git.head).slice(0, 8)}) — máy kia chỉ cần pull đúng nhánh.` })) : null,
+      r.skipped.length ? h('div', { class: 'pk-warn' }, h('b', { text: 'Không đóng gói (quá lớn):' }), h('ul', {}, r.skipped.slice(0, 8).map((x) => h('li', { text: x })))) : null,
+      h('p', { class: 'pk-muted', text: 'Phiên ở máy này vẫn giữ nguyên. Nếu chat tiếp ở cả hai máy thì hai bản sẽ tách nhau — nên chỉ chat tiếp ở một máy.' }),
+    ), [h('button', { class: 'btn', text: 'Mở thư mục chứa', onclick: () => api.showItem ? api.showItem(r.file) : api.openPath(r.file.replace(/[\\/][^\\/]+$/, '')) }), h('button', { class: 'btn primary', text: 'Xong', onclick: () => m.close() })]);
+  }
+
+  async function importSession(file) {
+    const pk = await api.sessOpen(file);
+    if (!pk.ok) { if (!pk.canceled) toast(pk.error || 'Không mở được tệp.', true); return; }
+    const inp = h('input', { type: 'text', class: 'text-input mono', value: pk.here ? pk.cwd : '', placeholder: 'Thư mục tương ứng ở máy này' });
+    const mark = h('span', { class: 'pk-mark' });
+    const chk = async () => { const v = inp.value.trim(); const ok = !!v && (await api.pathExists(v)); mark.textContent = v ? (ok ? '✓' : '✗ không có') : ''; mark.className = 'pk-mark ' + (ok ? 'ok' : 'bad'); return ok; };
+    inp.oninput = chk; chk();
+    const g = pk.git;
+    const body = h('div', { class: 'pk-imp' },
+      h('div', { class: 'pk-head' }, h('b', { text: '💬 ' + (pk.title || '(Không có tiêu đề)') }),
+        h('div', { class: 'pk-muted', text: `Xuất từ máy ${pk.from.host} (${pk.from.user}) lúc ${fmtT(pk.from.t)} · Claude GUI ${pk.from.gui} · lịch sử ${size(pk.size)}${pk.files > 1 ? ` · ${pk.files - 1} tệp tác tử phụ` : ''}` })),
+      h('div', { class: 'pk-sec', text: 'Thư mục làm việc ở máy này' }),
+      h('div', { class: 'pk-root' },
+        h('div', { class: 'pk-rl' }, h('b', { text: 'Thư mục làm việc' }), h('span', { class: 'pk-old', title: 'Đường dẫn ở máy cũ', text: pk.cwd })),
+        h('div', { class: 'pk-rr' }, inp, h('button', { class: 'btn sm', text: 'Chọn…', onclick: async () => { const d = await api.pickDir(inp.value || undefined); if (d) { inp.value = d; chk(); } } }), mark),
+        g ? h('div', { class: 'pk-git' }, `git máy cũ: ${g.branch || '?'} @ ${(g.head || '').slice(0, 8)}${g.remote ? ' · ' + g.remote : ''}`, ...gitWarn(g).map((w) => h('div', { class: 'pk-warn-s', text: '⚠ ' + w }))) : null),
+      pk.exists ? h('div', { class: 'pk-warn' }, h('b', { text: 'Máy này đã có phiên này.' }), h('div', { text: 'Chỉ cập nhật được khi bản nhập là bản chat tiếp của bản đang có (không mất gì); nếu hai bản đã tách nhau thì sẽ không ghi đè.' })) : null,
+      h('p', { class: 'pk-muted', text: 'Phiên giữ nguyên lịch sử và id. Tin nhắn đầu tiên bạn gửi sẽ tự kèm ghi chú chuyển máy (thư mục cũ → mới, đường dẫn không có ở máy này, git) để Claude dùng đúng đường dẫn ở đây.' }));
+    let m = null;
+    const go = async () => {
+      if (!(await chk())) return toast('Chọn thư mục làm việc có ở máy này.', true);
+      const r = await api.sessImport({ file: pk.file, cwd: inp.value.trim() });
+      if (!r.ok) return toast(r.error || 'Không nhập được.', true);
+      m.close();
+      await loadImp();
+      await CG.app.refreshSessions();
+      const it = (CG.S.all || []).find((x) => x.id === r.id);
+      if (it) await CG.app.openSession(it);
+      toast(r.mode === 'same' ? 'Phiên này đã có sẵn ở máy này (giống hệt).' : `${r.mode === 'update' ? 'Đã cập nhật' : 'Đã nhập'} “${r.title || 'phiên'}” — nhắn tiếp là Claude dùng đường dẫn ở máy này.`);
+    };
+    m = modal('Nhập phiên từ máy khác', body, [h('button', { class: 'btn', text: 'Huỷ', onclick: () => m.close() }), h('button', { class: 'btn primary', text: 'Nhập', onclick: go })], { cls: 'wide' });
+  }
+
+  // ghi chú cho Claude, kèm vào tin nhắn đầu tiên sau khi nhập (một lần)
+  function moveText(I) {
+    const L = [`${NOTE_A} Phiên này được xuất từ máy ${I.from.host} (${I.from.user}) lúc ${fmtT(I.from.t)} và nhập vào máy ${I.me.host} (${I.me.user}) lúc ${fmtT(I.t)}. Lịch sử phía trên là ở máy cũ.`];
+    if (I.oldCwd && low(I.oldCwd) !== low(I.cwd)) L.push(`- Thư mục làm việc đã đổi: ${I.oldCwd} → ${I.cwd}. Mọi đường dẫn bắt đầu bằng ${I.oldCwd} trong lịch sử, từ giờ dùng ${I.cwd} thay thế.`);
+    else L.push(`- Thư mục làm việc giữ nguyên: ${I.cwd}.`);
+    if (I.deadCount) L.push(`- ${I.deadCount} đường dẫn trong lịch sử KHÔNG có ở máy này (sau khi đã đổi thư mục gốc) — đừng dựa vào, cần thì hỏi người dùng: ${I.dead.slice(0, 25).join('; ')}${I.deadCount > 25 ? ` (+${I.deadCount - 25})` : ''}`);
+    if (I.git) {
+      const a = `máy cũ ở nhánh ${I.git.branch} @ ${String(I.git.head || '').slice(0, 10)}${I.git.ahead > 0 ? ` (${I.git.ahead} commit chưa push)` : ''}${I.git.dirty ? `, ${I.git.dirty} tệp sửa chưa commit (máy này KHÔNG có các thay đổi đó)` : ''}`;
+      const b = I.here ? `máy này đang ở ${I.here.branch} @ ${String(I.here.head || '').slice(0, 10)}${I.hasCommit ? '' : ' — CHƯA CÓ commit của máy cũ (cần fetch / pull / checkout, hỏi người dùng trước)'}` : 'máy này không thấy repo git ở thư mục đó';
+      L.push(`- Git: ${a}; ${b}.`);
+    }
+    L.push('- Nội dung tệp đã đọc / sửa ở máy cũ có thể khác bản ở máy này — đọc lại trước khi sửa.', NOTE_B);
+    return L.join('\n');
+  }
+  function moveNote(conv, content) {
+    const I = conv && !conv.child && IMP[conv.sid];
+    if (!I || I.noted) return content;
+    I.noted = true;
+    api.sessNoted(conv.sid);
+    const note = moveText(I) + '\n\n';
+    if (typeof content === 'string') return note + content;
+    const arr = [...content];
+    const i = arr.findIndex((b) => b.type === 'text');
+    if (i >= 0) arr[i] = { ...arr[i], text: note + arr[i].text }; else arr.unshift({ type: 'text', text: note.trim() });
+    return arr;
+  }
+  // dòng thông báo khi mở phiên đã nhập
+  function importedNote(sid) {
+    const I = IMP[sid];
+    if (!I) return '';
+    const dir = I.oldCwd && low(I.oldCwd) !== low(I.cwd) ? ` · thư mục ${I.oldCwd} → ${I.cwd}` : '';
+    return `📦 Phiên nhập từ máy ${I.from.host} lúc ${fmtT(I.t)}${dir}.` + (I.noted ? '' : ' Tin nhắn tiếp theo sẽ tự kèm ghi chú chuyển máy để Claude dùng đường dẫn ở máy này.')
+      + (I.git && I.hasCommit === false ? ` ⚠ Máy này chưa có commit ${String(I.git.head).slice(0, 8)} (nhánh ${I.git.branch}).` : '');
+  }
+
+  CG.pack = { exportPlan, importPlan, banner, _rootsOf: rootsOf, _finish: finish, exportSession, importSession, moveNote, importedNote, _imp: () => IMP };
 })();

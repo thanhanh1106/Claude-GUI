@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.19.3-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.20.0-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -53,6 +53,12 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 **Chuyển kế hoạch / dự án tự động sang máy khác** (Lịch & hàng đợi) — kế hoạch đang treo mà dư máy thì đẩy sang Claude GUI máy kia chạy:
 - **Xuất…** (kế hoạch thường) hoặc **⋯ → Xuất sang máy khác…** (dự án tự động) → tệp `.cgpack`: kế hoạch + thư mục RUN (context.md, plan.md, plan.json, design, bàn giao) + tệp đính kèm + trạng thái git (nhánh, commit, commit chưa push, tệp chưa commit) + danh sách đường dẫn tuyệt đối. Không gói lịch sử phiên; không gói thư mục `C:\WSP\anhnvt`. Máy cũ tự **tắt** kế hoạch và đánh dấu "đã xuất" để không chạy trùng.
 - Máy kia: **Nhập** → chọn lại thư mục tương ứng (✓/✗ có tồn tại), xem trạng thái git + MCP cần dùng (vd gdd) → GUI thay đường dẫn trong kế hoạch / tệp RUN và ghi **ghi chú CHUYỂN MÁY** ở đầu context.md (hoặc đầu prompt từng bước): xuất từ máy nào / nhập vào đâu, thư mục đã đổi, đường dẫn **không có ở máy này**, phiên cũ không có, git cần ở commit nào. Kế hoạch nhập vào ở trạng thái tắt — xem rồi bật / duyệt.
+
+**Chuyển một phiên chat sang máy khác** — mang nguyên ngữ cảnh một phiên sang máy kia chat tiếp:
+- Chuột phải vào phiên → **Xuất sang máy khác…** → tệp `.cgsession` (nén): toàn bộ lịch sử phiên + tác tử phụ + thư mục làm việc + trạng thái git (báo trước commit chưa push / tệp chưa commit). Không xuất phiên làm việc trong `C:\WSP\anhnvt`.
+- Máy kia: nút lọc ở thanh bên → **Nhập phiên từ máy khác…** (hoặc kéo tệp `.cgsession` vào cửa sổ) → chọn thư mục tương ứng ở máy này (✓/✗) → phiên **hiện ngay trong danh sách**, giữ nguyên id và lịch sử, chat tiếp được (`--resume`, đủ ngữ cảnh). GUI chỉ đổi trường thư mục làm việc trong tệp phiên, không sửa nội dung tin nhắn.
+- Tin nhắn đầu tiên gửi ở máy mới tự kèm **ghi chú CHUYỂN MÁY** cho Claude (ẩn khỏi khung chat): thư mục cũ → mới, đường dẫn trong lịch sử không có ở máy này, git máy cũ / máy này (thiếu commit thì báo) → Claude dùng đúng đường dẫn ở máy mới.
+- Mang ngược về máy cũ: nếu bản ở máy cũ là phần đầu của bản nhập (chỉ chat tiếp ở máy kia) thì được cập nhật, không mất gì; hai bản đã tách nhau thì không ghi đè.
 
 **Hỏi người thật qua Lark** (Cài đặt → Lark) — Claude soạn câu hỏi cho game designer / người khác, bạn duyệt rồi bot gửi, câu trả lời quay về đúng phiên:
 - Cần một app tự tạo trên Lark Developer: bật Bot; quyền bắt buộc `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message:readonly` (tải ảnh / tệp người kia gửi), `contact:user.id:readonly` (tuỳ chọn `im:message.group_at_msg:readonly` để hỏi trong nhóm); sự kiện **Message received** (`im.message.receive_v1`) nhận qua **kết nối dài** (không cần server); publish và thêm người cần hỏi vào phạm vi dùng. Dán App ID + Secret vào Cài đặt → Lark (Secret mã hoá bằng safeStorage), thêm danh bạ (tên, vai trò, email Lark, **giới tính + tuổi** để Claude xưng hô đúng anh / chị / em / cô / chú thay vì đoán theo tên; có ô "Gọi là" để tự đặt). Điền thêm giới tính / tuổi của bạn ở mục Câu trả lời.

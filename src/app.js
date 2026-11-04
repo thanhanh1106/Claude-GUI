@@ -329,6 +329,7 @@
       if (CG.decor) CG.decor.onSend();
       try { await this.ensureProc(idle); } catch (e) { this.addError(e.message); this.setBusy(false); return; }
       if (CG.lark) content = CG.lark.hint(content, displayText, this);
+      if (CG.pack && CG.pack.moveNote) content = CG.pack.moveNote(this, content);
       const ok = await api.write(this.key, { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: this.sid });
       if (!ok) { this.addError('Không gửi được tin nhắn tới Claude CLI (tiến trình đã đóng).'); this.setBusy(false); }
       this.lastActive = Date.now();
@@ -2488,6 +2489,7 @@
       { label: 'Đã lưu trữ', icon: 'archive', checked: S.filter === 'archived', onClick: () => { S.filter = 'archived'; renderSidebar(); } },
       '-',
       { label: 'Làm mới danh sách', icon: 'refresh', onClick: () => refreshSessions(true) },
+      { label: 'Nhập phiên từ máy khác…', desc: '.cgsession', icon: 'download', onClick: () => CG.pack && CG.pack.importSession() },
     ], { checks: true });
   }
   function sessionMenu(it, anchor) {
@@ -2502,6 +2504,7 @@
       { label: 'Tiếp tục trong terminal', desc: 'claude --resume', icon: 'terminal', disabled: !(conv ? conv.persisted : true), onClick: () => api.openTerminal(it.cwd, ['--resume', it.id]) },
       { label: 'Mở thư mục', icon: 'folderOpen', disabled: !it.cwd, onClick: () => api.openPath(it.cwd) },
       { label: 'Sao chép session ID', icon: 'copy', onClick: () => { navigator.clipboard.writeText(it.id); toast('Đã sao chép session ID'); } },
+      { label: 'Xuất sang máy khác…', desc: '.cgsession', icon: 'upload', disabled: !CG.pack || !(conv ? conv.persisted : true), onClick: () => CG.pack.exportSession(it) },
       '-',
       { label: arch ? 'Bỏ lưu trữ' : 'Lưu trữ', icon: 'archive', onClick: () => archiveSession(it.id, !arch) },
       { label: 'Xóa phiên', icon: 'trash', danger: true, onClick: () => deleteSession(it) },
@@ -2763,6 +2766,8 @@
       const used = conv.modelName && models().find((m) => m.value !== 'default' && m.resolvedModel === conv.modelName);
       if (used && !(pref && pref.model && pref.t > (it.mtime || 0))) conv.model = used.value;
       if (!cwd && it.cwd) conv.addNote(`Thư mục ${it.cwd} không còn tồn tại — không thể tiếp tục phiên này ở đúng thư mục.`);
+      const impN = !it.child && CG.pack && CG.pack.importedNote && CG.pack.importedNote(it.id);
+      if (impN) conv.addNote(impN);
       if (!conv.count) conv.append(h('div', { class: 'note', text: it.child ? 'Tác tử phụ chưa ghi gì — nội dung sẽ hiện khi nó chạy.' : 'Phiên này chưa có tin nhắn hiển thị được. Bạn vẫn có thể tiếp tục.' }));
       if (it.child) watchChild(conv);
       else for (const ch of it.children || []) {
@@ -3386,7 +3391,11 @@
       e.preventDefault();
       dragDepth = 0;
       overlay.classList.add('hidden');
-      if (e.dataTransfer && e.dataTransfer.files.length) addFiles([...e.dataTransfer.files]);
+      if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+      const fs0 = [...e.dataTransfer.files];
+      const sess = fs0.find((f) => /\.cgsession$/i.test(f.name));
+      if (sess && CG.pack) return CG.pack.importSession(api.pathForFile(sess));
+      addFiles(fs0);
     });
 
     document.addEventListener('keydown', (e) => {
