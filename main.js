@@ -2706,6 +2706,274 @@ async function lanSend(o) {
   return { ...r, roots, skipped: budget.skipped, files: pack.files.length };
 }
 
+// ---------- Truy cập phiên từ máy khác (qua Tailscale / LAN) ----------
+// Máy chạy phiên bật "Cho máy khác kết nối" → mở cổng 8767. Mỗi phiên muốn mở từ xa được bật chia sẻ riêng và có TOKEN riêng;
+// máy khác phải có token của đúng phiên đó mới xem / nhắn / duyệt quyền / dừng được (token phiên cha dùng cho cả phiên con).
+// Máy này lưu token mã hoá (safeStorage) + bản băm để tra; đổi token / tắt chia sẻ → ngắt ngay máy đang dùng token cũ.
+// Sự kiện CLI của phiên chia sẻ do cửa sổ chính đẩy sang (rs:emit) → phát qua SSE /rs/events cho máy đang xem.
+// Thao tác từ xa (nhắn, duyệt, dừng) đi qua cửa sổ chính (rs:req) để giao diện hai bên luôn khớp.
+const RS_PORT = 8767;
+let rsSrv = null, rsErr = '';
+const rsPort = () => +settings.rsPort || RS_PORT;
+const rsHash = (t) => crypto.createHash('sha256').update(String(t || '')).digest('hex');
+const rsTok = new Map(); // băm token -> sid
+const rsSubs = new Map(); // sid -> Set<{ res, hash, client, name, ip }>
+const rsSeq = new Map();
+const rsFails = new Map(); // ip -> { n, t }
+const rsPend = new Map();
+function rsLoad() { rsTok.clear(); for (const [sid, x] of Object.entries(settings.rsShares || {})) if (x && x.hash) rsTok.set(x.hash, sid); }
+const rsDec = (enc) => { try { return enc ? safeStorage.decryptString(Buffer.from(enc, 'base64')) : ''; } catch { return ''; } };
+const rsEnc = (t) => (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(String(t)).toString('base64') : '');
+function rsNewToken() {
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (const x of crypto.randomBytes(24)) s += A[x % 32];
+  return 'cgs_' + s.replace(/(.{6})(?=.)/g, '$1-');
+}
+// chỉ nhận máy trong mạng riêng: Tailscale (100.64/10, fd7a:115c:a1e0::/48), LAN, máy này
+function rsIpOk(ip) {
+  ip = String(ip || '').replace(/^::ffff:/, '');
+  if (ip === '::1' || /^127\./.test(ip)) return true;
+  const m = /^(\d+)\.(\d+)\./.exec(ip);
+  if (m) { const a = +m[1], b = +m[2]; return a === 10 || (a === 100 && b >= 64 && b <= 127) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254); }
+  return /^fd7a:115c:a1e0:/i.test(ip) || /^fe80:/i.test(ip);
+}
+function rsLive() { send('rs:live', [...rsSubs.entries()].filter(([, s]) => s.size).map(([sid, s]) => ({ sid, names: [...new Set([...s].map((x) => x.name || x.ip))] }))); }
+function rsPush(sid, m, onlyHash) {
+  const subs = rsSubs.get(sid);
+  if (!subs || !subs.size) return;
+  const seq = (rsSeq.get(sid) || 0) + 1;
+  rsSeq.set(sid, seq);
+  const line = 'data: ' + JSON.stringify({ seq, m }) + '\n\n';
+  for (const s of subs) if (!onlyHash || s.hash === onlyHash) { try { s.res.write(line); } catch {} }
+}
+// ngắt máy đang xem (tắt chia sẻ / đổi token): báo trước rồi đóng
+function rsKick(sid, keepHash) {
+  const subs = rsSubs.get(sid);
+  if (!subs) return;
+  for (const s of [...subs]) {
+    if (keepHash && s.hash === keepHash) continue;
+    try { s.res.write('data: ' + JSON.stringify({ m: { type: 'gui_revoked' } }) + '\n\n'); s.res.end(); } catch {}
+    subs.delete(s);
+  }
+  rsLive();
+}
+function rsAsk(kind, data, ms = 30000) {
+  return new Promise((resolve) => {
+    if (!win || win.isDestroyed()) return resolve({ ok: false, error: 'Cửa sổ Claude GUI ở máy kia chưa mở' });
+    const rid = crypto.randomUUID();
+    const t = setTimeout(() => { rsPend.delete(rid); resolve({ ok: false, error: 'Máy kia không phản hồi' }); }, ms);
+    rsPend.set(rid, (v) => { clearTimeout(t); rsPend.delete(rid); resolve(v); });
+    send('rs:req', { rid, kind, data });
+  });
+}
+function rsShare(o) {
+  const all = { ...(settings.rsShares || {}) };
+  const old = all[o.sid];
+  if (!o.on) {
+    delete all[o.sid];
+    settings.rsShares = all; saveSettings(); rsLoad();
+    rsKick(o.sid);
+    return { ok: true };
+  }
+  if (old && !o.renew) return { ok: true, token: rsDec(old.enc), t: old.t };
+  if (!safeStorage.isEncryptionAvailable()) return { ok: false, error: 'Máy không hỗ trợ mã hoá an toàn để lưu token.' };
+  const token = rsNewToken();
+  const hash = rsHash(token);
+  all[o.sid] = { hash, enc: rsEnc(token), t: Date.now(), title: String(o.title || '').slice(0, 140) };
+  settings.rsShares = all; saveSettings(); rsLoad();
+  if (old) rsKick(o.sid, hash);
+  return { ok: true, token, t: all[o.sid].t, renewed: !!old };
+}
+function rsShares() {
+  return Object.entries(settings.rsShares || {}).map(([sid, x]) => ({ sid, title: x.title, t: x.t, token: rsDec(x.enc), viewers: [...(rsSubs.get(sid) || [])].map((s) => s.name || s.ip) }));
+}
+async function rsTailscale() {
+  const ip = lanAddrs().find((a) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(a)) || '';
+  const exe = ['C:\\Program Files\\Tailscale\\tailscale.exe', 'C:\\Program Files (x86)\\Tailscale\\tailscale.exe'].find((f) => fs.existsSync(f)) || resolveExe('tailscale') || '';
+  const out = { installed: !!exe || !!ip, running: !!ip, ip, dns: '', host: '', user: '', peers: [] };
+  if (exe) {
+    const r = await run(exe, ['status', '--json'], { timeout: 6000 }).catch(() => null);
+    if (r && r.code === 0) {
+      try {
+        const j = JSON.parse(r.stdout);
+        out.running = j.BackendState === 'Running';
+        const me = j.Self || {};
+        out.dns = String(me.DNSName || '').replace(/\.$/, '');
+        out.host = me.HostName || '';
+        if (!out.ip && me.TailscaleIPs) out.ip = me.TailscaleIPs.find((x) => x.includes('.')) || '';
+        const u = j.User && j.User[me.UserID];
+        out.user = (u && u.LoginName) || '';
+        out.peers = Object.values(j.Peer || {}).map((p) => ({ host: p.HostName, dns: String(p.DNSName || '').replace(/\.$/, ''), ip: (p.TailscaleIPs || []).find((x) => x.includes('.')) || '', online: !!p.Online, os: p.OS }));
+      } catch {}
+    }
+  }
+  return out;
+}
+async function rsInfo() { return { on: !!rsSrv, want: !!settings.rsOn, port: rsPort(), error: rsErr, allowPerm: settings.rsAllowPerm !== false, host: os.hostname(), addrs: lanAddrs(), tailscale: await rsTailscale() }; }
+function rsFileOf(sid) { let f = findSessionFile(sid); if (!f) { listAllSessions(); f = findSessionFile(sid); } return f; }
+async function rsHandle(req, res) {
+  const json = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(o)); };
+  const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  try {
+    if (!rsIpOk(ip)) return json(403, { ok: false, error: 'Chỉ nhận kết nối trong Tailscale / mạng nội bộ' });
+    const f = rsFails.get(ip);
+    if (f && f.n >= 20 && Date.now() - f.t < 10 * 60000) return json(429, { ok: false, error: 'Sai token quá nhiều lần — thử lại sau 10 phút' });
+    const u = new URL(req.url, 'http://x');
+    if (!u.pathname.startsWith('/rs/')) return json(404, { ok: false, error: 'Không có' });
+    const tok = String(req.headers['x-cg-token'] || '');
+    const hash = rsHash(tok);
+    const sid = tok && rsTok.get(hash);
+    if (!sid) {
+      const x = rsFails.get(ip) || { n: 0, t: Date.now() };
+      if (Date.now() - x.t > 10 * 60000) { x.n = 0; x.t = Date.now(); }
+      x.n++; rsFails.set(ip, x);
+      return json(401, { ok: false, error: 'Token không đúng hoặc phiên đã ngừng chia sẻ' });
+    }
+    rsFails.delete(ip);
+    const client = String(req.headers['x-cg-client'] || '').slice(0, 60);
+    const name = String(req.headers['x-cg-name'] || ip).slice(0, 60);
+    const own = (id) => id === sid || String(id || '').startsWith(sid + '/');
+    if (req.method === 'GET' && u.pathname === '/rs/info') {
+      const st = await rsAsk('state', { sid }, 8000);
+      const file = rsFileOf(sid);
+      let meta = null, children = [];
+      if (file) { try { meta = sessionMeta(file, fs.statSync(file)); children = subagentsOf(path.dirname(file), sid) || []; } catch {} }
+      const sh = (settings.rsShares || {})[sid] || {};
+      return json(200, { ok: true, name: settings.lanName || os.hostname(), host: os.hostname(), user: os.userInfo().username, gui: app.getVersion(), allowPerm: settings.rsAllowPerm !== false,
+        sid, title: (st.ok && st.title) || (meta && meta.title) || sh.title || '', cwd: (st.ok && st.cwd) || (meta && meta.cwd) || '', busy: !!(st.ok && st.busy), perms: (st.ok && st.perms) || [],
+        children: children.map((c) => ({ id: c.id, agentId: c.agentId, title: c.title, agentType: c.agentType, toolUseId: c.toolUseId, mtime: c.mtime })) });
+    }
+    if (req.method === 'POST' && u.pathname === '/rs/hist') {
+      const b = JSON.parse(await lanBody(req, 1e6) || '{}');
+      const args = Array.isArray(b.args) ? b.args : [];
+      if (!own(args[0])) return json(403, { ok: false, error: 'Không thuộc phiên được chia sẻ' });
+      rsFileOf(sid);
+      const fn = { loadSessionTail, loadSessionOlder, historyChunk }[b.fn];
+      if (!fn) return json(400, { ok: false, error: 'Không rõ yêu cầu' });
+      const v = await fn(args[0], null, ...args.slice(1));
+      return json(200, { ok: true, v });
+    }
+    if (req.method === 'GET' && u.pathname === '/rs/events') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+      res.write(': ok\n\n');
+      const sub = { res, hash, client, name, ip };
+      if (!rsSubs.has(sid)) rsSubs.set(sid, new Set());
+      rsSubs.get(sid).add(sub);
+      rsLive();
+      const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 20000);
+      req.on('close', () => { clearInterval(ping); const s = rsSubs.get(sid); if (s) s.delete(sub); rsLive(); });
+      return;
+    }
+    if (req.method === 'POST' && ['/rs/send', '/rs/perm', '/rs/stop'].includes(u.pathname)) {
+      const b = JSON.parse(await lanBody(req, 40 * 1024 * 1024) || '{}');
+      const kind = u.pathname.slice(4);
+      if (kind === 'perm' && settings.rsAllowPerm === false) return json(403, { ok: false, error: 'Máy kia chỉ cho duyệt quyền ngay tại máy đó' });
+      const v = await rsAsk(kind, { ...b, sid, from: name, via: client });
+      return json(v.ok ? 200 : 400, v);
+    }
+    return json(404, { ok: false, error: 'Không có' });
+  } catch (e) { try { return json(500, { ok: false, error: e.message }); } catch {} }
+}
+function rsApply() {
+  const want = !!settings.rsOn;
+  if (want && !rsSrv) {
+    rsErr = '';
+    rsLoad();
+    const srv = require('http').createServer((q, s) => { rsHandle(q, s); });
+    srv.on('error', (e) => { rsErr = e.code === 'EADDRINUSE' ? `Cổng ${rsPort()} đang bị chương trình khác dùng` : e.message; if (rsSrv === srv) rsSrv = null; });
+    srv.listen(rsPort(), '0.0.0.0');
+    rsSrv = srv;
+  } else if (!want && rsSrv) {
+    for (const sid of [...rsSubs.keys()]) rsKick(sid);
+    try { rsSrv.close(); } catch {}
+    rsSrv = null;
+  }
+}
+
+// ---- phía máy xem (ở nhà): lưu liên kết (địa chỉ + token mã hoá), gọi API, giữ luồng sự kiện ----
+const rsClientId = crypto.randomBytes(8).toString('hex');
+const rsStreams = new Map(); // link id -> { req, stop, timer }
+const rsLinks = () => settings.rsLinks || [];
+const rsLinkOut = (L) => ({ id: L.id, addr: L.addr, name: L.name, host: L.host, sid: L.sid, title: L.title, cwd: L.cwd, t: L.t });
+function rsUrl(addr) {
+  let a = String(addr || '').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(a)) a = 'http://' + a;
+  const x = new URL(a);
+  if (!x.port) x.port = String(RS_PORT);
+  return x.origin;
+}
+async function rsFetch(addr, token, p, method, body, ms) {
+  const ac = new AbortController();
+  const tm = setTimeout(() => ac.abort(), ms || 15000);
+  try {
+    const res = await net.fetch(rsUrl(addr) + p, { method: method || 'GET', headers: { 'x-cg-token': token, 'x-cg-client': rsClientId, 'x-cg-name': os.hostname(), 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: ac.signal });
+    const j = await res.json().catch(() => ({}));
+    return res.ok ? j : { ok: false, status: res.status, error: j.error || `HTTP ${res.status}` };
+  } catch (e) { return { ok: false, error: ac.signal.aborted ? 'Máy kia không trả lời (máy tắt / ngủ, Tailscale chưa bật, Claude GUI bên đó chưa bật Truy cập từ xa, hoặc tường lửa chặn cổng)' : e.message }; } finally { clearTimeout(tm); }
+}
+async function rsAddLink(o) {
+  const token = String(o.token || '').trim();
+  const addr = String(o.addr || '').trim();
+  if (!addr || !token) return { ok: false, error: 'Cần địa chỉ máy và token.' };
+  const info = await rsFetch(addr, token, '/rs/info');
+  if (!info.ok) return info;
+  if (!safeStorage.isEncryptionAvailable()) return { ok: false, error: 'Máy không hỗ trợ mã hoá an toàn để lưu token.' };
+  const list = rsLinks().filter((L) => !(L.sid === info.sid && L.host === info.host));
+  const L = { id: crypto.randomBytes(6).toString('hex'), addr, tokEnc: rsEnc(token), name: info.name, host: info.host, sid: info.sid, title: info.title, cwd: info.cwd, t: Date.now() };
+  settings.rsLinks = [...list, L]; saveSettings();
+  return { ok: true, link: rsLinkOut(L), info };
+}
+function rsRemoveLink(id) { rsDisconnect(id); settings.rsLinks = rsLinks().filter((L) => L.id !== id); saveSettings(); return true; }
+async function rsCall(o) {
+  const L = rsLinks().find((x) => x.id === o.link);
+  if (!L) return { ok: false, error: 'Không còn liên kết này' };
+  const r = await rsFetch(L.addr, rsDec(L.tokEnc), o.path, o.method, o.body, o.ms);
+  if (r.ok && o.path === '/rs/info' && (r.title !== L.title || r.cwd !== L.cwd)) { L.title = r.title; L.cwd = r.cwd; saveSettings(); }
+  return r;
+}
+function rsConnect(id) {
+  if (rsStreams.has(id)) return true;
+  const st = { stop: false, req: null, timer: null, wait: 2000 };
+  rsStreams.set(id, st);
+  const go = () => {
+    const L = rsLinks().find((x) => x.id === id);
+    if (!L || st.stop) { rsStreams.delete(id); return; }
+    let url;
+    try { url = new URL(rsUrl(L.addr) + '/rs/events'); } catch (e) { send('rs:state', { link: id, state: 'offline', error: e.message }); return; }
+    const req = require('http').get(url, { headers: { 'x-cg-token': rsDec(L.tokEnc), 'x-cg-client': rsClientId, 'x-cg-name': os.hostname() } }, (res) => {
+      if (res.statusCode === 401) { send('rs:state', { link: id, state: 'revoked' }); res.resume(); st.stop = true; rsStreams.delete(id); return; }
+      if (res.statusCode !== 200) { res.resume(); return; }
+      st.wait = 2000;
+      send('rs:state', { link: id, state: 'online' });
+      let buf = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => {
+        buf += c;
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, i); buf = buf.slice(i + 2);
+          const data = block.split('\n').filter((l) => l.startsWith('data: ')).map((l) => l.slice(6)).join('\n');
+          if (!data) continue;
+          try { const ev = JSON.parse(data); send('rs:ev', { link: id, ev }); if (ev.m && ev.m.type === 'gui_revoked') { st.stop = true; } } catch {}
+        }
+      });
+    });
+    st.req = req;
+    req.setTimeout(60000, () => req.destroy(new Error('timeout')));
+    req.on('error', () => {});
+    req.on('close', () => {
+      if (st.stop) { rsStreams.delete(id); if (!st.manual) send('rs:state', { link: id, state: 'revoked' }); return; }
+      send('rs:state', { link: id, state: 'offline' });
+      st.timer = setTimeout(go, st.wait);
+      st.wait = Math.min(30000, st.wait * 1.6);
+    });
+  };
+  go();
+  return true;
+}
+function rsDisconnect(id) { const st = rsStreams.get(id); if (!st) return; st.stop = true; st.manual = true; clearTimeout(st.timer); try { st.req && st.req.destroy(); } catch {} rsStreams.delete(id); }
+
 // ---------- IPC ----------
 const busyKeys = new Set();
 function registerIpc() {
@@ -2757,6 +3025,19 @@ function registerIpc() {
   ipcMain.handle('lan:call', (_e, o) => lanCall(o || {}));
   ipcMain.handle('lan:send', (_e, o) => lanSend(o || {}).catch((e) => ({ ok: false, error: e.message })));
   ipcMain.handle('lan:res', (_e, rid, v) => { const f = lanPend.get(rid); if (f) f(v || { ok: false }); return true; });
+  ipcMain.handle('rs:info', () => rsInfo());
+  ipcMain.handle('rs:apply', () => { rsApply(); return new Promise((r) => setTimeout(() => r(rsInfo()), 300)); });
+  ipcMain.handle('rs:share', (_e, o) => rsShare(o || {}));
+  ipcMain.handle('rs:shares', () => rsShares());
+  ipcMain.handle('rs:res', (_e, rid, v) => { const f = rsPend.get(rid); if (f) f(v || { ok: false }); return true; });
+  ipcMain.on('rs:emit', (_e, sid, m) => rsPush(sid, m));
+  ipcMain.handle('rs:links', () => rsLinks().map(rsLinkOut));
+  ipcMain.handle('rs:addLink', (_e, o) => rsAddLink(o || {}));
+  ipcMain.handle('rs:removeLink', (_e, id) => rsRemoveLink(id));
+  ipcMain.handle('rs:call', (_e, o) => rsCall(o || {}));
+  ipcMain.handle('rs:connect', (_e, id) => rsConnect(id));
+  ipcMain.handle('rs:disconnect', (_e, id) => rsDisconnect(id));
+  ipcMain.handle('rs:client', () => ({ id: rsClientId, host: os.hostname() }));
   ipcMain.handle('stats:get', () => statsLoad());
   ipcMain.handle('stats:habit', (_e, kind, key, o) => statsHabit(kind, key, o || {}));
   ipcMain.handle('files:pick', async (_e, o = {}) => {
@@ -3211,6 +3492,7 @@ if (!gotLock) {
     createWindow();
     setTimeout(larkStart, 1500);
     setTimeout(lanApply, 2500);
+    setTimeout(rsApply, 2600);
   });
   app.on('window-all-closed', () => {
     for (const k of [...procs.keys()]) stopSession(k);

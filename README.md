@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.20.0-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.21.0-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -59,6 +59,12 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - Máy kia: nút lọc ở thanh bên → **Nhập phiên từ máy khác…** (hoặc kéo tệp `.cgsession` vào cửa sổ) → chọn thư mục tương ứng ở máy này (✓/✗) → phiên **hiện ngay trong danh sách**, giữ nguyên id và lịch sử, chat tiếp được (`--resume`, đủ ngữ cảnh). GUI chỉ đổi trường thư mục làm việc trong tệp phiên, không sửa nội dung tin nhắn.
 - Tin nhắn đầu tiên gửi ở máy mới tự kèm **ghi chú CHUYỂN MÁY** cho Claude (ẩn khỏi khung chat): thư mục cũ → mới, đường dẫn trong lịch sử không có ở máy này, git máy cũ / máy này (thiếu commit thì báo) → Claude dùng đúng đường dẫn ở máy mới.
 - Mang ngược về máy cũ: nếu bản ở máy cũ là phần đầu của bản nhập (chỉ chat tiếp ở máy kia) thì được cập nhật, không mất gì; hai bản đã tách nhau thì không ghi đè.
+
+**Mở phiên đang chạy ở máy khác (Truy cập từ xa)** — vd về nhà vẫn xem và điều khiển phiên đang chạy trên máy công ty. Hai máy nối qua **Tailscale** (mạng riêng, mã hoá, không mở cổng ra Internet); Cài đặt › **Truy cập từ xa** có hướng dẫn cài Tailscale từng bước, tự kiểm tra máy đã vào Tailscale chưa và liệt kê các máy cùng tài khoản.
+- Máy chạy phiên: bật "Cho máy khác kết nối" (cổng 8767, chỉ nhận kết nối trong Tailscale / mạng nội bộ). Chuột phải phiên → **Cho máy khác thấy & điều khiển** → GUI tạo **token riêng của phiên đó** (Sao chép, Đổi token, Tắt chia sẻ). Phiên đang chia sẻ có 📡 ở thanh bên; chip "🏠 <máy> đang xem" khi có máy mở.
+- Máy xem: nút lọc ở thanh bên → **Thêm phiên từ máy khác…** → tên máy (gợi ý sẵn các máy trong Tailscale) + token → phiên hiện ở nhóm 🏢 trên thanh bên, kèm phiên con (tác tử phụ). Mở ra là khung chat như thường: chữ chạy trực tiếp, nhắn tiếp / nhắn giữa lượt, duyệt hoặc từ chối thẻ xin quyền và câu hỏi, Dừng — bên nào bấm trước thì thẻ bên kia tự đóng; tin gửi từ máy khác có nhãn "gửi từ <máy>".
+- Không có token thì không thấy gì (kể cả tên phiên); token phiên cha dùng cho cả phiên con. Đổi token / tắt chia sẻ → máy đang dùng token cũ bị ngắt ngay. Token lưu mã hoá; sai token nhiều lần thì chặn địa chỉ đó 10 phút. Tuỳ chọn "Máy khác được duyệt quyền" (tắt → máy kia chỉ xem, nhắn, Dừng).
+- Máy chạy phiên phải đang bật (không ngủ) và mở Claude GUI.
 
 **Hỏi người thật qua Lark** (Cài đặt → Lark) — Claude soạn câu hỏi cho game designer / người khác, bạn duyệt rồi bot gửi, câu trả lời quay về đúng phiên:
 - Cần một app tự tạo trên Lark Developer: bật Bot; quyền bắt buộc `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message:readonly` (tải ảnh / tệp người kia gửi), `contact:user.id:readonly` (tuỳ chọn `im:message.group_at_msg:readonly` để hỏi trong nhóm); sự kiện **Message received** (`im.message.receive_v1`) nhận qua **kết nối dài** (không cần server); publish và thêm người cần hỏi vào phạm vi dùng. Dán App ID + Secret vào Cài đặt → Lark (Secret mã hoá bằng safeStorage), thêm danh bạ (tên, vai trò, email Lark, **giới tính + tuổi** để Claude xưng hô đúng anh / chị / em / cô / chú thay vì đoán theo tên; có ô "Gọi là" để tự đặt). Điền thêm giới tính / tuổi của bạn ở mục Câu trả lời.

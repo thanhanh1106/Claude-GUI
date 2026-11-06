@@ -13,6 +13,7 @@
     ['permissions', 'Quyền', 'shield'],
     ['extensions', 'MCP & mở rộng', 'plug'],
     ['lark', 'Lark (hỏi người thật)', 'message'],
+    ['remote', 'Truy cập từ xa', 'globe'],
     ['lan', 'Máy thợ (LAN)', 'monitor'],
     ['account', 'Tài khoản & sử dụng', 'user'],
     ['updates', 'Cập nhật', 'download'],
@@ -204,6 +205,7 @@
 
   const PAGES = {
     lark(el) { if (CG.lark) CG.lark.settingsPage(el, { group, row, toggle, select, text, set, render }); },
+    remote(el) { if (CG.remote) CG.remote.settingsPage(el, { group, row, toggle, select, text, set, render }); },
     lan(el) { if (CG.lan) CG.lan.settingsPage(el, { group, row, toggle, select, text, set, render }); },
     general(el) {
       const s = S().settings;

@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo — Điều khiển phiên từ máy khác</title>
+<style>
+  :root {
+    --bg: #262624; --sidebar: #1f1e1d; --surface: #30302e; --surface-2: #2b2a28; --hover: rgba(255,255,255,.05);
+    --text: #f2f1ec; --text-2: #dcdad2; --muted: #a6a39a; --faint: #75736b; --border: #3b3a36; --border-strong: #4c4b45;
+    --accent: #d97757; --accent-soft: rgba(217,119,87,.14); --blue: #6b9be8; --green: #5fb37a; --yellow: #e0b04a; --red: #e06c6c;
+    --user-bg: #393937;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #171716; color: var(--text); font: 13.5px/1.5 "Segoe UI", system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0; }
+  .top { padding: 14px 20px 6px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .top p { margin: 0; color: var(--muted); }
+  .steps { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 20px 12px; }
+  .steps button { background: var(--surface); color: var(--text-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; cursor: pointer; font: inherit; font-size: 12.5px; }
+  .steps button:hover { border-color: var(--accent); color: var(--text); }
+  .steps .lbl { color: var(--faint); align-self: center; font-size: 12px; }
+  .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 20px 20px; }
+  .mach { border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; height: 640px; }
+  .mach-h { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: #121211; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .mach-h .tag { font-weight: 400; color: var(--muted); font-size: 12px; }
+  .app { flex: 1; display: grid; grid-template-columns: 230px 1fr; min-height: 0; }
+  .sb { background: var(--sidebar); border-right: 1px solid var(--border); padding: 10px 8px; overflow: auto; }
+  .sb .new { color: var(--text-2); padding: 5px 8px; border-radius: 7px; margin-bottom: 8px; }
+  .grp { color: var(--faint); font-size: 11.5px; padding: 8px 8px 3px; display: flex; align-items: center; gap: 6px; }
+  .grp .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(95,179,122,.18); }
+  .grp.remote { color: var(--text-2); font-weight: 600; }
+  .sess { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 7px; color: var(--text-2); cursor: pointer; position: relative; white-space: nowrap; }
+  .sess:hover { background: var(--hover); }
+  .sess.sel { background: rgba(255,255,255,.08); color: var(--text); }
+  .sess .t { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .sess .st { font-size: 11px; color: var(--faint); }
+  .sess.child { padding-left: 24px; font-size: 12.5px; color: var(--muted); }
+  .sess .ic { font-size: 12px; width: 14px; text-align: center; }
+  .spin { width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: sp 0.9s linear infinite; display: inline-block; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .pill { font-size: 10.5px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+  .pill.wait { background: rgba(224,176,74,.15); color: var(--yellow); }
+  .share-ic { color: var(--blue); font-size: 12px; }
+  .empty-r { color: var(--faint); font-size: 12px; padding: 4px 8px 8px; }
+  .main { display: flex; flex-direction: column; min-width: 0; }
+  .tb { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); min-height: 41px; }
+  .tb .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .chip { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-2); display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; cursor: default; }
+  .chip.on { border-color: rgba(107,155,232,.5); background: rgba(107,155,232,.12); color: #a9c4f2; cursor: pointer; }
+  .chip.off { cursor: pointer; }
+  .chip.watch { border-color: rgba(95,179,122,.45); color: #9fd7b0; background: rgba(95,179,122,.1); }
+  .banner { margin: 8px 12px 0; padding: 7px 10px; border-radius: 8px; background: rgba(107,155,232,.1); border: 1px solid rgba(107,155,232,.3); font-size: 12.5px; color: #c4d6f5; }
+  .conv { flex: 1; overflow: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .u { align-self: flex-end; background: var(--user-bg); padding: 7px 11px; border-radius: 12px; max-width: 85%; }
+  .u .from { display: block; font-size: 10.5px; color: var(--blue); margin-bottom: 1px; }
+  .a { color: var(--text-2); }
+  .tool { border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; color: var(--muted); background: var(--surface-2); }
+  .tool b { color: var(--text-2); font-weight: 600; }
+  .agent { border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; background: var(--surface-2); }
+  .agent .open { color: var(--blue); cursor: pointer; float: right; }
+  .perm { border: 1px solid rgba(224,176,74,.5); border-radius: 10px; padding: 9px 11px; background: rgba(224,176,74,.07); }
+  .perm .q { font-weight: 600; margin-bottom: 4px; }
+  .perm code { background: #1c1c1b; padding: 2px 6px; border-radius: 5px; font-size: 12px; }
+  .perm .acts { margin-top: 8px; display: flex; gap: 6px; }
+  .perm .who { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+  .btn { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 7px; padding: 4px 11px; cursor: pointer; font: inherit; font-size: 12.5px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:hover { filter: brightness(1.1); }
+  .note { font-size: 12px; color: var(--faint); text-align: center; }
+  .think { color: var(--muted); font-size: 12.5px; display: flex; gap: 7px; align-items: center; }
+  .comp { margin: 8px 12px 12px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); padding: 8px 10px; display: flex; gap: 8px; align-items: flex-end; }
+  .comp textarea { flex: 1; background: transparent; border: 0; color: var(--text); font: inherit; resize: none; outline: none; height: 38px; }
+  .comp .send { width: 30px; height: 30px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; font-size: 15px; }
+  .comp .send.stop { background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text); }
+  .comp.dis { opacity: .5; pointer-events: none; }
+  .menu { position: absolute; z-index: 20; left: 30px; top: 26px; background: #2c2b29; border: 1px solid var(--border-strong); border-radius: 9px; padding: 4px; width: 250px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  .menu .mi { padding: 6px 9px; border-radius: 6px; color: var(--text-2); display: flex; gap: 8px; cursor: pointer; }
+  .menu .mi:hover { background: var(--hover); }
+  .menu .mi small { display: block; color: var(--faint); font-size: 11px; }
+  .menu .sep { height: 1px; background: var(--border); margin: 4px 2px; }
+  .menu .ck { width: 14px; color: var(--blue); }
+  .set { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 30; }
+  .set .card { width: 420px; background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px; padding: 16px 18px; }
+  .set h3 { margin: 0 0 10px; font-size: 15px; }
+  .set .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .set .row:last-of-type { border-bottom: 0; }
+  .set .row small { display: block; color: var(--muted); font-size: 11.5px; }
+  .set input[type=text] { background: var(--surface); border: 1px solid var(--border-strong); color: var(--text); border-radius: 6px; padding: 4px 8px; font: 12px Consolas, monospace; width: 170px; }
+  .tog { width: 34px; height: 19px; border-radius: 999px; background: var(--border-strong); position: relative; cursor: pointer; flex: none; }
+  .tog::after { content: ''; position: absolute; width: 15px; height: 15px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: left .15s; }
+  .tog.on { background: var(--accent); }
+  .tog.on::after { left: 17px; }
+  .mono { font-family: Consolas, monospace; font-size: 12px; }
+  .ok { color: var(--green); }
+  .rel { position: relative; }
+  .explain { padding: 0 20px 28px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .explain div { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text-2); }
+  .explain b { color: var(--text); }
+  .explain ul { margin: 6px 0 0; padding-left: 18px; }
+  .flash { animation: fl 1.2s ease; }
+  @keyframes fl { 0% { box-shadow: 0 0 0 0 rgba(107,155,232,.7); } 100% { box-shadow: 0 0 0 10px rgba(107,155,232,0); } }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Điều khiển phiên từ máy khác — demo</h1>
+  <p>Trái: GUI ở công ty (máy chạy phiên). Phải: GUI ở nhà. Hai máy nối qua Tailscale; máy ở nhà phải có token của đúng phiên. Bấm thử trực tiếp trên hai khung.</p>
+</div>
+<div class="steps">
+  <span class="lbl">Thử nhanh:</span>
+  <button onclick="openShareMenu()">1. Chuột phải phiên ở công ty → bật chia sẻ (ra token)</button>
+  <button onclick="showSettings('home')">2. Ở nhà dán token</button>
+  <button onclick="homeOpen('s1')">3. Mở phiên</button>
+  <button onclick="askPerm()">4. Claude xin quyền chạy lệnh</button>
+  <button onclick="homeSendDemo()">5. Nhắn từ nhà</button>
+  <button onclick="newToken()">6. Đổi token (thu hồi token cũ)</button>
+  <button onclick="setShare(false)">7. Tắt chia sẻ</button>
+  <button onclick="showSettings('work')">Cài đặt máy công ty</button>
+  <button onclick="reset()">↺ Làm lại</button>
+</div>
+<div class="wrap">
+  <div class="mach rel" id="work">
+    <div class="mach-h">🏢 Máy công ty <span class="tag">ADMIN · Tailscale 100.95.112.107</span></div>
+    <div class="app">
+      <div class="sb" id="w-sb"></div>
+      <div class="main">
+        <div class="tb"><span class="title" id="w-title"></span><span id="w-chips"></span></div>
+        <div class="conv" id="w-conv"></div>
+        <div class="comp" id="w-comp"><textarea placeholder="Nhắn tiếp cho Claude…"></textarea><button class="send" id="w-send">↑</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="mach rel" id="home">
+    <div class="mach-h">🏠 Máy ở nhà <span class="tag">NHA-PC · cùng tài khoản Tailscale</span></div>
+    <div class="app">
+      <div class="sb" id="h-sb"></div>
+      <div class="main">
+        <div class="tb"><span class="title" id="h-title"></span><span id="h-chips"></span></div>
+        <div id="h-banner"></div>
+        <div class="conv" id="h-conv"></div>
+        <div class="comp" id="h-comp"><textarea id="h-input" placeholder="Nhắn cho Claude ở máy ADMIN…"></textarea><button class="send" id="h-send" onclick="homeSend()">↑</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="explain">
+  <div><b>Bật / tắt theo từng phiên</b><ul>
+    <li>Chuột phải phiên (hoặc chip 📡 trên thanh tiêu đề) → <i>Cho máy khác thấy & điều khiển</i> → GUI tạo <b>token riêng của phiên đó</b> (nút Sao chép).</li>
+    <li>Máy khác phải có địa chỉ máy công ty + đúng token mới thấy phiên. Không có token thì không thấy gì — kể cả tên, kể cả các phiên khác đang chia sẻ.</li>
+    <li>Token của phiên cha dùng luôn cho các phiên con (tác tử phụ) của nó.</li>
+    <li>Đổi token → token cũ hết hiệu lực ngay. Tắt chia sẻ → thu hồi token, máy kia hiện "đã ngừng chia sẻ".</li>
+  </ul></div>
+  <div><b>Máy ở nhà làm được</b><ul>
+    <li>Xem phiên chạy trực tiếp (chữ chạy, thẻ công cụ, tiến độ tác tử phụ).</li>
+    <li>Nhắn tiếp, nhắn giữa lượt, Dừng, duyệt / từ chối thẻ xin quyền.</li>
+    <li>Mở phiên con để xem tác tử phụ đang làm gì.</li>
+    <li>Không tạo được phiên mới, không thấy phiên không chia sẻ, không đọc tệp tuỳ ý trên máy công ty.</li>
+  </ul></div>
+  <div><b>An toàn</b><ul>
+    <li>Mặc định TẮT. Bật trong Cài đặt › Truy cập từ xa → mở cổng 8767; cổng chỉ trả lời yêu cầu có token hợp lệ.</li>
+    <li>Token dài, ngẫu nhiên, mỗi phiên một cái; máy công ty chỉ lưu bản băm. Sai token nhiều lần thì chặn địa chỉ đó một lúc.</li>
+    <li>Chỉ nhận kết nối qua Tailscale / LAN.</li>
+    <li>Máy công ty luôn thấy ai đang xem (chip 🏠 NHA-PC) và tin nào gửi từ máy khác.</li>
+    <li>Ngắt từng máy hoặc đổi khoá bất cứ lúc nào.</li>
+  </ul></div>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+let S;
+const gen = () => 'cgs_' + Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 32]).join('').replace(/(.{4})(?=.)/g, '$1-');
+const visible = () => S.share && S.homeTok && S.homeTok === S.tok;
+function reset() {
+  document.querySelectorAll('.set, .menu').forEach((x) => x.remove());
+  S = { share: false, tok: null, homeTok: null, homeSel: null, busy: true, perm: null, msgs: [
+    { k: 'u', t: 'Sửa lỗi rương vàng không trừ lượt mua trong ngày, chạy test server rồi commit.' },
+    { k: 'tool', t: '<b>Đọc</b> Server/Shop/ChestService.cs' },
+    { k: 'agent', t: '🤖 Tác tử phụ <b>Explore</b> — tìm chỗ ghi lượt mua · 12 công cụ · đang chạy' },
+    { k: 'a', t: 'Lỗi nằm ở <code>ChestService.Buy()</code>: lượt mua được cộng sau khi trả thưởng, nếu trả thưởng lỗi thì lượt không bị trừ. Mình chuyển phần cộng lượt lên trước và bọc trong giao dịch.' },
+    { k: 'tool', t: '<b>Sửa</b> Server/Shop/ChestService.cs  <span style="color:#5fb37a">+14</span> <span style="color:#e06c6c">−6</span>' },
+  ] };
+  render();
+}
+function shareIcon() { return S.share ? '<span class="share-ic" title="Đang chia sẻ — máy có token thấy & điều khiển được">📡</span>' : ''; }
+function sessRow(id, t, st, extra = '') { return `<div class="sess ${extra}" data-id="${id}">${st}<span class="t">${t}</span></div>`; }
+function render() {
+  // ---- công ty
+  const busyIc = S.perm ? '<span class="pill wait">chờ duyệt</span>' : S.busy ? '<span class="spin"></span>' : '<span class="ic">✓</span>';
+  $('#w-sb').innerHTML = `<div class="new">＋ Phiên mới</div><div class="grp">vo-lam-genz-server</div>
+    <div class="sess sel" id="w-s1" oncontextmenu="openShareMenu(event)">${busyIc}<span class="t">Sửa lỗi rương vàng không trừ lượt</span>${shareIcon()}</div>
+    <div class="sess child">↳ <span class="t">Explore: tìm chỗ ghi lượt mua</span>${S.share ? '<span class="share-ic" style="opacity:.6">📡</span>' : ''}</div>
+    ${sessRow('w2', 'Cân bằng sát thương kỹ năng Nga Mi', '<span class="ic">✓</span>')}
+    ${sessRow('w3', 'Viết tài liệu API bang hội', '<span class="ic">✓</span>')}
+    <div class="grp">ClaudeGUI</div>${sessRow('w4', 'Chuyển phiên sang máy khác', '<span class="ic">✓</span>')}`;
+  $('#w-title').textContent = 'Sửa lỗi rương vàng không trừ lượt';
+  $('#w-chips').innerHTML = (visible() && S.homeSel ? '<span class="chip watch">🏠 NHA-PC đang xem</span> ' : '') +
+    (S.share ? '<span class="chip on" onclick="showToken()" title="Xem / sao chép / đổi token">📡 Đang chia sẻ · 🔑</span>' : '<span class="chip off" onclick="setShare(true)" title="Cho máy khác (có token) thấy & điều khiển phiên này">📡 Chia sẻ</span>');
+  $('#w-conv').innerHTML = convHtml('work');
+  $('#w-send').textContent = S.busy ? '■' : '↑'; $('#w-send').className = 'send' + (S.busy ? ' stop' : '');
+  // ---- nhà
+  let remote = '<div class="grp remote"><span class="dot"></span>🏢 ADMIN (công ty)</div>';
+  if (visible()) remote += `<div class="sess ${S.homeSel === 's1' ? 'sel' : ''}" onclick="homeOpen('s1')">${busyIc}<span class="t">Sửa lỗi rương vàng không trừ lượt</span><span class="share-ic">🔑</span></div>
+      <div class="sess child ${S.homeSel === 'c1' ? 'sel' : ''}" onclick="homeOpen('c1')">↳ <span class="t">Explore: tìm chỗ ghi lượt mua</span></div>`;
+  else if (S.homeTok) remote += '<div class="empty-r" style="color:#e0b04a">⚠ Token không còn hiệu lực (phiên đã ngừng chia sẻ hoặc đổi token).</div>';
+  remote += '<div class="sess" style="color:var(--blue)" onclick="showSettings(\'home\')">＋ <span class="t">Thêm phiên bằng token…</span></div>';
+  $('#h-sb').innerHTML = `<div class="new">＋ Phiên mới</div>${remote}<div class="grp">Trên máy này</div>
+    ${sessRow('h1', 'Học Rust buổi tối', '<span class="ic">✓</span>')}${sessRow('h2', 'Script đổi tên ảnh', '<span class="ic">✓</span>')}`;
+  if (S.homeSel && !visible()) {
+    $('#h-title').textContent = 'Sửa lỗi rương vàng không trừ lượt';
+    $('#h-chips').innerHTML = '';
+    $('#h-banner').innerHTML = `<div class="banner" style="background:rgba(224,108,108,.1);border-color:rgba(224,108,108,.35);color:#f0b4b4">${S.share ? 'Token đã bị đổi ở máy ADMIN — dán token mới để xem / điều khiển tiếp.' : 'Máy ADMIN đã ngừng chia sẻ phiên này — token bị thu hồi.'}</div>`;
+    $('#h-conv').innerHTML = '';
+    $('#h-comp').classList.add('dis');
+    return;
+  }
+  $('#h-comp').classList.toggle('dis', !S.homeSel || S.homeSel === 'c1');
+  if (!S.homeSel) { $('#h-title').textContent = 'Phiên mới'; $('#h-chips').innerHTML = ''; $('#h-banner').innerHTML = ''; $('#h-conv').innerHTML = `<div class="note" style="margin-top:120px">${visible() ? 'Mở phiên trong nhóm 🏢 ADMIN ở thanh bên.' : 'Chưa có phiên từ xa — bấm “Thêm phiên bằng token…” rồi dán token lấy ở máy công ty.'}</div>`; return; }
+  if (S.homeSel === 'c1') {
+    $('#h-title').textContent = 'Explore: tìm chỗ ghi lượt mua';
+    $('#h-chips').innerHTML = '<span class="chip">🏢 ADMIN · phiên con</span>';
+    $('#h-banner').innerHTML = '<div class="banner">Tác tử phụ của phiên “Sửa lỗi rương vàng…” (dùng chung token của phiên cha) — chỉ xem; muốn chỉ đạo thì nhắn ở phiên cha.</div>';
+    $('#h-conv').innerHTML = '<div class="u">Tìm mọi chỗ ghi / đọc lượt mua rương trong ngày (DailyBuyCount).</div><div class="tool"><b>Tìm</b> "DailyBuyCount" · 7 kết quả</div><div class="tool"><b>Đọc</b> Server/Shop/ChestService.cs</div><div class="tool"><b>Đọc</b> Server/Player/DailyLimit.cs</div><div class="think"><span class="spin"></span> Đang đọc Server/Shop/ShopRepo.cs…</div>';
+    return;
+  }
+  $('#h-title').textContent = 'Sửa lỗi rương vàng không trừ lượt';
+  $('#h-chips').innerHTML = '<span class="chip">🏢 ADMIN · 🔑 token</span>';
+  $('#h-banner').innerHTML = '<div class="banner">Phiên đang chạy trên máy <b>ADMIN</b> · C:\\WSP\\GitProject\\vo-lam-genz-server — lệnh và tệp đều ở máy đó.</div>';
+  $('#h-conv').innerHTML = convHtml('home');
+  $('#h-send').textContent = S.busy ? '■' : '↑'; $('#h-send').className = 'send' + (S.busy ? ' stop' : '');
+  for (const c of ['#w-conv', '#h-conv']) { const e = $(c); e.scrollTop = e.scrollHeight; }
+}
+function convHtml(side) {
+  let out = S.msgs.map((m) => {
+    if (m.k === 'u') return `<div class="u ${m.flash ? 'flash' : ''}">${m.from ? `<span class="from">${side === 'work' ? '🏠 gửi từ NHA-PC' : '🏠 bạn (từ máy này)'}</span>` : ''}${m.t}</div>`;
+    if (m.k === 'agent') return `<div class="agent">${side === 'home' ? '<span class="open" onclick="homeOpen(\'c1\')">Mở phiên con →</span>' : ''}${m.t}</div>`;
+    if (m.k === 'note') return `<div class="note">${m.t}</div>`;
+    return `<div class="${m.k}">${m.t}</div>`;
+  }).join('');
+  if (S.perm) out += `<div class="perm"><div class="q">Claude muốn chạy lệnh</div><code>dotnet test Server.Tests --filter Shop</code>
+    <div class="acts"><button class="btn primary" onclick="decide('${side}', true)">Cho phép</button><button class="btn" onclick="decide('${side}', false)">Từ chối</button></div>
+    <div class="who">${side === 'home' ? 'Duyệt từ đây hoặc ở máy ADMIN — bên nào bấm trước thì thẻ bên kia tự đóng.' : (visible() ? 'Máy NHA-PC (có token) cũng thấy thẻ này và duyệt được.' : '')}</div></div>`;
+  else if (S.busy) out += '<div class="think"><span class="spin"></span> Đang suy nghĩ…</div>';
+  return out;
+}
+function openShareMenu(e) {
+  if (e) e.preventDefault();
+  const host = $('#w-s1');
+  const m = document.createElement('div');
+  m.className = 'menu';
+  m.innerHTML = `<div class="mi"><span class="ck"></span>Mở ở khung bên phải</div><div class="sep"></div>
+    <div class="mi" onclick="setShare(${!S.share})"><span class="ck">${S.share ? '✓' : ''}</span><div>📡 Cho máy khác thấy & điều khiển<small>máy kia cần token của phiên này · kèm phiên con</small></div></div>
+    ${S.share ? '<div class="mi" onclick="showToken()"><span class="ck"></span>🔑 Xem / sao chép token</div><div class="mi" onclick="newToken()"><span class="ck"></span>↻ Đổi token (thu hồi token cũ)</div>' : ''}
+    <div class="sep"></div><div class="mi"><span class="ck"></span>Đổi tên</div><div class="mi"><span class="ck"></span>Xuất sang máy khác…</div>`;
+  document.querySelectorAll('.menu').forEach((x) => x.remove());
+  host.appendChild(m);
+  setTimeout(() => document.addEventListener('click', () => m.remove(), { once: true }), 0);
+}
+function setShare(v) {
+  S.share = v;
+  S.tok = v ? gen() : null;
+  if (!v) S.perm = S.perm; // phiên vẫn chạy ở công ty
+  render();
+  if (v) showToken();
+}
+function newToken() { if (!S.share) return setShare(true); S.tok = gen(); render(); showToken(true); }
+function showToken(renewed) {
+  document.querySelectorAll('.set').forEach((x) => x.remove());
+  const d = document.createElement('div');
+  d.className = 'set';
+  d.onclick = (e) => { if (e.target === d) d.remove(); };
+  d.innerHTML = `<div class="card"><h3>🔑 Token của phiên “Sửa lỗi rương vàng…”</h3>
+    ${renewed ? '<p style="color:#e0b04a;margin:0 0 8px">Đã tạo token mới — token cũ hết hiệu lực, máy đang dùng token cũ bị ngắt ngay.</p>' : ''}
+    <div class="row"><div class="mono" style="font-size:14px;letter-spacing:.5px">${S.tok}</div><button class="btn primary" onclick="navigator.clipboard&&navigator.clipboard.writeText('${S.tok}');this.textContent='✓ Đã chép'">Sao chép</button></div>
+    <div class="row"><div>Địa chỉ máy này<small>máy ở nhà dùng địa chỉ Tailscale</small></div><div class="mono">100.95.112.107</div></div>
+    <p style="color:var(--muted);font-size:12px;margin:8px 0 0">Ở máy kia: thanh bên → “Thêm phiên bằng token…” → dán địa chỉ + token. Có token là xem & điều khiển được phiên này và các phiên con của nó — chỉ gửi cho chính bạn, không dán vào kênh chung. Token chỉ hiện lại ở đây, máy này lưu bản băm.</p>
+    <div style="text-align:right;margin-top:10px"><button class="btn" onclick="newToken()">↻ Đổi token</button> <button class="btn primary" onclick="this.closest('.set').remove()">Xong</button></div></div>`;
+  $('#work').appendChild(d);
+}
+function homeOpen(id) { if (!visible()) return; S.homeSel = id; render(); }
+function ensureLinked() { if (!S.share) { S.share = true; S.tok = gen(); } S.homeTok = S.tok; if (!S.homeSel) S.homeSel = 's1'; }
+function askPerm() { ensureLinked(); S.busy = true; S.perm = true; render(); }
+function decide(side, ok) {
+  S.perm = null;
+  S.msgs.push({ k: 'note', t: `${ok ? 'Đã cho phép' : 'Đã từ chối'} — ${side === 'home' ? 'duyệt từ NHA-PC' : 'duyệt ở máy này'}` });
+  if (ok) { S.msgs.push({ k: 'tool', t: '<b>Chạy</b> dotnet test Server.Tests --filter Shop · <span style="color:#5fb37a">18 đạt</span>' }); S.msgs.push({ k: 'a', t: 'Test Shop đạt hết (18/18). Mình commit với nội dung “Sửa rương vàng không trừ lượt mua khi trả thưởng lỗi”.' }); }
+  S.busy = false;
+  render();
+}
+function homeSendDemo() { ensureLinked(); S.homeSel = 's1'; render(); $('#h-input').value = 'Khoan commit, thêm test cho trường hợp trả thưởng ném lỗi giữa chừng đã.'; homeSend(); }
+function homeSend() {
+  const v = $('#h-input').value.trim();
+  if (!v || !visible() || S.homeSel !== 's1') return;
+  $('#h-input').value = '';
+  S.msgs.push({ k: 'u', t: v, from: true, flash: true });
+  S.busy = true;
+  render();
+  setTimeout(() => { S.msgs.forEach((m) => (m.flash = false)); S.msgs.push({ k: 'tool', t: '<b>Sửa</b> Server.Tests/Shop/ChestServiceTests.cs  <span style="color:#5fb37a">+31</span>' }); S.msgs.push({ k: 'a', t: 'Đã thêm test <code>Buy_RewardThrows_StillCountsDailyLimit</code>. Chạy lại test rồi mới commit.' }); S.busy = false; render(); }, 1600);
+}
+function homeAdd(btn) {
+  const card = btn.closest('.card');
+  const tok = card.querySelector('#tokIn').value.trim();
+  const msg = card.querySelector('#tokMsg');
+  if (!S.share || tok !== S.tok) { msg.innerHTML = '<span style="color:#e06c6c">✗ Máy ADMIN từ chối: token không đúng hoặc phiên không còn chia sẻ.</span>'; return; }
+  S.homeTok = tok; S.homeSel = 's1';
+  btn.closest('.set').remove();
+  render();
+}
+function showSettings(which) {
+  document.querySelectorAll('.set').forEach((x) => x.remove());
+  const host = $('#' + (which === 'work' ? 'work' : 'home'));
+  const d = document.createElement('div');
+  d.className = 'set';
+  d.onclick = (e) => { if (e.target === d) d.remove(); };
+  d.innerHTML = which === 'work' ? `<div class="card"><h3>Cài đặt › Truy cập từ xa</h3>
+    <div class="row"><div>Cho máy khác kết nối tới máy này<small>Mở cổng 8767. Chỉ trả lời yêu cầu có token của một phiên đang chia sẻ.</small></div><div class="tog on" onclick="this.classList.toggle('on')"></div></div>
+    <div class="row"><div>Địa chỉ máy này<small>máy ở nhà dùng địa chỉ Tailscale</small></div><div class="mono">100.95.112.107<br>ADMIN · 192.168.1.230</div></div>
+    <div class="row"><div>Máy khác được duyệt quyền<small>Tắt → máy kia chỉ xem và nhắn; thẻ xin quyền phải duyệt ở máy này</small></div><div class="tog on" onclick="this.classList.toggle('on')"></div></div>
+    <div class="row"><div>Phiên đang chia sẻ<small>${S.share ? `Sửa lỗi rương vàng… · token ${S.tok.slice(0, 9)}… · ${visible() ? 'NHA-PC đang kết nối' : 'chưa máy nào dùng'}` : 'Chưa có — bật ở menu chuột phải của phiên.'}</small></div>${S.share ? '<button class="btn" onclick="setShare(false);this.closest(\'.set\').remove()">Thu hồi</button>' : ''}</div>
+    <div style="text-align:right;margin-top:10px"><button class="btn primary" onclick="this.closest('.set').remove()">Xong</button></div></div>`
+  : `<div class="card"><h3>Thêm phiên từ máy khác</h3>
+    <div class="row"><div>Địa chỉ máy<small>tên máy / IP Tailscale</small></div><input type="text" value="100.95.112.107"></div>
+    <div class="row"><div>Token của phiên<small>lấy ở máy kia: chuột phải phiên → 🔑</small></div><input type="text" id="tokIn" value="${S.tok || ''}" placeholder="cgs_XXXX-XXXX-…"></div>
+    <div id="tokMsg" style="font-size:12px;min-height:18px;margin-top:6px"></div>
+    <div style="text-align:right;margin-top:6px"><button class="btn" onclick="this.closest('.set').remove()">Huỷ</button> <button class="btn primary" onclick="homeAdd(this)">Kết nối</button></div></div>`;
+  host.appendChild(d);
+}
+reset();
+</script>
+</body>
+</html>

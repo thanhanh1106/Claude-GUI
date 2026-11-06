@@ -284,6 +284,8 @@
       if (text) el.append(h('div', { class: 'bubble', text }));
       if (opts.queued) el.append(h('div', { class: 'queued-tag', text: 'Đã gửi giữa lượt — Claude sẽ đọc ở bước kế tiếp' }));
       else if (opts.mid) el.append(h('div', { class: 'queued-tag', text: '↳ gửi giữa lượt' }));
+      const rsTag = !opts.history && (this._rsTag || (this._rsFrom ? '🏠 gửi từ ' + this._rsFrom : ''));
+      if (rsTag) el.append(h('div', { class: 'queued-tag rs-from', text: rsTag }));
       if (text) el.append(h('div', { class: 'msg-actions' }, copyBtn(() => text)));
       this.append(el);
       if (!opts.history) S.stick = true;
@@ -292,6 +294,9 @@
 
     // --- sending
     async send(content, displayText, images) {
+      // phiên mở từ máy khác (truy cập từ xa): gửi sang máy đang chạy phiên
+      if (this.rs) return CG.remote.send(this, content, displayText, images);
+      if (CG.remote) CG.remote.userSent(this, displayText != null ? displayText : typeof content === 'string' ? content : '', images);
       this.suggestion = '';
       // Đang chạy: ghi thẳng vào CLI — CLI chèn tin vào lượt hiện tại (giữa các bước công cụ),
       // hoặc mở lượt mới ngay sau đó nếu lượt đã tới bước trả lời cuối (result có queued_turn_count)
@@ -351,19 +356,21 @@
       if (!r.ok) throw new Error(r.error || 'Không khởi động được Claude CLI');
       if (r.pid) this.pid = r.pid;
     }
-    control(request) { return api.write(this.key, { type: 'control_request', request_id: rid(), request }); }
+    control(request) { if (this.rs) return Promise.resolve(false); return api.write(this.key, { type: 'control_request', request_id: rid(), request }); }
     // Số liệu ngữ cảnh chính xác như lệnh /context của CLI: tổng token, ngưỡng tối đa (đã tính auto-compact
     // trong settings, vd 500k), %, và từng phần (system prompt, công cụ, MCP, skill, tin nhắn…)
     async fetchContext() {
-      if (this.ctxReq || !(await api.running(this.key))) return;
+      if (this.rs || this.ctxReq || !(await api.running(this.key))) return;
       this.ctxReq = 'ctx-' + rid();
       api.write(this.key, { type: 'control_request', request_id: this.ctxReq, request: { subtype: 'get_context_usage' } });
       setTimeout(() => { this.ctxReq = null; }, 8000);
     }
     respond(requestId, response) {
+      if (this.rs) return CG.remote.respond(this, requestId, response);
       api.write(this.key, { type: 'control_response', response: { subtype: 'success', request_id: requestId, response } });
     }
     interrupt() {
+      if (this.rs) return CG.remote.stop(this);
       if (!this.busy) return;
       this.interrupting = true;
       for (const p of [...this.perms.values()]) p.cancel('Đã dừng');
@@ -382,6 +389,7 @@
     }
     setBusy(v) {
       this.busy = v;
+      if (CG.remote) CG.remote.busyChanged(this);
       if (v) {
         this.suggestion = '';
         this.turnStart = Date.now();
@@ -405,6 +413,7 @@
 
     // --- events from CLI
     handle(m) {
+      if (CG.remote && !this.rs) CG.remote.emit(this, m);
       switch (m.type) {
         case 'system': return this.onSystem(m);
         case 'stream_event':
@@ -500,6 +509,7 @@
       }
     }
     stopTask(id) {
+      if (this.rs) return;
       api.write(this.key, { type: 'control_request', request_id: 'gui-' + rid(), request: { subtype: 'stop_task', task_id: id } });
     }
     onStream(ev) {
@@ -795,7 +805,7 @@
         const cost = Object.values(models).reduce((a, x) => a + x.c, 0);
         const rec = { kind: 'turn', sid: this.sid, title: this.title || '', cwd: this.cwd || '', nb: !!this.nb, cost, models, ms: Date.now() - (this.turnStart || Date.now()) };
         this.lastUsage = rec;
-        if (Object.keys(models).length) api.statsAdd(rec).catch(() => {});
+        if (Object.keys(models).length && !this.rs) api.statsAdd(rec).catch(() => {});
       } catch {}
     }
     flushRedirect() {
@@ -856,6 +866,7 @@
     onControlRequest(m) {
       const r = m.request || {};
       if (r.subtype === 'can_use_tool') return this.permRequest(m.request_id, r);
+      if (this.rs) return;
       api.write(this.key, { type: 'control_response', response: { subtype: 'error', request_id: m.request_id, error: `GUI không hỗ trợ yêu cầu ${r.subtype}` } });
     }
 
@@ -923,7 +934,7 @@
         // Nút "Phiên con" trên thẻ tác tử → mở transcript của tác tử phụ
         linkChild: (ch) => {
           if (card.childBtn) return;
-          card.childBtn = h('button', { class: 't-child', title: 'Xem toàn bộ những gì tác tử phụ này đã làm', onclick: (e) => { e.stopPropagation(); openSession(ch); } }, icon('bot', 12), 'Phiên con');
+          card.childBtn = h('button', { class: 't-child', title: 'Xem toàn bộ những gì tác tử phụ này đã làm', onclick: (e) => { e.stopPropagation(); if (this.rs) CG.remote.openChild(this, ch); else openSession(ch); } }, icon('bot', 12), 'Phiên con');
           stat.before(card.childBtn);
         },
         setTask: (t) => {
@@ -977,6 +988,7 @@
       else if (name === 'ExitPlanMode') card = this.planCard(reqId, r);
       else card = this.permCard(reqId, r);
       card.tool = name;
+      card.raw = { request_id: reqId, request: r };
       this.perms.set(reqId, card);
       const tc = r.tool_use_id && this.tools.get(r.tool_use_id);
       if (tc) { card.toolWasOpen = tc.el.classList.contains('open'); tc.el.classList.remove('open'); card.toolCard = tc; }
@@ -990,6 +1002,7 @@
       if (!document.hasFocus() && S.settings.notifyPermission) api.notify('Claude cần bạn xác nhận', name === 'AskUserQuestion' ? 'Claude có câu hỏi cho bạn' : permTitle(name, inp, this.cwd));
     }
     finishPerm(reqId, card, label, ok) {
+      if (CG.remote) CG.remote.permDone(this, reqId, label, ok);
       this.perms.delete(reqId);
       if (card.toolCard && card.toolWasOpen && ok) { card.toolCard.el._build(); card.toolCard.el.classList.add('open'); }
       card.el.className = 'perm done';
@@ -1200,7 +1213,7 @@
       if (!r || r.end <= 0 || this.remoteBusy) return false;
       this.remoteBusy = true;
       this.updateLoader();
-      api.historyChunk(r.id, r.cwd, r.offset, r.end).then((res) => {
+      (this.rs ? CG.remote.api(this) : api).historyChunk(r.id, r.cwd, r.offset, r.end).then((res) => {
         this.remoteBusy = false;
         if (S.convs.get(this.key) !== this) return;
         r.end = res && res.entries && res.entries.length ? res.start : 0;
@@ -1230,7 +1243,7 @@
       this.olderLoading = true;
       this.updateLoader();
       let sum = null;
-      try { sum = await api.loadSessionOlder(it.id, it.cwd, offset); } catch (e) { console.error(e); }
+      try { sum = await (this.rs ? CG.remote.api(this) : api).loadSessionOlder(it.id, it.cwd, offset); } catch (e) { console.error(e); }
       this.olderLoading = false;
       if (S.convs.get(this.key) !== this) return;
       if (sum && sum.count) {
@@ -1357,6 +1370,7 @@
     $('#changes-count').append(h('span', { class: 'add', text: '+' + add }), ' ', h('span', { class: 'del', text: '−' + del }));
     $('#btn-session-menu').classList.toggle('hidden', !started);
     $('#btn-details').classList.toggle('on', !!S.settings.showDetails);
+    if (CG.remote) CG.remote.titleChip(c);
   }
 
   // ---------- Composer ----------
@@ -2282,7 +2296,7 @@
     const btwHidden = CG.btw ? CG.btw.hiddenSids() : null;
     for (const d of S.all) if (!(nbHidden && nbHidden.has(d.id)) && !(btwHidden && btwHidden.has(d.id))) map.set(d.id, { ...d });
     for (const c of S.convs.values()) {
-      if (!c.count || c.child || c.nb || c.btw) continue;
+      if (!c.count || c.child || c.nb || c.btw || c.rs) continue;
       const it = map.get(c.sid) || { id: c.sid, title: c.title || 'Phiên mới', cwd: c.cwd, mtime: c.lastActive };
       if (c.title) it.title = c.title;
       if (c.cwd) it.cwd = c.cwd;
@@ -2369,6 +2383,7 @@
     const row = h('div', { class: 'sess' + (active ? ' active' : '') + (side ? ' side' : '') + (starred ? ' starred' : ''), title: `${it.title}\n${it.cwd || ''}\n${relTime(it.mtime)}${bg ? `\n${bg} tác vụ đang chạy nền` : ''}${ext ? `\nĐang mở ở terminal khác (${ext.status === 'busy' ? 'đang chạy' : 'rảnh'})` : ''}` },
       h('span', { class: 'st ' + st }, st === 'ext' ? icon('terminal', 11) : null),
       h('span', { class: 's-title ellipsis', text: it.title }),
+      CG.remote && CG.remote.isShared(it.id) ? h('span', { class: 's-rs' + (CG.remote.watching(it.id).length ? ' live' : ''), text: '📡', title: CG.remote.watching(it.id).length ? 'Đang được xem từ: ' + CG.remote.watching(it.id).join(', ') : 'Đang chia sẻ — máy có token thấy & điều khiển được' }) : null,
       c && c.xsPending ? h('span', { class: 's-xs', title: `${c.xsPending} tin nhắn từ phiên khác đang chờ bạn xem`, html: svg('message', 12) }) : null,
       autoResWaiting(it.id) ? h('span', { class: 's-ar', title: 'Đang chờ giới hạn hồi để tự chạy tiếp', html: svg('clock', 12) }) : null,
       CG.viewer && CG.viewer.fresh(c ? c.key : it.id) ? h('span', { class: 's-vw', title: 'Có xem trước mới (tệp / trang web Claude vừa tạo) — mở phiên để xem' }) : null,
@@ -2406,6 +2421,7 @@
     let arr = sessionItems();
     list.innerHTML = '';
     S.order = [];
+    if (CG.remote && S.filter === 'all') CG.remote.renderGroup(list);
     if (S.filter !== 'all') {
       list.append(h('div', { class: 'filter-pill' }, icon('filter', 12), S.filter === 'running' ? 'Đang chạy' : 'Đã lưu trữ', h('button', { class: 'icon-btn sm', html: svg('x', 12), onclick: () => { S.filter = 'all'; renderSidebar(); } })));
     }
@@ -2490,6 +2506,7 @@
       '-',
       { label: 'Làm mới danh sách', icon: 'refresh', onClick: () => refreshSessions(true) },
       { label: 'Nhập phiên từ máy khác…', desc: '.cgsession', icon: 'download', onClick: () => CG.pack && CG.pack.importSession() },
+      { label: 'Thêm phiên từ máy khác…', desc: 'mở phiên đang chạy ở máy khác bằng token', icon: 'globe', onClick: () => CG.remote && CG.remote.addDialog() },
     ], { checks: true });
   }
   function sessionMenu(it, anchor) {
@@ -2504,6 +2521,7 @@
       { label: 'Tiếp tục trong terminal', desc: 'claude --resume', icon: 'terminal', disabled: !(conv ? conv.persisted : true), onClick: () => api.openTerminal(it.cwd, ['--resume', it.id]) },
       { label: 'Mở thư mục', icon: 'folderOpen', disabled: !it.cwd, onClick: () => api.openPath(it.cwd) },
       { label: 'Sao chép session ID', icon: 'copy', onClick: () => { navigator.clipboard.writeText(it.id); toast('Đã sao chép session ID'); } },
+      ...(CG.remote ? CG.remote.menuItems(it) : []),
       { label: 'Xuất sang máy khác…', desc: '.cgsession', icon: 'upload', disabled: !CG.pack || !(conv ? conv.persisted : true), onClick: () => CG.pack.exportSession(it) },
       '-',
       { label: arch ? 'Bỏ lưu trữ' : 'Lưu trữ', icon: 'archive', onClick: () => archiveSession(it.id, !arch) },
@@ -2740,7 +2758,7 @@
   }
   // opts.background: chỉ tạo + tải lịch sử, không đưa lên khung chính (dùng cho khung phải khi chia đôi)
   async function openSession(it, opts = {}) {
-    let conv = [...S.convs.values()].find((c) => c.sid === it.id);
+    let conv = [...S.convs.values()].find((c) => c.sid === it.id && !c.rs);
     if (!conv) {
       const cwd = it.cwd && (await api.dirExists(it.cwd)) ? it.cwd : '';
       conv = new Conv({ key: it.id, sid: it.id, cwd: cwd || it.cwd || S.home, persisted: true, title: it.title });
@@ -2854,7 +2872,7 @@
     if (conv.reloading) { conv.reloadAgain = true; return; }
     conv.reloading = true;
     try {
-      const tail = await api.loadSessionTail(conv.sid, conv.cwd);
+      const tail = await (conv.rs ? CG.remote.api(conv) : api).loadSessionTail(conv.sid, conv.cwd);
       const sc = conv === S.side ? $('#split-scroller') : els.scroller;
       const shown = conv === S.active || conv === S.side;
       const atBottom = !shown || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
@@ -3472,7 +3490,7 @@
     },
     // phiên đã có (đang mở trong app hoặc chỉ có trong lịch sử) → Conv, nạp nền nếu cần
     convFor: async (sid) => {
-      let c = [...S.convs.values()].find((x) => x.sid === sid);
+      let c = [...S.convs.values()].find((x) => x.sid === sid && !x.rs);
       if (c) return c;
       const it = (S.all || []).find((x) => x.id === sid);
       if (!it) return null;
@@ -3480,6 +3498,8 @@
       return [...S.convs.values()].find((x) => x.sid === sid) || null;
     },
     convs: () => [...S.convs.values()],
+    rawConv: (o) => new Conv(o),
+    reloadChild: (c) => reloadChild(c),
     archiveSession: (id, on) => archiveSession(id, on),
     addAttachment: (a) => { S.attachments.push(a); renderAttachments(); els.input.focus(); },
     placeConvs,
