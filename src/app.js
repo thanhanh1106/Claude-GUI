@@ -751,6 +751,12 @@
       const stopped = failed && this.interrupting;
       // cách lượt vừa kết thúc (linh vật đọc để biểu cảm: ăn mừng / buồn / giật mình)
       this.lastEnd = { kind: stopped ? 'stopped' : failed ? 'error' : 'done', long: Date.now() - (this.turnStart || Date.now()) > 15000, t: Date.now() };
+      // Lịch / dự án tự động đọc: lượt bị dừng tay (kể cả khi sau đó phiên tự hỏi tóm tắt), hết giới hạn + giờ hồi
+      if (stopped) this.lastStopAt = Date.now();
+      if (failed && !stopped) {
+        const et = (typeof m.result === 'string' && m.result) || (m.errors || []).join('\n') || '';
+        if (isLimitHit(et)) { this.lastEnd.limit = true; const at = limitResetAt(et); if (at) this.lastEnd.resetAt = at; }
+      }
       this.summarizing = false;
       if (failed) {
         const errText = (typeof m.result === 'string' && m.result) || (m.errors || []).join('\n') || `Lỗi: ${m.subtype}`;
@@ -770,6 +776,7 @@
       if (CG.git) CG.git.onTurnEnd(this);
       this.setBusy(false);
       if (CG.suggest) CG.suggest.onTurnEnd(this, m, failed);
+      if (CG.autopilot && CG.autopilot.onTurnEnd) CG.autopilot.onTurnEnd(this);
       if (this.nb && CG.nb) CG.nb.onResult(this, m, failed);
       if (!this.nb && !failed && CG.lark) CG.lark.onResult(this, m);
       if (this.flushRedirect()) return;
@@ -2909,7 +2916,7 @@
     $('#acc-email').textContent = a && a.email ? a.email : S.infoError ? '⚠ Chưa kết nối CLI' : 'Đang kết nối…';
     $('#acc-plan').textContent = a ? [a.subscriptionType, S.info.claude_code_version ? 'CLI ' + S.info.claude_code_version : ''].filter(Boolean).join(' · ') : '';
     $('#avatar').textContent = a && a.email ? a.email[0].toUpperCase() : '?';
-    $('#btn-account').title = a ? `${a.email}\n${a.organization || ''}` : '';
+    $('#btn-account').title = a ? `${a.email}\n${a.organization || ''}${a.cliEmail ? `\n(tài khoản theo token CLI đang dùng — bản lưu trong ~/.claude.json ghi ${a.cliEmail}, có thể do app Claude chính đăng nhập tài khoản khác)` : ''}` : '';
   }
   function accountMenu() {
     const a = S.info && S.info.account;

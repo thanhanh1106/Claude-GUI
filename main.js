@@ -1406,7 +1406,47 @@ function planUsage(force) {
   return usageInflight;
 }
 
+// Tài khoản THẬT của token CLI đang dùng. Email CLI báo (initialize / auth status) lấy từ bản lưu tạm oauthAccount trong
+// ~/.claude.json — app Claude chính đăng nhập tài khoản khác có thể ghi đè chỗ này, nên GUI hiện sai email dù token đúng.
+// Hỏi thẳng Anthropic (api/oauth/profile, đúng nơi token này dùng) xem token thuộc ai; lỗi / không có token → giữ thông tin CLI.
+let tokAcct = null;
+async function tokenAccount() {
+  if (tokAcct && Date.now() - tokAcct.t < 10 * 60000) return tokAcct.v;
+  let token = '';
+  const env = { ...process.env, ...(settings.envVars || {}) };
+  if (env.ANTHROPIC_API_KEY || env.CLAUDE_CODE_USE_BEDROCK || env.CLAUDE_CODE_USE_VERTEX) return null;
+  token = env.CLAUDE_CODE_OAUTH_TOKEN || '';
+  if (!token) {
+    const c = readJson(path.join(claudeDir(), '.credentials.json'));
+    const o = c && c.claudeAiOauth;
+    if (!o || !o.accessToken || (o.expiresAt && o.expiresAt < Date.now() + 60000)) return null;
+    token = o.accessToken;
+  }
+  const ac = new AbortController();
+  const tm = setTimeout(() => ac.abort(), 10000);
+  try {
+    const res = await net.fetch('https://api.anthropic.com/api/oauth/profile', { headers: { Authorization: 'Bearer ' + token, 'anthropic-beta': 'oauth-2025-04-20', 'Content-Type': 'application/json' }, signal: ac.signal });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const a = j.account || {}, o = j.organization || {};
+    if (!a.email) return null;
+    const v = { email: a.email, organization: o.name || '', orgType: o.organization_type || '', tier: o.rate_limit_tier || '', name: a.display_name || a.full_name || '' };
+    tokAcct = { t: Date.now(), v };
+    return v;
+  } catch { return null; } finally { clearTimeout(tm); }
+}
+const SUB_OF = { claude_max: 'Claude Max', claude_pro: 'Claude Pro', claude_team: 'Claude Team', claude_enterprise: 'Claude Enterprise' };
+const subLabel = (r) => (SUB_OF[r.orgType] ? SUB_OF[r.orgType] + (/20x/.test(r.tier) ? ' 20x' : /5x/.test(r.tier) ? ' 5x' : '') : '');
+async function fixAccount(info) {
+  if (!info || info.error || !info.account) return info;
+  const real = await tokenAccount();
+  if (!real || String(real.email).toLowerCase() === String(info.account.email || '').toLowerCase()) return info;
+  return { ...info, account: { ...info.account, email: real.email, organization: real.organization || info.account.organization, subscriptionType: subLabel(real) || info.account.subscriptionType, cliEmail: info.account.email } };
+}
 function cliInfo(cwd) {
+  return cliInfoRaw(cwd).then(fixAccount);
+}
+function cliInfoRaw(cwd) {
   const key = cwd || '';
   lastProbeCwd = cwd || lastProbeCwd;
   if (infoCache.has(key)) return Promise.resolve(infoCache.get(key));
@@ -3005,7 +3045,15 @@ function registerIpc() {
   ipcMain.handle('media:watch', (_e, on) => mediaWatch(!!on));
   // ----- Lịch & hàng đợi: lưu ở schedules.json trong thư mục dữ liệu của app
   const SCHED_FILE = path.join(app.getPath('userData'), 'schedules.json');
-  ipcMain.handle('sched:load', () => readJson(SCHED_FILE) || { plans: [] });
+  // tệp lịch hỏng → sao lưu và báo, KHÔNG trả danh sách rỗng để rồi bị ghi đè mất hết
+  ipcMain.handle('sched:load', () => {
+    if (!fs.existsSync(SCHED_FILE)) return { plans: [] };
+    try { return JSON.parse(fs.readFileSync(SCHED_FILE, 'utf8').replace(/^\uFEFF/, '')); } catch (e) {
+      const bak = SCHED_FILE + '.hong-' + Date.now();
+      try { fs.copyFileSync(SCHED_FILE, bak); } catch {}
+      return { plans: [], error: `schedules.json hỏng (${e.message}) — đã sao lưu ở ${bak}` };
+    }
+  });
   ipcMain.handle('sched:save', (_e, data) => {
     try { const tmp = SCHED_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data, null, 1)); fs.renameSync(tmp, SCHED_FILE); return true; } catch { return false; }
   });

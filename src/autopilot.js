@@ -61,18 +61,49 @@
     const j = { version: 1, name: p.name, goal: P.goal, dir: P.dir, addDirs: P.addDirs, phases: P.phases, mcp: P.mcp, tasks: P.tasks.map(toJsonTask) };
     P.selfWrite = Date.now();
     await writeText(join(P.run, 'plan.json'), JSON.stringify(j, null, 2));
+    const w = await readText(join(P.run, 'plan.json'));
+    if (w) P.selfWrite = Math.max(P.selfWrite, w.mtime);
   }
 
   // agent ghi plan.json → tạo / cập nhật dự án
   function onToolResult(c, card) {
     if (!card || !['Write', 'Edit', 'MultiEdit'].includes(card.name)) return;
     const inp = card.input || {};
-    const m = RUN_RE.exec(String(inp.file_path || inp.path || ''));
+    let fp = String(inp.file_path || inp.path || '');
+    if (fp && !/^[a-zA-Z]:[\\/]|^[\\/]/.test(fp) && c.cwd) fp = join(c.cwd, fp); // đường dẫn tương đối (.claude-gui/runs/…/plan.json)
+    const m = RUN_RE.exec(fp);
     if (m) setTimeout(() => onPlanFile(c, m[1]).catch((e) => console.error('autopilot', e)), 150);
   }
+  // Phiên điều phối xong một lượt → đọc lại plan.json (nó có thể ghi bằng Bash / PowerShell / script / tác tử phụ —
+  // trước đây chỉ bắt được Write/Edit nên lịch đứng chờ mãi ở "Chờ phiên điều phối soạn bản sửa")
+  function onTurnEnd(c) {
+    if (!c || !c.sid || c.rs) return;
+    for (const p of projects()) {
+      const P = p.proj;
+      if (P.plannerSid !== c.sid && !(P.pending && P.pending.from === c.sid)) continue;
+      setTimeout(() => recheckPlan(p, c).catch((e) => console.error('autopilot', e)), 400);
+    }
+  }
+  async function recheckPlan(p, c) {
+    const P = p.proj;
+    const r = await readText(join(P.run, 'plan.json'));
+    if (!r) return false;
+    if (r.mtime <= (P.selfWrite || 0) + 1500 || r.mtime <= (P.planSeen || 0)) {
+      // điều phối trả lời mà chưa ghi plan.json (vd đang hỏi lại bạn) → nói rõ thay vì quay mãi
+      if (P.hold && P.hold.kind === 'planning' && c && !c.busy && !P.hold.answered) { P.hold.answered = Date.now(); save(); render(); }
+      return false;
+    }
+    await onPlanFile(c || { sid: P.plannerSid, cwd: P.dir, title: 'phiên điều phối' }, P.run);
+    return true;
+  }
+  // mở lại app khi đang chờ điều phối / định kỳ: kiểm tra plan.json đã được ghi chưa
+  setInterval(() => { for (const p of projects()) if (p.proj.hold && p.proj.hold.kind === 'planning') recheckPlan(p, A() && A().convs().find((x) => x.sid === p.proj.plannerSid && !x.rs)).catch(() => {}); }, 20000);
   async function onPlanFile(c, runDir) {
     const r = await readText(join(runDir, 'plan.json'));
     if (!r) return;
+    const known = projects().find((x) => norm(x.proj.run) === norm(runDir));
+    if (known && r.mtime <= (known.proj.planSeen || 0)) return; // đã xử lý bản này
+    if (known && r.mtime <= (known.proj.selfWrite || 0) + 1500) return; // bản do chính GUI ghi
     let j;
     try { j = JSON.parse(r.text); } catch (e) { toast('plan.json chưa đúng JSON: ' + e.message, true); return; }
     const tasks = parseTasks(j);
@@ -89,6 +120,7 @@
       return;
     }
     const P = p.proj;
+    P.planSeen = r.mtime;
     if (c.sid && !P.plannerSid) P.plannerSid = c.sid;
     Object.assign(P, { goal: j.goal || P.goal, phases: Array.isArray(j.phases) && j.phases.length ? j.phases : P.phases, mcp: Array.isArray(j.mcp) ? j.mcp.map(String) : P.mcp });
     if (j.name) p.name = String(j.name).slice(0, 80);
@@ -103,7 +135,7 @@
     // đang chạy dở → bản sửa lịch, chờ duyệt
     P.pending = { tasks, change: String(j.change || ''), at: Date.now(), from: c.sid };
     log(p, 'Phiên điều phối gửi bản sửa lịch' + (j.change ? ': ' + j.change : ''));
-    if (P.policy === 'auto') { applyPending(p); toast(`Đã tự áp dụng bản sửa lịch cho “${p.name}”`); if (p.run.state !== 'running') run(p); return; }
+    if (P.policy === 'auto') { applyPending(p); toast(`Đã tự áp dụng bản sửa lịch cho “${p.name}”`); run(p); return; }
     hold(p, { kind: 'pending' }, 'Bản sửa lịch đã sẵn sàng — xem và duyệt');
     card(c, p, 'pending');
   }
@@ -140,7 +172,8 @@
   // =====================================================================
   // Chạy
   // =====================================================================
-  const running = new Set();
+  const running = new Map(); // id dự án -> mã lần chạy
+  const again = new Set(); // bấm chạy tiếp khi vòng cũ chưa thoát hẳn → vòng cũ thoát xong thì chạy lại
   function hold(p, hd, note) {
     const P = p.proj;
     P.hold = { ...hd, at: Date.now() };
@@ -150,24 +183,30 @@
     return 'stop';
   }
   const phaseName = (P, id) => ((P.phases || []).find((x) => +x.id === +id) || {}).name || `Giai đoạn ${id}`;
+  // thứ tự chạy = thứ tự hiển thị (theo giai đoạn, rồi theo vị trí)
+  const ordered = (P) => P.tasks.map((t, k) => [t, k]).sort((a, b) => (+a[0].phase || 1) - (+b[0].phase || 1) || a[1] - b[1]).map((x) => x[0]);
   function nextTask(P) {
-    for (const t of P.tasks) {
+    for (const t of ordered(P)) {
       if (isDone(t) || t.st === 'ask' || t.st === 'err' || t.st === 'part') continue;
       if (t.deps.every((d) => { const x = P.tasks.find((y) => y.id === d); return !x || isDone(x); })) return t;
     }
     return null;
   }
   async function run(p) {
-    if (running.has(p.id)) return;
+    if (running.has(p.id)) { again.add(p.id); if (p.run.state !== 'running') { p.proj.hold = null; p.run.state = 'running'; p.run.note = ''; save(); render(); } return; }
     const P = p.proj, r = p.run;
-    running.add(p.id);
+    const my = Math.random().toString(36).slice(2);
+    running.set(p.id, my);
+    again.delete(p.id);
+    const alive = () => running.get(p.id) === my && p.on && plans().includes(p);
     P.approved = true; P.hold = null;
     r.state = 'running'; r.note = ''; r.resumeAt = 0;
+    if (!r.firedAt) r.firedAt = Date.now(); // chạy tay rồi thì giờ hẹn sau đó không kích hoạt lại
     log(p, 'Bắt đầu / chạy tiếp');
     save(); render();
     try {
       for (;;) {
-        if (!p.on || r.state !== 'running') break;
+        if (!alive() || r.state !== 'running') break;
         if (P.designReq) { await askPlannerDesign(p); break; }
         const t = nextTask(P);
         if (!t) {
@@ -184,20 +223,26 @@
         // kiểm tra design trước khi sang giai đoạn mới (giai đoạn đầu vừa đọc lúc lập kế hoạch)
         const firstPhase = Math.min(...P.tasks.map((x) => +x.phase || 1));
         if (P.designCheck && +t.phase !== firstPhase && !(P.checkedPhases || []).includes(+t.phase)) {
-          (P.checkedPhases = P.checkedPhases || []).push(+t.phase);
           const ch = await designCheck(p, t.phase);
+          if (!alive()) break;
+          (P.checkedPhases = P.checkedPhases || []).push(+t.phase);
           if (r.state !== 'running') break;
           if (ch && ch.changed) { hold(p, { kind: 'designchg', items: ch.items, phase: t.phase }, `Design đã đổi từ lúc lập kế hoạch (${ch.items.length} chỗ) — xem trước khi chạy ${phaseName(P, t.phase)}.`); break; }
         }
-        const res = await runTask(p, t);
+        const res = await runTask(p, t, alive);
         if (res === 'stop') break;
       }
     } catch (e) {
       console.error(e);
-      hold(p, { kind: 'err', text: e.message }, 'Lỗi: ' + e.message);
+      if (alive()) hold(p, { kind: 'err', text: e.message }, 'Lỗi: ' + e.message);
     }
-    running.delete(p.id);
+    if (running.get(p.id) === my) running.delete(p.id);
+    if (P.hold && P.hold.kind === 'check') P.hold = null;
+    // tắt dự án giữa chừng → không kẹt ở "đang chạy"
+    if (r.state === 'running' && !p.on) { r.state = 'idle'; r.note = 'Đã tắt.'; const rt = P.tasks.find((x) => x.st === 'run'); if (rt) rt.st = 'part'; }
     save(); render();
+    // người dùng đã bấm chạy tiếp / áp dụng bản sửa trong lúc vòng này đang kết thúc
+    if (again.has(p.id) && p.on && plans().includes(p) && !running.has(p.id)) { again.delete(p.id); if (r.state === 'running' && !P.pending && !(P.hold && P.hold.kind === 'planning')) { r.state = 'paused'; run(p); } }
   }
   async function buildTaskPrompt(p, t) {
     const P = p.proj, i = P.tasks.indexOf(t), N = P.tasks.length;
@@ -228,19 +273,32 @@ Khi xong (kể cả chưa đạt): ghi bàn giao vào ${join(P.run, 'handoff', t
 Nếu thấy kế hoạch sai: dùng skill claude-gui:xin-doi-lich (ghi ${join(P.run, 'replan', t.id + '.json')}) rồi dừng.`;
   }
   const accOf = (text) => { const m = /Đạt tiêu chí\s*:\s*\**\s*(có|một phần|không)/i.exec(text || ''); return m ? m[1].toLowerCase() : ''; };
-  async function runTask(p, t) {
+  // phiên mở lại từ lịch sử không mang quyền / MCP / thư mục thêm của dự án → đặt lại (khởi động lại CLI nếu khác)
+  function applyProj(c, P, t) {
+    const want = { model: t.model, effort: t.effort, mode: P.mode, allowedTools: P.mcp || [], addDirs: P.addDirs || [] };
+    for (const [k, v] of Object.entries(want)) {
+      if (v === undefined || v === null || v === '') continue;
+      if (JSON.stringify(c[k] || (Array.isArray(v) ? [] : '')) !== JSON.stringify(v)) { c[k] = Array.isArray(v) ? [...v] : v; c.respawn = true; }
+    }
+  }
+  async function runTask(p, t, alive = () => true) {
     const P = p.proj, r = p.run, H = SC()._h;
     const i = P.tasks.indexOf(t);
-    const resume = (t.st === 'pause' || t.st === 'run') && t.sid;
+    let resume = (t.st === 'pause' || t.st === 'run') && t.sid;
     t.st = 'run'; t.t0 = t.t0 && resume ? t.t0 : Date.now(); r.idx = i;
     save(); render();
     let c;
-    const prev = i > 0 ? P.tasks[i - 1] : null;
+    const ord = ordered(P), oi = ord.indexOf(t);
+    const prev = oi > 0 ? ord[oi - 1] : null;
     if (resume) c = await A().convFor(t.sid);
     else if (t.cont && prev && prev.sid) {
       c = await A().convFor(prev.sid);
-      if (c) { await H.waitIdle(c); c.model = t.model; c.effort = t.effort; c.respawn = true; }
+      if (c) await H.waitIdle(c, 0, alive);
     }
+    if (!alive()) return 'stop';
+    // phiên cũ không còn → chạy lại từ đầu bằng prompt đầy đủ (không gửi "làm tiếp" vào phiên trống)
+    if (resume && !c) { resume = false; t.t0 = Date.now(); }
+    if (c) applyProj(c, P, t);
     if (!c) c = await A().createConv({ cwd: P.dir, model: t.model, effort: t.effort, mode: P.mode, addDirs: P.addDirs, allowedTools: P.mcp });
     if (!resume) c.title = `🤖 ${p.name} · ${i + 1}. ${t.title}`.slice(0, 100);
     t.sid = c.sid;
@@ -251,19 +309,24 @@ Nếu thấy kế hoạch sai: dùng skill claude-gui:xin-doi-lich (ghi ${join(P
     else await c.send(await buildTaskPrompt(p, t), `🤖 Task ${i + 1}/${P.tasks.length}: ${t.title}`);
     log(p, `Chạy task ${i + 1}: ${t.title} (${MN[t.model]} · ${CG.effortLabel(t.effort)})`);
     save(); render();
-    let end = await H.waitEnd(c, startT);
+    let end = await H.waitEnd(c, startT, alive);
+    if (!alive()) return 'stop'; // bấm Dừng: stop() đã ghi trạng thái
     t.cost = typeof c.cost === 'number' ? c.cost : t.cost;
-    // hết giới hạn giữa chừng → tạm dừng, sched tự chạy tiếp khi giới hạn hồi
-    if (end.kind === 'error' && H.limitOut()) {
-      const L = H.limits(), x = L.s && L.s.pct >= 100 ? L.s : L.w;
-      t.st = 'pause'; r.state = 'paused'; r.resumeAt = x && x.reset ? x.reset + 60e3 : Date.now() + 30 * 60e3;
-      r.note = `Hết giới hạn ở task ${i + 1}. Tự chạy tiếp lúc ${H.fmtTime(r.resumeAt)}.`;
-      log(p, r.note); notify('Claude GUI · tạm dừng dự án', `${p.name}: ${r.note}`);
-      save(); render();
-      return 'stop';
-    }
-    if (end.kind === 'stopped' && !P.designReq) { t.st = 'part'; return hold(p, { kind: 'stopped', task: t.id }, `Task ${i + 1} đã bị dừng tay.`); }
-    if (end.kind === 'error') { t.st = 'err'; return hold(p, { kind: 'err', task: t.id }, `Task ${i + 1} gặp lỗi.`); }
+    // hết giới hạn / dừng tay / lỗi (dùng cho cả lượt chính lẫn lượt nhắc ghi bàn giao)
+    const bad = (e) => {
+      if (e.kind === 'error' && (e.limit || H.limitOut())) {
+        t.st = 'pause'; r.state = 'paused'; r.resumeAt = H.resumeTime(e);
+        r.note = `Hết giới hạn ở task ${i + 1}. Tự chạy tiếp lúc ${H.fmtTime(r.resumeAt)}.`;
+        log(p, r.note); notify('Claude GUI · tạm dừng dự án', `${p.name}: ${r.note}`);
+        save(); render();
+        return 'stop';
+      }
+      if (e.kind === 'stopped' && !P.designReq) { t.st = 'part'; return hold(p, { kind: 'stopped', task: t.id }, `Task ${i + 1} đã bị dừng tay.`); }
+      if (e.kind === 'error') { t.st = 'err'; return hold(p, { kind: 'err', task: t.id }, `Task ${i + 1} gặp lỗi.`); }
+      return null;
+    };
+    const b1 = bad(end);
+    if (b1) return b1;
     // xin đổi lịch?
     const rp = await readText(join(P.run, 'replan', t.id + '.json'));
     let rj = null;
@@ -273,8 +336,12 @@ Nếu thấy kế hoạch sai: dùng skill claude-gui:xin-doi-lich (ghi ${join(P
     if ((!ho || ho.mtime < t.t0 - 2000) && !rj) {
       const s2 = Date.now();
       await c.send(`Bạn chưa ghi bàn giao. Ghi ngay vào ${join(P.run, 'handoff', t.id + '.md')} theo mẫu của skill lam-task (có dòng "Đạt tiêu chí: có | một phần | không"), không làm thêm việc gì khác.`, 'Nhắc ghi bàn giao');
-      end = await H.waitEnd(c, s2);
+      end = await H.waitEnd(c, s2, alive);
+      if (!alive()) return 'stop';
+      const b2 = bad(end);
+      if (b2) return b2;
       ho = await readText(join(P.run, 'handoff', t.id + '.md'));
+      if (ho && ho.mtime < t.t0 - 2000) ho = null; // bàn giao cũ của lần chạy trước — không tính
     }
     t.cost = typeof c.cost === 'number' ? c.cost : t.cost;
     const acc = ho ? accOf(ho.text) : '';
@@ -298,11 +365,13 @@ Nếu thấy kế hoạch sai: dùng skill claude-gui:xin-doi-lich (ghi ${join(P
   function stop(p) {
     const P = p.proj, r = p.run;
     const t = P.tasks.find((x) => x.st === 'run');
-    const c = t && t.sid && A().convs().find((x) => x.sid === t.sid);
+    const c = t && t.sid && A().convs().find((x) => x.sid === t.sid && !x.rs);
+    running.delete(p.id); // vòng đang chạy tự thoát ở lần chờ kế, không ghi đè trạng thái
+    again.delete(p.id);
     if (c && c.busy) c.interrupt();
     if (t) t.st = 'part';
+    if (P.hold && P.hold.kind === 'check') P.hold = null;
     r.state = 'idle'; r.resumeAt = 0; r.note = 'Đã dừng.';
-    running.delete(p.id);
     log(p, 'Người dùng dừng dự án');
     save(); render();
   }
@@ -383,10 +452,11 @@ Task đã xong mà bị ảnh hưởng → thêm task sửa lại (không mở l
     const res = pd.tasks.map((n) => {
       const o = om.get(n.id);
       if (o && isDone(o)) return o;
-      if (o && o.st === 'run') return { ...n, st: 'run', sid: o.sid, t0: o.t0 };
+      if (o && o.st === 'run') { Object.assign(o, { title: n.title, acc: n.acc, deps: n.deps, cp: n.cp, phase: n.phase }); return o; }
+      if (o) { for (const k of Object.keys(o)) delete o[k]; Object.assign(o, n, { st: 'wait', sid: '' }); return o; }
       return { ...n, st: 'wait', sid: '' };
     });
-    P.tasks = [...P.tasks.filter((o) => isDone(o) && !nm.has(o.id)), ...res];
+    P.tasks = [...P.tasks.filter((o) => (isDone(o) || o.st === 'run') && !nm.has(o.id)), ...res];
     P.pending = null; P.hold = null;
     log(p, 'Áp dụng bản sửa lịch' + (pd.change ? ': ' + pd.change : ''));
     save(); render();
@@ -463,7 +533,7 @@ ${sj.gdd && sj.gdd.sha ? `- Tài liệu thiết kế: gọi công cụ get_chang
     const head = h('div', { class: 'sc-flow-h ap-head' }, h('h3', { class: 'ellipsis', text: '🤖 ' + p.name }), h('span', { class: 'ap-pill ' + (r.state === 'running' ? 'run' : P.hold ? 'warn' : ''), text: status(p) }));
     const B = (txt, fn, cls, ic) => h('button', { class: 'btn sm ' + (cls || ''), onclick: fn }, ic ? icon(ic, 13) : null, txt);
     if (!P.approved) head.append(B('Duyệt & chạy', () => approve(p), 'primary', 'check'));
-    else if (r.state === 'running') head.append(B('Dừng', () => stop(p), '', 'square'));
+    else if (r.state === 'running' || (r.state === 'paused' && r.resumeAt)) head.append(B('Dừng', () => stop(p), '', 'square'));
     else if (!P.pending && !(P.hold && (P.hold.kind === 'planning' || P.hold.kind === 'check')) && (r.state !== 'done' || P.tasks.some((t) => !isDone(t)))) head.append(B(r.state === 'paused' || r.state === 'idle' ? 'Chạy tiếp' : 'Chạy', () => { P.hold = null; run(p); }, P.hold ? '' : 'primary', 'play'));
     head.append(B('Cập nhật yêu cầu / design', () => designDialog(p), '', 'edit'));
     head.append(h('button', { class: 'icon-btn sm', title: 'Thêm', html: svg('more', 15), onclick: (e) => CG.menu(e.currentTarget, [
@@ -672,8 +742,12 @@ ${sj.gdd && sj.gdd.sha ? `- Tài liệu thiết kế: gọi công cụ get_chang
           B('Bỏ qua, chạy tiếp', resume), B('Ghi nhận bản mới, không sửa lịch', async () => { await acceptDesign(p); resume(); }))],
       planning: () => [h('h3', {}, h('span', { class: 'spinner' }), ' Đang chờ phiên điều phối soạn bản sửa lịch'), h('div', { class: 'who', text: hd.why || '' }),
         h('div', { class: 'note', text: 'Phiên điều phối ghi lại plan.json xong thì bản sửa hiện ở đây để bạn duyệt. Nó có thể hỏi lại bạn trong phiên đó.' }),
-        h('div', { class: 'ap-row2' }, B('Mở phiên điều phối', () => openSess(P.plannerSid), 'primary'), B('Huỷ, chạy tiếp như cũ', () => { P.hold = null; save(); render(); }))],
-      check: () => [h('h3', {}, h('span', { class: 'spinner' }), ' Đang kiểm tra design có đổi không'), h('div', { class: 'who', text: `Haiku · thấp — trước ${phaseName(P, hd.phase)}` })],
+        hd.answered ? h('div', { class: 'pk-warn', text: `Phiên điều phối đã trả lời lúc ${SC()._h.fmtTime(hd.answered)} nhưng chưa ghi lại plan.json — có thể nó đang hỏi lại bạn. Mở phiên để trả lời, hoặc bấm “Kiểm tra lại”.` }) : null,
+        h('div', { class: 'ap-row2' }, B('Mở phiên điều phối', () => openSess(P.plannerSid), 'primary'),
+          B('Kiểm tra lại plan.json', async () => { const ok = await recheckPlan(p, A().convs().find((x) => x.sid === P.plannerSid && !x.rs)); if (!ok) toast('plan.json chưa đổi từ lúc gửi phiên điều phối.'); }),
+          B('Huỷ, chạy tiếp như cũ', () => { P.hold = null; run(p); }))],
+      check: () => [h('h3', {}, h('span', { class: 'spinner' }), ' Đang kiểm tra design có đổi không'), h('div', { class: 'who', text: `Haiku · thấp — trước ${phaseName(P, hd.phase)}` }),
+        !running.has(p.id) ? h('div', { class: 'ap-row2' }, B('Bỏ qua kiểm tra, chạy tiếp', () => { P.hold = null; (P.checkedPhases = P.checkedPhases || []).push(+hd.phase); run(p); }, 'primary')) : null],
       blocked: () => [h('h3', {}, '⏸ Tạm dừng'), h('div', { class: 'who', text: p.run.note || 'Một số task cần bạn xem (đánh dấu ? hoặc ✕ trong danh sách).' }), h('div', { class: 'ap-row2' }, B('Chạy tiếp', resume, 'primary'))],
     };
     box.append(...(K[hd.kind] || K.blocked)().filter(Boolean));
@@ -699,8 +773,8 @@ ${sj.gdd && sj.gdd.sha ? `- Tài liệu thiết kế: gọi công cụ get_chang
       P.designReq = { text };
       log(p, 'Người dùng báo yêu cầu / design thay đổi');
       const c = runT && runT.sid && A().convs().find((x) => x.sid === runT.sid);
-      if (c && c.busy && p.run.state === 'running') {
-        if (pol === 'stop') await c.send(`Dừng lại ngay ở điểm an toàn: yêu cầu / design vừa thay đổi. Ghi bàn giao phần đã làm vào ${join(P.run, 'handoff', runT.id + '.md')} (Đạt tiêu chí: một phần) rồi kết thúc lượt, không làm tiếp.`, '⏹ Dừng ở điểm an toàn (design thay đổi)');
+      if (running.has(p.id) && p.run.state === 'running') {
+        if (pol === 'stop' && c && c.busy) await c.send(`Dừng lại ngay ở điểm an toàn: yêu cầu / design vừa thay đổi. Ghi bàn giao phần đã làm vào ${join(P.run, 'handoff', runT.id + '.md')} (Đạt tiêu chí: một phần) rồi kết thúc lượt, không làm tiếp.`, '⏹ Dừng ở điểm an toàn (design thay đổi)');
         toast(pol === 'stop' ? 'Đã báo task đang chạy dừng lại — xong sẽ gửi phiên điều phối' : 'Task đang chạy làm xong sẽ gửi phiên điều phối');
         save(); render();
       } else askPlannerDesign(p);
@@ -735,5 +809,5 @@ ${sj.gdd && sj.gdd.sha ? `- Tài liệu thiết kế: gọi công cụ get_chang
     const m = modal('Bộ skill của Claude GUI', body, [h('button', { class: 'btn', text: 'Đóng', onclick: () => m.close() })], { cls: 'm-wide' });
   }
 
-  CG.autopilot = { onToolResult, run, stop, status, renderFlow, planFromComposer, skillsDialog, _onPlanFile: onPlanFile, _designCheck: designCheck, _applyPending: applyPending };
+  CG.autopilot = { onToolResult, onTurnEnd, recheckPlan, run, stop, status, renderFlow, planFromComposer, skillsDialog, _onPlanFile: onPlanFile, _designCheck: designCheck, _applyPending: applyPending };
 })();

@@ -33,21 +33,24 @@
       nodes: [newNode('new')], run: { state: 'idle', st: [], sids: [] }, ...o };
   }
   async function load() {
-    const r = await api.schedLoad().catch(() => null);
+    const r = await api.schedLoad().catch((e) => ({ error: e.message }));
+    if (r && r.error) toast('Không đọc được lịch: ' + r.error, true);
     D.plans = (r && Array.isArray(r.plans) ? r.plans : []).filter((p) => p && p.id);
     // app tắt giữa lúc đang chạy → không chạy tiếp ngầm được (phiên CLI đã đóng): tạm dừng, người dùng bấm "Chạy tiếp"
     for (const p of D.plans) {
       p.run = p.run || { state: 'idle', st: [], sids: [] };
       if (p.run.state === 'running') { p.run.state = 'paused'; p.run.note = 'App đã tắt khi kế hoạch đang chạy — bấm "Chạy tiếp" để làm nốt.'; p.run.st = (p.run.st || []).map((x) => (x === 'run' ? 'pause' : x)); }
-      if (p.run.state === 'waiting') p.run.state = 'idle';
+      if (p.run.state === 'waiting' && !p.run.resumeAt) { p.run.state = 'paused'; p.run.note = 'App đã tắt khi đang chờ bước kế — bấm "Chạy tiếp".'; }
+      p.run.runId = '';
+      if (p.kind === 'project' && p.proj && p.proj.hold && p.proj.hold.kind === 'check') p.proj.hold = null;
     }
     D.loaded = true;
-    save(true);
+    if (!(r && r.error)) save(true);
   }
   let saveT = null;
   function save(now) {
     clearTimeout(saveT);
-    const go = () => { api.schedSave({ plans: D.plans.filter((p) => !p.demo) }); api.schedPending(pendingCount()); };
+    const go = () => { api.schedSave({ plans: D.plans.filter((p) => !p.demo) }).then((ok) => { if (ok === false && !save.warned) { save.warned = true; toast('Không lưu được lịch (schedules.json) — kiểm tra quyền ghi thư mục dữ liệu.', true); } }).catch(() => {}); api.schedPending(pendingCount()); };
     if (now) go(); else saveT = setTimeout(go, 300);
   }
   const pendingCount = () => D.plans.filter((p) => !p.demo && p.on && (p.run.state === 'running' || p.run.state === 'waiting' || p.run.state === 'paused' || nextFire(p) != null || p.trig.type === 'after' || p.trig.type.startsWith('reset'))).length;
@@ -121,7 +124,7 @@
   // Chạy
   // =====================================================================
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const running = new Set();
+  const running = new Map(); // id kế hoạch -> mã lần chạy
   function tick() {
     if (!D.loaded) return;
     const now = Date.now();
@@ -135,7 +138,9 @@
       if (p.trig.type === 'after') {
         const sid = p.trig.sess && p.trig.sess.id;
         const c = sid && A().convs().find((x) => x.sid === sid);
-        if (c && !c.busy && !c.working && c.lastEnd && c.lastEnd.t > (p.armedAt || p.created) && (!r.firedAt || c.lastEnd.t > r.firedAt)) fire(p);
+        // chạy một lần cho mỗi lần đặt lịch (trước đây lượt do chính hàng đợi gửi vào phiên đó lại kích hoạt nó → gửi lặp vô hạn)
+        if (r.firedAt || r.state === 'done' || r.state === 'error') continue;
+        if (c && !c.busy && !c.working && c.lastEnd && c.lastEnd.t > (p.armedAt || p.created)) { if (planReady(p)) fire(p); else noteNotReady(p); }
         continue;
       }
       const t = nextFire(p);
@@ -144,15 +149,28 @@
       const late = now - t > 180e3 && (p.trig.type === 'at' || p.trig.type === 'repeat');
       if (late && (p.trig.missed === 'skip' || now - t > 7 * 864e5)) { r.firedAt = now; r.note = `Bỏ qua lần lỡ lúc ${fmtTime(t)} (${p.trig.missed === 'skip' ? 'theo cài đặt' : 'quá 7 ngày'}).`; save(); render(); continue; }
       if (late && p.trig.missed === 'ask') {
+        // lặp lại: đã có lần mới hơn cũng bị lỡ → bỏ lần cũ, xét lần mới nhất (không để một lần lỡ chặn cả tuần)
+        if (p.trig.type === 'repeat') { const keep = r.firedAt; r.firedAt = t; const n2 = nextFire(p); if (n2 != null && n2 <= now) { save(); continue; } r.firedAt = keep; }
         if (r.missedAt !== t) { r.missedAt = t; r.note = `Bị lỡ lúc ${fmtTime(t)} (app tắt / máy ngủ) — bấm "Chạy bù" hoặc "Bỏ qua".`; save(); render(); notify('Claude GUI · lịch bị lỡ', `${p.name}: lỡ lúc ${fmtTime(t)} — mở Lịch & hàng đợi để chạy bù.`); }
         continue;
       }
       if (late) { r.note = `Chạy bù lần lỡ lúc ${fmtTime(t)} (app tắt / máy ngủ).`; notify('Claude GUI · chạy bù lịch', `${p.name}: lỡ lúc ${fmtTime(t)}, đang chạy bù.`); }
+      if (!planReady(p)) { noteNotReady(p); continue; }
       if (p.trig.type.startsWith('reset') && p.trig.minLeft) {
-        // chỉ chạy khi giới hạn sau khi hồi còn đủ; lấy số liệu mới trước
-        const L = limits(), x = p.trig.type === 'reset5' ? L.s : L.w;
-        if (x && x.reset && x.reset < now) { if (!p._fetching) { p._fetching = true; A().fetchUsage(true).finally(() => { p._fetching = false; }); } continue; }
-        if (x && x.pct > 100 - p.trig.minLeft) { markReset(p); r.firedAt = now; save(); continue; }
+        // chỉ chạy khi giới hạn sau khi hồi còn đủ: lấy số liệu mới rồi quyết định cho đúng lần hồi này
+        if (!p._fetching) {
+          p._fetching = true;
+          const oldReset = t - 30e3;
+          Promise.resolve(A().fetchUsage(true)).catch(() => {}).finally(() => {
+            p._fetching = false;
+            if (!p.on || running.has(p.id) || (r.firedReset && r.firedReset >= oldReset)) return;
+            const L = limits(), x = p.trig.type === 'reset5' ? L.s : L.w;
+            r.firedReset = oldReset; r.firedAt = Date.now();
+            if (x && x.pct > 100 - p.trig.minLeft) { r.note = `Bỏ qua lần hồi ${fmtTime(oldReset)}: giới hạn đã dùng ${Math.round(x.pct)}% (cần còn ít nhất ${p.trig.minLeft}%).`; save(); render(); return; }
+            runPlan(p, 0);
+          });
+        }
+        continue;
       }
       fire(p);
     }
@@ -163,6 +181,7 @@
       if (soon !== tick.awake) { tick.awake = soon; api.schedAwake(soon); }
     }
   }
+  function noteNotReady(p) { const n = 'Chưa chạy: có bước chưa có prompt — bấm vào bước đó để viết.'; if (p.run.note !== n) { p.run.note = n; save(); render(); } }
   function markReset(p) { const L = limits(), x = p.trig.type === 'reset5' ? L.s : L.w; if (x) p.run.firedReset = x.reset; }
   function fire(p) {
     p.run.firedAt = Date.now();
@@ -183,39 +202,61 @@
     if (text) content.push({ type: 'text', text });
     return { content, display: text, urls: imgs.map((d) => `data:${d.mime};base64,${d.data}`) };
   }
-  async function waitIdle(c, maxMs) {
+  // chờ phiên rảnh hẳn (kể cả tác tử phụ / lệnh nền), alive() = false → thôi chờ
+  async function waitIdle(c, maxMs, alive) {
     const t0 = Date.now();
-    while ((c.busy || (c.perms && c.perms.size)) && Date.now() - t0 < (maxMs || 6 * 3600e3)) await sleep(1500);
+    while ((c.busy || c.working || (c.perms && c.perms.size)) && Date.now() - t0 < (maxMs || 6 * 3600e3)) { if (alive && !alive()) return; await sleep(1500); }
   }
-  async function waitEnd(c, startT) {
+  // chờ lượt gửi lúc startT kết thúc. Bấm Dừng (kể cả khi phiên tự hỏi tóm tắt sau khi dừng) → kind 'stopped';
+  // hết giới hạn → limit + resetAt lấy từ chính lỗi CLI (không dựa vào số liệu Sử dụng có thể cũ)
+  async function waitEnd(c, startT, alive) {
     for (;;) {
       await sleep(1200);
-      if (!c.busy && c.lastEnd && c.lastEnd.t >= startT) return c.lastEnd;
+      if (alive && !alive()) return { kind: 'stopped', aborted: true };
+      if (!c.busy && c.lastEnd && c.lastEnd.t >= startT) {
+        const e = { ...c.lastEnd };
+        if (c.lastStopAt && c.lastStopAt >= startT) e.kind = 'stopped';
+        return e;
+      }
       if (!c.busy && !c.pid && Date.now() - startT > 20000 && !(c.lastEnd && c.lastEnd.t >= startT)) return { kind: 'error' };
     }
   }
-  const limitOut = () => { const L = limits(); return (L.s && L.s.pct >= 100) || (L.w && L.w.pct >= 100); };
+  const limitOut = () => { const L = limits(); return (L.s && L.s.pct >= 99.5) || (L.w && L.w.pct >= 99.5); };
   function notify(title, body) { if (!document.hasFocus()) api.notify(title, body); }
 
+  // bước có nội dung để gửi chưa (kế hoạch tạo từ mẫu / trống mà chưa viết prompt thì không chạy)
+  const nodeReady = (n) => !!((n.prompt || '').trim() || (n.atts && n.atts.length));
+  const planReady = (p) => p.kind === 'project' || p.nodes.every(nodeReady);
   async function runPlan(p, from, resume) {
     if (p.kind === 'project') return CG.autopilot && CG.autopilot.run(p);
     if (running.has(p.id)) return;
-    running.add(p.id);
     const r = p.run;
+    const bad = p.nodes.findIndex((n, k) => k >= from && !nodeReady(n) && !(resume && k === from && r.resumeNote));
+    if (bad >= 0) { r.state = 'error'; r.note = `Bước ${bad + 1} chưa có prompt — bấm vào bước đó để viết rồi chạy lại.`; save(); render(); return; }
+    // mỗi lần chạy một mã riêng: bấm Dừng / tắt / xoá kế hoạch → vòng cũ tự thoát ở lần chờ kế, không chạy chồng với vòng mới
+    const my = uid();
+    running.set(p.id, my);
+    r.runId = my;
     if (!resume || !r.st || r.st.length !== p.nodes.length) { r.st = p.nodes.map(() => 'wait'); r.sids = []; }
-    r.state = 'running'; r.note = ''; r.idx = from;
+    r.state = 'running'; r.note = ''; r.idx = from; r.resumeAt = 0;
     save(); render();
     notify('Claude GUI · bắt đầu kế hoạch', p.name);
+    const alive = () => r.runId === my && r.state === 'running' && p.on && D.plans.includes(p);
+    const release = () => { if (running.get(p.id) === my) running.delete(p.id); };
     let ok = true;
     try {
       for (let i = from; i < p.nodes.length; i++) {
-        if (!p.on || r.state !== 'running') { ok = false; break; }
+        if (!alive()) { ok = false; break; }
+        while (r.st.length < p.nodes.length) r.st.push('wait'); // hàng đợi được thêm bước trong lúc chạy
         const node = p.nodes[i];
         r.idx = i; r.st[i] = 'run'; save(); render();
         // phiên cho bước này
         let c = null;
-        if (resume && i === from && r.sids[i]) c = await A().convFor(r.sids[i]);
+        let resumed = resume && i === from && r.sids[i];
+        if (resumed) c = await A().convFor(r.sids[i]);
+        if (c) { /* phiên của bước đang dở */ }
         else if (node.kind === 'new') {
+          resumed = false;
           if (!node.cwd) throw new Error(`Bước ${i + 1}: chưa chọn thư mục dự án`);
           const dirs = node.atts.filter((a) => a.kind === 'dir' || (a.kind === 'repo' && /^[a-zA-Z]:[\\/]|^\//.test(a.path))).map((a) => a.path);
           // việc gợi ý lưu vào hàng đợi (quy trình "sửa lỗi ở nhánh riêng"): tạo worktree trên nhánh mới rồi chạy ở đó
@@ -228,37 +269,42 @@
           c = await A().createConv({ cwd, model: node.model, effort: node.effort, mode: node.mode, agent: node.agent, addDirs: dirs, title: node.title });
           if (p.suggest && CG.suggest) CG.suggest.linkChild(c.sid, p.suggest.from, node.title || p.name, node.branch);
         } else {
+          resumed = false;
           const sid = node.target === 'prev' ? (i > 0 ? r.sids[i - 1] : p.trig.sess && p.trig.sess.id) : node.target;
           if (!sid) throw new Error(`Bước ${i + 1}: không có phiên để nối tiếp`);
           c = await A().convFor(sid);
           if (!c) throw new Error(`Bước ${i + 1}: không tìm thấy phiên để nối tiếp`);
-          await waitIdle(c);
-          if (node.effort) c.effort = node.effort;
-          if (node.mode) c.mode = node.mode === 'bypassPermissions' && !S().settings.allowBypass ? 'acceptEdits' : node.mode;
-          if (node.effort || node.mode) c.respawn = true; // áp dụng effort/quyền mới cho tiến trình CLI
+          await waitIdle(c, 0, alive);
+          if (!alive()) { ok = false; break; }
+          // chỉ khởi động lại CLI khi effort / quyền thật sự khác (khởi động lại làm mất tác tử phụ đang chạy nền)
+          const mode = node.mode === 'bypassPermissions' && !S().settings.allowBypass ? 'acceptEdits' : node.mode;
+          if (node.effort && node.effort !== c.effort) { c.effort = node.effort; c.respawn = true; }
+          if (mode && mode !== c.mode) { c.mode = mode; c.respawn = true; }
         }
+        if (!alive()) { ok = false; break; }
         r.sids[i] = c.sid;
         c.managed = true; // kế hoạch tự chạy tiếp khi giới hạn hồi
         const startT = Date.now();
-        if (resume && i === from && r.sids[i] && r.resumeNote) {
+        if (resumed) {
           r.resumeNote = '';
-          await c.send('Giới hạn sử dụng đã hồi. Hãy làm tiếp phần việc còn dở của yêu cầu trước cho xong.', 'Làm tiếp phần việc còn dở (giới hạn đã hồi)');
+          await c.send('Hãy làm tiếp phần việc còn dở của yêu cầu trước cho xong.', 'Làm tiếp phần việc còn dở');
         } else {
+          r.resumeNote = '';
           const b = await buildContent(node);
           if (node.kind === 'new' && !c.title) c.title = `⏰ ${p.name}: ${(node.prompt || '').replace(/\s+/g, ' ').slice(0, 60)}`;
           await c.send(b.content, b.display, b.urls);
         }
         save(); render();
-        const end = await waitEnd(c, startT);
+        const end = await waitEnd(c, startT, alive);
+        if (!alive()) { ok = false; break; }
         // hết giới hạn giữa chừng → tạm dừng, tự chạy tiếp khi giới hạn hồi
-        if (end.kind === 'error' && limitOut()) {
-          const L = limits(), x = L.s && L.s.pct >= 100 ? L.s : L.w;
-          r.st[i] = 'pause'; r.state = 'paused'; r.resumeAt = x && x.reset ? x.reset + 60e3 : Date.now() + 30 * 60e3; r.resumeNote = true;
+        if (end.kind === 'error' && (end.limit || limitOut())) {
+          r.st[i] = 'pause'; r.state = 'paused'; r.resumeAt = resumeTime(end); r.resumeNote = true;
           r.note = `Hết giới hạn ở bước ${i + 1}. Tự chạy tiếp lúc ${fmtTime(r.resumeAt)}.`;
           notify('Claude GUI · tạm dừng kế hoạch', `${p.name}: hết giới hạn, sẽ chạy tiếp lúc ${fmtTime(r.resumeAt)}`);
           ok = false; break;
         }
-        r.st[i] = end.kind === 'done' ? 'done' : 'err';
+        r.st[i] = end.kind === 'done' ? 'done' : end.kind === 'stopped' ? 'skip' : 'err';
         // xong thì tạo Merge Request / PR cho nhánh riêng (Claude đã push theo hướng dẫn trong prompt)
         if (end.kind === 'done' && node.finish === 'mr' && node.branch) {
           const pr = await api.prCreate(c.cwd, node.title || node.branch).catch((e) => ({ ok: false, error: e.message }));
@@ -266,42 +312,58 @@
           if (pr && pr.ok) notify('Claude GUI · đã tạo MR', `${p.name}: ${pr.url}`);
         }
         save(); render();
-        if (end.kind !== 'done' && node.cond !== 'any') { r.state = 'error'; r.note = `Bước ${i + 1} ${end.kind === 'stopped' ? 'đã bị dừng' : 'gặp lỗi'} — các bước sau không chạy.`; ok = false; notify('Claude GUI · kế hoạch dừng', `${p.name}: ${r.note}`); break; }
+        if (end.kind === 'stopped') { r.state = 'idle'; r.note = `Bước ${i + 1} đã bị dừng tay — các bước sau không chạy. Bấm "Chạy" để chạy lại từ đầu.`; r.st = r.st.map((x) => (x === 'wait' ? 'skip' : x)); ok = false; break; }
+        if (end.kind !== 'done' && node.cond !== 'any') { r.state = 'error'; r.note = `Bước ${i + 1} gặp lỗi — các bước sau không chạy.`; ok = false; notify('Claude GUI · kế hoạch dừng', `${p.name}: ${r.note}`); break; }
         if (i < p.nodes.length - 1 && (node.cond === 'wait' || node.cond === 'reset')) {
           const L = limits();
-          r.resumeAt = node.cond === 'wait' ? Date.now() + (+node.waitMin || 10) * 60e3 : (L.s && L.s.reset ? L.s.reset + 60e3 : Date.now() + 3600e3);
+          r.resumeAt = node.cond === 'wait' ? Date.now() + (+node.waitMin || 10) * 60e3 : (L.s && L.s.reset && L.s.reset > Date.now() ? L.s.reset + 60e3 : Date.now() + 3600e3);
           r.state = 'waiting'; r.idx = i + 1; r.note = '';
-          save(); render(); ok = false; running.delete(p.id);
+          save(); render(); release();
           return;
         }
       }
     } catch (e) {
-      r.state = 'error'; r.note = e.message; ok = false;
-      if (r.st[r.idx] === 'run') r.st[r.idx] = 'err';
-      notify('Claude GUI · kế hoạch lỗi', `${p.name}: ${e.message}`);
+      if (r.runId === my) {
+        r.state = 'error'; r.note = e.message; ok = false;
+        if (r.st[r.idx] === 'run') r.st[r.idx] = 'err';
+        notify('Claude GUI · kế hoạch lỗi', `${p.name}: ${e.message}`);
+      }
     }
-    running.delete(p.id);
+    release();
+    if (r.runId !== my) return; // đã bấm Dừng / chạy lại — vòng mới lo phần còn lại
+    // tắt kế hoạch giữa chừng → không để kẹt ở "đang chạy"
+    if (!ok && r.state === 'running') { r.state = 'idle'; r.note = p.on ? 'Đã dừng.' : 'Đã tắt kế hoạch giữa chừng — các bước sau không chạy.'; r.st = r.st.map((x) => (x === 'run' || x === 'wait' ? 'skip' : x)); }
     if (ok) {
       r.state = 'done'; r.endAt = Date.now(); r.note = '';
       if (CG.mascot && CG.mascot.addXp) CG.mascot.addXp(20);
       if (api.statsAdd) api.statsAdd({ kind: 'ev', ev: 'task' }).catch(() => {});
       notify('Claude GUI · xong kế hoạch', p.name);
-      // lặp lại / mỗi lần giới hạn hồi / nối đuôi: sẵn sàng cho lần sau
+      // lặp lại / mỗi lần giới hạn hồi: sẵn sàng cho lần sau ("Vào lúc" / "Sau khi phiên xong" / hàng đợi: chạy một lần)
       if (p.trig.type === 'repeat' || (p.trig.type.startsWith('reset') && p.trig.everyReset)) r.state = 'idle';
-      if (p.trig.type === 'after' || p.trig.type === 'at') { /* chạy một lần */ }
     }
     save(); render();
   }
+  // giờ chạy tiếp sau khi hết giới hạn: giờ hồi CLI báo trong lỗi, không thì giờ hồi của bảng Sử dụng; luôn ở tương lai
+  function resumeTime(end) {
+    const L = limits();
+    const x = L.w && L.w.pct >= 99.5 && !(L.s && L.s.pct >= 99.5) ? L.w : L.s;
+    let at = end && end.resetAt ? end.resetAt + 60e3 : x && x.reset ? x.reset + 60e3 : 0;
+    if (!at || at < Date.now() + 60e3) at = Date.now() + 30 * 60e3;
+    return at;
+  }
   function stopPlan(p) {
     if (p.kind === 'project') return CG.autopilot && CG.autopilot.stop(p);
-    p.run.state = 'idle'; p.run.resumeAt = 0; p.run.note = 'Đã dừng.';
-    p.run.st = (p.run.st || []).map((x) => (x === 'run' || x === 'pause' ? 'skip' : x));
-    const sid = p.run.sids && p.run.sids[p.run.idx || 0];
-    const c = sid && A().convs().find((x) => x.sid === sid);
+    const r = p.run;
+    r.runId = ''; // vòng đang chạy (kể cả đang chờ phiên rảnh) tự thoát, không gửi thêm gì
+    r.state = 'idle'; r.resumeAt = 0; r.resumeNote = ''; r.note = 'Đã dừng.';
+    r.st = (r.st || []).map((x) => (x === 'run' || x === 'pause' ? 'skip' : x));
+    const sid = r.sids && r.sids[r.idx || 0];
+    const c = sid && A().convs().find((x) => x.sid === sid && !x.rs);
     if (c && c.busy) c.interrupt();
     running.delete(p.id);
     save(); render();
   }
+  const busyPlan = (p) => ['running', 'waiting', 'paused'].includes(p.run.state);
 
   // =====================================================================
   // Trang giao diện
@@ -336,6 +398,10 @@
     if (!U.open || !U.page) return;
     const pg = U.page;
     const keepScroll = pg.querySelector('.sc-flow') ? pg.querySelector('.sc-flow').scrollTop : 0;
+    const oldDr = pg.querySelector('.sc-drawer');
+    const drKey = `${U.sel}:${U.node}`;
+    const keepDr = oldDr && oldDr._key === drKey && oldDr._dirty ? oldDr : null;
+    if (keepDr) keepDr.remove();
     pg.innerHTML = '';
     const L = limits();
     const lim = (x, n) => h('div', { class: 'sc-lim' + (x && x.pct >= 100 ? ' bad' : x && x.pct >= 80 ? ' warn' : '') },
@@ -359,7 +425,7 @@
         h('div', { class: 'tr', text: trigText(p) }),
         h('div', { class: 'meta' }, h('span', { text: p.kind === 'project' ? `🤖 ${p.proj.tasks.length} task` : `${p.nodes.length} bước` }), h('span', { class: 'ellipsis', text: statusText(p) })));
       card.onclick = (e) => {
-        if (e.target === tog) { p.on = !p.on; if (p.on) p.armedAt = Date.now(); save(); render(); return; }
+        if (e.target === tog) { p.on = !p.on; if (p.on) p.armedAt = Date.now(); else if (busyPlan(p) || running.has(p.id)) { stopPlan(p); p.run.note = 'Đã tắt.'; } save(); render(); return; }
         U.sel = p.id; U.node = null; render();
       };
       list.append(card);
@@ -371,7 +437,11 @@
     else if (p) renderFlow(flow, p);
     body.append(flow);
     pg.append(body);
-    if (U.node != null && p) pg.append(drawer(p));
+    if (U.node != null && p) {
+      const d = keepDr || drawer(p);
+      if (!keepDr) { d._key = drKey; const dirty = () => { d._dirty = true; }; d.addEventListener('input', dirty); d.addEventListener('change', dirty); d.addEventListener('click', (e) => { if (e.target.closest('.days, .seg, .att, .chip')) dirty(); }); }
+      pg.append(d);
+    }
     flow.scrollTop = keepScroll;
   }
   function renderFlow(flow, p) {
@@ -379,10 +449,10 @@
     const head = h('div', { class: 'sc-flow-h' }, h('h3', { class: 'ellipsis', text: p.name }));
     if (r.state === 'running' || r.state === 'waiting' || (r.state === 'paused' && r.resumeAt)) head.append(h('button', { class: 'btn sm', onclick: () => stopPlan(p) }, icon('square', 13), 'Dừng'));
     else head.append(h('button', { class: 'btn sm', id: 'sc-run', onclick: () => { if (!p.demo) runPlan(p, r.state === 'paused' ? r.idx || 0 : 0, r.state === 'paused'); else demoRun(p); } }, icon('play', 13), r.state === 'paused' ? 'Chạy tiếp' : 'Chạy ngay'));
-    head.append(h('button', { class: 'btn sm', onclick: () => { const c = JSON.parse(JSON.stringify(p)); Object.assign(c, { id: uid(), name: p.name + ' (bản sao)', demo: false, run: { state: 'idle', st: [], sids: [] }, created: Date.now() }); c.nodes.forEach((n) => n.id = uid()); D.plans.unshift(c); U.sel = c.id; save(); render(); } }, 'Nhân bản'));
+    head.append(h('button', { class: 'btn sm', onclick: () => { const c = JSON.parse(JSON.stringify(p)); Object.assign(c, { id: uid(), name: p.name + ' (bản sao)', demo: false, on: false, run: { state: 'idle', st: [], sids: [] }, created: Date.now(), armedAt: Date.now() }); toast('Đã nhân bản — bản sao đang TẮT, xem lại giờ chạy rồi bật.'); c.nodes.forEach((n) => n.id = uid()); D.plans.unshift(c); U.sel = c.id; save(); render(); } }, 'Nhân bản'));
     if (CG.pack && !p.demo) head.append(h('button', { class: 'btn sm', title: 'Đóng gói kế hoạch để chạy ở Claude GUI máy khác', onclick: () => CG.pack.exportPlan(p) }, 'Xuất…'));
     if (CG.lan && !p.demo) head.append(h('button', { class: 'btn sm', title: 'Gửi thẳng qua mạng LAN cho Claude GUI ở máy thợ chạy, theo dõi tiến độ tại đây', onclick: () => CG.lan.sendDialog(p) }, 'Giao máy thợ…'));
-    head.append(h('button', { class: 'btn sm danger-text', onclick: async () => { if (p.demo || await confirmDialog('Xoá kế hoạch?', `“${p.name}” sẽ bị xoá. Các phiên đã chạy vẫn còn trong lịch sử.`, 'Xoá')) { D.plans = D.plans.filter((x) => x !== p); U.sel = D.plans[0] && D.plans[0].id; U.node = null; save(); render(); } } }, 'Xoá'));
+    head.append(h('button', { class: 'btn sm danger-text', onclick: async () => { if (p.demo || await confirmDialog('Xoá kế hoạch?', `“${p.name}” sẽ bị xoá. Các phiên đã chạy vẫn còn trong lịch sử.`, 'Xoá')) { if (busyPlan(p) || running.has(p.id)) stopPlan(p); D.plans = D.plans.filter((x) => x !== p); U.sel = D.plans[0] && D.plans[0].id; U.node = null; save(); render(); } } }, 'Xoá'));
     flow.append(head);
     if (CG.pack) { const b = CG.pack.banner(p); if (b) flow.append(b); }
     if (r.note) flow.append(h('div', { class: 'sc-note ' + (r.state === 'error' ? 'err' : '') , text: r.note }));
@@ -407,6 +477,7 @@
     return h('div', { class: 'sc-link' + (lit ? ' lit' : '') + (last ? ' last' : '') }, cond ? h('span', { class: 'cond', text: cond }) : null, add);
   }
   function addNode(p, i) {
+    if (busyPlan(p)) return toast('Kế hoạch đang chạy / tạm dừng — bấm Dừng trước khi thêm bước.', true);
     p.nodes.splice(i, 0, newNode('cont', i === 0 ? { kind: 'new' } : {}));
     if (p.run.st && p.run.st.length) p.run.st.splice(i, 0, 'wait');
     U.node = i; save(); render();
@@ -450,9 +521,9 @@
     const foot = h('div', { class: 'df' }, h('button', { class: 'btn primary', id: 'sc-save', text: 'Lưu', onclick: () => { if (saveFn() !== false) { save(); closeD(); } } }));
     if (!isTrig) {
       const i = U.node;
-      foot.append(h('button', { class: 'btn', text: 'Nhân bản', onclick: () => { const n = JSON.parse(JSON.stringify(p.nodes[i])); n.id = uid(); p.nodes.splice(i + 1, 0, n); if (p.run.st && p.run.st.length) p.run.st.splice(i + 1, 0, 'wait'); save(); closeD(); } }));
+      foot.append(h('button', { class: 'btn', text: 'Nhân bản', onclick: () => { if (busyPlan(p)) return toast('Kế hoạch đang chạy / tạm dừng — bấm Dừng trước.', true); const n = JSON.parse(JSON.stringify(p.nodes[i])); n.id = uid(); p.nodes.splice(i + 1, 0, n); if (p.run.st && p.run.st.length) p.run.st.splice(i + 1, 0, 'wait'); save(); closeD(); } }));
       foot.append(h('div', { class: 'spacer' }));
-      foot.append(h('button', { class: 'btn danger-text', text: 'Xoá bước', disabled: p.nodes.length < 2, onclick: () => { p.nodes.splice(i, 1); if (p.run.st) p.run.st.splice(i, 1); save(); closeD(); } }));
+      foot.append(h('button', { class: 'btn danger-text', text: 'Xoá bước', disabled: p.nodes.length < 2, onclick: () => { if (busyPlan(p)) return toast('Kế hoạch đang chạy / tạm dừng — bấm Dừng trước khi xoá bước.', true); p.nodes.splice(i, 1); if (p.run.st) p.run.st.splice(i, 1); if (p.run.sids) p.run.sids.splice(i, 1); save(); closeD(); } }));
       saveFn = nodeForm(bodyEl, p, p.nodes[i], i);
     } else saveFn = trigForm(bodyEl, p);
     box.append(foot);
@@ -569,11 +640,17 @@
       if (type === 'repeat' && !days.size) { toast('Chọn ít nhất một ngày.', true); return false; }
       p.name = name.value.trim() || 'Kế hoạch';
       const prevType = t.type;
+      const before = JSON.stringify([t.type, t.date, t.time, (t.days || []).slice().sort(), t.sess && t.sess.id, t.minLeft, t.everyReset]);
       Object.assign(t, { type, date: date.value, time: type === 'repeat' ? rtime.value : time.value, days: [...days].sort(), minLeft: +minLeft.value || 0, everyReset: every.checked, missed: missed.value,
         sess: type === 'after' ? { id: sessSel.value, title: ((sessSel.selectedOptions[0] || {}).text || '').replace(/^● /, '') } : t.sess });
-      // đổi giờ / đổi kiểu → coi như lịch mới
-      p.armedAt = Date.now();
-      if (prevType !== type || type === 'at') { p.run.firedAt = 0; p.run.firedReset = 0; if (p.run.state === 'done' || p.run.state === 'error') p.run.state = 'idle'; }
+      // đổi giờ / đổi kiểu / đổi phiên → coi như lịch mới (chỉ đổi tên thì không chạy lại)
+      const changed = before !== JSON.stringify([t.type, t.date, t.time, (t.days || []).slice().sort(), t.sess && t.sess.id, t.minLeft, t.everyReset]);
+      if (changed) {
+        p.armedAt = Date.now();
+        p.run.firedAt = 0; p.run.firedReset = 0; p.run.missedAt = 0;
+        if (p.run.state === 'done' || p.run.state === 'error') { p.run.state = 'idle'; p.run.note = ''; }
+        if (type === 'at') { const v = new Date(`${t.date}T${t.time || '00:00'}`).getTime(); if (v < Date.now() - 60e3) toast('Giờ đã chọn đã qua — kế hoạch sẽ chạy ngay (chạy bù).'); }
+      } else if (prevType !== type) p.armedAt = Date.now();
     };
   }
 
@@ -630,7 +707,7 @@
     // gộp vào hàng đợi đang chờ / đang chạy của phiên (vòng chạy đọc lại số bước sau mỗi bước)
     let p = pendingQueue(c);
     const node = newNode('cont', { prompt: text, atts, target: 'prev', mode: c.mode, cwd: c.cwd, ...(o.display ? { display: o.display } : {}) });
-    if (p) p.nodes.push(node);
+    if (p) { p.nodes.push(node); if (p.run.st && p.run.st.length) p.run.st.push('wait'); }
     else {
       p = newPlan({ name: `Hàng đợi: ${(c.title || 'phiên').slice(0, 40)}`, queue: true, nodes: [node] });
       p.trig = { ...p.trig, type: 'after', sess: { id: c.sid, title: c.title || c.sid } };
@@ -863,5 +940,5 @@
     setTimeout(() => whatsNew(false), 1500);
   }, 100);
 
-  CG.sched = { queueAfter, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
+  CG.sched = { queueAfter, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText, resumeTime }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
 })();
