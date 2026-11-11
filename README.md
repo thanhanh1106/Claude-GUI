@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.22.0-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.22.1-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -61,9 +61,10 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - Mang ngược về máy cũ: nếu bản ở máy cũ là phần đầu của bản nhập (chỉ chat tiếp ở máy kia) thì được cập nhật, không mất gì; hai bản đã tách nhau thì không ghi đè.
 
 **Mở phiên đang chạy ở máy khác (Truy cập từ xa)** — vd về nhà vẫn xem và điều khiển phiên đang chạy trên máy công ty. Hai máy nối qua **Tailscale** (mạng riêng, mã hoá, không mở cổng ra Internet); Cài đặt › **Truy cập từ xa** có hướng dẫn cài Tailscale từng bước, tự kiểm tra máy đã vào Tailscale chưa và liệt kê các máy cùng tài khoản.
-- Máy chạy phiên: bật "Cho máy khác kết nối" (cổng 8767, chỉ nhận kết nối trong Tailscale / mạng nội bộ). Chuột phải phiên → **Cho máy khác thấy & điều khiển** → GUI tạo **token riêng của phiên đó** (Sao chép, Đổi token, Tắt chia sẻ). Phiên đang chia sẻ có 📡 ở thanh bên; chip "🏠 <máy> đang xem" khi có máy mở.
+- Máy chạy phiên: bật "Cho máy khác kết nối" (cổng 8767, chỉ nhận kết nối trong Tailscale / mạng nội bộ). Chuột phải phiên → **Chia sẻ bằng token…** → GUI tạo **token riêng của phiên đó** (Sao chép, Đổi token, Tắt chia sẻ). Phiên đang chia sẻ có 📡 ở thanh bên; chip "🏠 <máy> đang xem" khi có máy mở.
 - Máy xem: nút lọc ở thanh bên → **Thêm phiên từ máy khác…** → tên máy (gợi ý sẵn các máy trong Tailscale) + token → phiên hiện ở nhóm 🏢 trên thanh bên, kèm phiên con (tác tử phụ). Mở ra là khung chat như thường: chữ chạy trực tiếp, nhắn tiếp / nhắn giữa lượt, duyệt hoặc từ chối thẻ xin quyền và câu hỏi, Dừng — bên nào bấm trước thì thẻ bên kia tự đóng; tin gửi từ máy khác có nhãn "gửi từ <máy>".
 - Không có token thì không thấy gì (kể cả tên phiên); token phiên cha dùng cho cả phiên con. Đổi token / tắt chia sẻ → máy đang dùng token cũ bị ngắt ngay. Token lưu mã hoá; sai token nhiều lần thì chặn địa chỉ đó 10 phút. Tuỳ chọn "Máy khác được duyệt quyền" (tắt → máy kia chỉ xem, nhắn, Dừng).
+- **Máy đã kết nối (1.22.1)**: kết nối bằng token một lần là hai máy nhớ nhau (máy xem nhận khoá máy riêng, lưu mã hoá). Từ đó ở máy chạy phiên chỉ cần chuột phải phiên → **Công khai cho máy đã kết nối** → máy kia tự thấy phiên ở nhóm 🏢 (cập nhật mỗi 15 giây), xem & điều khiển được, không cần token; **Thôi công khai** → máy kia mất phiên ngay (máy có token riêng vẫn xem). Nhóm 🏢 của máy đã kết nối luôn hiện trên thanh bên kể cả khi chưa có phiên nào; chuột phải tiêu đề nhóm → làm mới, thêm phiên bằng token, quên máy. Cài đặt › Truy cập từ xa có danh sách "Máy đã kết nối tới máy này" (Gỡ → máy đó mất quyền ngay) và "Máy đã kết nối (máy này xem được)" (Quên). Liên kết token đã thêm từ bản trước tự ghép máy khi cả hai máy lên bản mới.
 - Máy chạy phiên phải đang bật (không ngủ) và mở Claude GUI.
 
 **Hỏi người thật qua Lark** (Cài đặt → Lark) — Claude soạn câu hỏi cho game designer / người khác, bạn duyệt rồi bot gửi, câu trả lời quay về đúng phiên:

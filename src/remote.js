@@ -17,14 +17,24 @@
   // MÁY CHẠY PHIÊN
   // =====================================================================
   let shared = new Set();
+  let pubs = new Set(); // phiên công khai cho máy đã kết nối
+  let devs = []; // máy đã kết nối tới máy này
   let live = new Map(); // sid -> [tên máy đang xem]
-  const loadShared = () => api.rsShares().then((l) => { shared = new Set((l || []).map((x) => x.sid)); A() && A().renderSidebar(); }).catch(() => {});
+  const loadShared = () => Promise.all([api.rsShares(), api.rsDevices ? api.rsDevices() : []]).then(([l, d]) => {
+    shared = new Set((l || []).map((x) => x.sid));
+    tokSids = new Set((l || []).filter((x) => x.token).map((x) => x.sid));
+    pubs = new Set((l || []).filter((x) => x.pub).map((x) => x.sid));
+    devs = d || [];
+    A() && A().renderSidebar();
+  }).catch(() => {});
   loadShared();
   if (api.onRsLive) api.onRsLive((list) => {
     live = new Map((list || []).map((x) => [x.sid, x.names]));
     if (A()) { A().renderSidebar(); const c = S().active; if (c) titleChip(c); }
   });
   const isShared = (sid) => shared.has(sid);
+  let tokSids = new Set();
+  const hasToken = (sid) => tokSids.has(sid);
   const watching = (sid) => live.get(sid) || [];
 
   // đẩy sự kiện của phiên chia sẻ sang máy đang xem (chỉ khi có máy đang xem)
@@ -39,12 +49,15 @@
     try { v = await onReq(kind, data || {}); } catch (e) { v = { ok: false, error: e.message }; }
     api.rsRes(rid, v);
   });
+  const stateOf = (c) => ({ open: !!c, busy: !!(c && c.busy), title: c ? c.title : '', cwd: c ? c.cwd : '' });
   async function onReq(kind, d) {
+    // máy đã kết nối hỏi danh sách phiên công khai
+    if (kind === 'states') { const v = {}; for (const sid of d.sids || []) v[sid] = stateOf(localConv(sid)); return { ok: true, v }; }
     // máy chủ đã kiểm token; danh sách ở đây có thể chưa kịp làm mới
     if (!shared.has(d.sid)) { await loadShared(); if (!shared.has(d.sid)) return { ok: false, error: 'Phiên không còn được chia sẻ' }; }
     if (kind === 'state') {
       const c = localConv(d.sid);
-      return { ok: true, open: !!c, busy: !!(c && c.busy), title: c ? c.title : '', cwd: c ? c.cwd : '', perms: c ? [...c.perms.values()].map((p) => p.raw).filter(Boolean) : [] };
+      return { ok: true, ...stateOf(c), perms: c ? [...c.perms.values()].map((p) => p.raw).filter(Boolean) : [] };
     }
     let c = localConv(d.sid);
     if (kind === 'send') {
@@ -71,17 +84,29 @@
     return { ok: false, error: 'Không rõ yêu cầu' };
   }
 
+  async function ensureOn(why) {
+    const info = await api.rsInfo();
+    if (info.want) return true;
+    const go = await CG.confirmDialog('Bật Truy cập từ xa?', `Máy này chưa cho máy khác kết nối. Bật để ${why} (mở cổng ${info.port}, chỉ nhận kết nối trong Tailscale / mạng nội bộ).`, 'Bật');
+    if (!go) return false;
+    await CG.saveSettings({ rsOn: true });
+    await api.rsApply();
+    return true;
+  }
+  // công khai: mọi máy đã kết nối tới máy này thấy & điều khiển được phiên, không cần token
+  async function setPublic(it, on) {
+    if (on && !(await ensureOn('máy đã kết nối thấy phiên này'))) return;
+    const r = await api.rsPublish({ sid: it.id, title: it.title, on });
+    if (!r.ok) return toast(r.error || 'Không làm được.', true);
+    await loadShared();
+    const c = S().active; if (c) titleChip(c);
+    const names = devs.map((x) => x.name).join(', ');
+    if (!on) return toast('Đã thôi công khai — máy đã kết nối không thấy phiên này nữa (máy có token riêng vẫn xem được).');
+    toast(devs.length ? `Đã công khai — ${names} thấy phiên này ở nhóm 🏢 trên thanh bên.` : 'Đã công khai. Chưa có máy nào kết nối tới máy này — máy kết nối lần đầu bằng token của một phiên bất kỳ, sau đó tự thấy mọi phiên công khai.', !devs.length);
+  }
   // bật / tắt / đổi token
   async function setShare(it, on, renew) {
-    if (on) {
-      const info = await api.rsInfo();
-      if (!info.want) {
-        const go = await CG.confirmDialog('Bật Truy cập từ xa?', 'Máy này chưa cho máy khác kết nối. Bật để máy có token mở được phiên này (mở cổng ' + info.port + ', chỉ nhận kết nối trong Tailscale / mạng nội bộ).', 'Bật');
-        if (!go) return;
-        await CG.saveSettings({ rsOn: true });
-        await api.rsApply();
-      }
-    }
+    if (on && !(await ensureOn('máy có token mở được phiên này'))) return;
     const r = await api.rsShare({ sid: it.id, title: it.title, on, renew });
     if (!r.ok) return toast(r.error || 'Không làm được.', true);
     await loadShared();
@@ -107,9 +132,12 @@
   }
   function menuItems(it) {
     if (!it || !it.id || (S().active && S().active.rs && S().active.sid === it.id && !localConv(it.id))) return [];
-    const on = shared.has(it.id);
+    const pub = pubs.has(it.id);
+    const on = hasToken(it.id);
+    const names = devs.map((x) => x.name);
     return [
-      { label: on ? 'Tắt chia sẻ cho máy khác' : 'Cho máy khác thấy & điều khiển', desc: on ? '📡 đang chia sẻ · thu hồi token' : 'qua Tailscale, máy kia cần token', icon: 'globe', onClick: () => setShare(it, !on) },
+      { label: pub ? 'Thôi công khai cho máy đã kết nối' : 'Công khai cho máy đã kết nối', desc: names.length ? (pub ? '📡 ' : '') + names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '') + ' thấy & điều khiển' : 'chưa có máy nào kết nối tới máy này', icon: 'monitor', onClick: () => setPublic(it, !pub) },
+      { label: on ? 'Tắt chia sẻ bằng token' : 'Chia sẻ bằng token…', desc: on ? 'thu hồi token' : 'cho máy chưa kết nối: máy kia cần token', icon: 'globe', onClick: () => setShare(it, !on) },
       ...(on ? [{ label: 'Xem / sao chép token', icon: 'copy', onClick: () => showToken(it) }, { label: 'Đổi token (thu hồi token cũ)', icon: 'refresh', onClick: () => setShare(it, true, true) }] : []),
     ];
   }
@@ -127,7 +155,7 @@
     if (!c.count && !c.persisted) return;
     const w = watching(c.sid);
     if (w.length) el.append(h('span', { class: 'rs-chip watch', title: 'Máy đang mở phiên này từ xa' }, '🏠 ', w.join(', '), ' đang xem'));
-    if (shared.has(c.sid)) el.append(h('span', { class: 'rs-chip on', title: 'Máy có token thấy & điều khiển được phiên này — bấm để xem token / tắt', onclick: (e) => { e.stopPropagation(); CG.menu(e.currentTarget, menuItems({ id: c.sid, title: c.title })); } }, '📡 Đang chia sẻ'));
+    if (shared.has(c.sid)) el.append(h('span', { class: 'rs-chip on', title: (pubs.has(c.sid) ? 'Máy đã kết nối thấy & điều khiển được phiên này' : 'Máy có token thấy & điều khiển được phiên này') + ' — bấm để đổi', onclick: (e) => { e.stopPropagation(); CG.menu(e.currentTarget, menuItems({ id: c.sid, title: c.title })); } }, pubs.has(c.sid) ? '📡 Công khai' : '📡 Đang chia sẻ'));
   }
 
   // =====================================================================
@@ -139,7 +167,7 @@
   async function loadLinks() {
     const list = await api.rsLinks().catch(() => []);
     const keep = new Set(list.map((L) => L.id));
-    for (const id of [...links.keys()]) if (!keep.has(id)) { links.delete(id); api.rsDisconnect(id); }
+    for (const id of [...links.keys()]) if (!id.startsWith('h:') && !keep.has(id)) { links.delete(id); api.rsDisconnect(id); }
     for (const L of list) {
       const cur = links.get(L.id);
       links.set(L.id, { ...(cur || { state: 'connecting', info: null }), ...L });
@@ -148,6 +176,65 @@
     A() && A().renderSidebar();
   }
   setTimeout(loadLinks, 1500);
+
+  // máy đã kết nối (nhớ sau lần vào bằng token đầu tiên): tự hiện mọi phiên bên đó "Công khai cho máy đã kết nối"
+  const hosts = new Map(); // id -> { ...máy, state, n }
+  async function loadHosts() {
+    const list = await (api.rsHosts ? api.rsHosts() : Promise.resolve([])).catch(() => []);
+    const keep = new Set(list.map((H) => H.id));
+    for (const id of [...hosts.keys()]) if (!keep.has(id)) { hosts.delete(id); dropPub(id, new Set()); }
+    for (const H of list) { const cur = hosts.get(H.id); hosts.set(H.id, { ...(cur || { state: 'connecting', n: 0 }), ...H }); }
+    await Promise.all(list.map((H) => refreshHost(H.id)));
+    A() && A().renderSidebar();
+  }
+  const tokLinkFor = (host, sid) => [...links.values()].find((L) => !L.pub && L.host === host && L.sid === sid);
+  function dropPub(hid, keepSids) {
+    for (const [id, L] of [...links.entries()]) {
+      if (!L.pub || L.hostId !== hid || keepSids.has(L.sid)) continue;
+      api.rsDisconnect(id); links.delete(id);
+      const c = rsConv(L, L.sid);
+      if (c) { c.addNote(`Máy ${L.name} đã thôi công khai phiên này.`); c.setBusy(false); }
+    }
+  }
+  async function refreshHost(hid) {
+    const H = hosts.get(hid);
+    if (!H) return;
+    const r = await api.rsHostList(hid).catch((e) => ({ ok: false, error: e.message }));
+    if (!hosts.has(hid)) return;
+    if (!r.ok) { H.state = r.status === 401 ? 'revoked' : 'offline'; H.error = r.error; if (r.status === 401) dropPub(hid, new Set()); A().renderSidebar(); return; }
+    H.state = 'online'; H.name = r.name || H.name;
+    const sids = new Set();
+    for (const s of r.sessions || []) {
+      if (tokLinkFor(H.host, s.sid)) continue; // đã có liên kết bằng token
+      sids.add(s.sid);
+      const id = `h:${hid}:${s.sid}`;
+      const cur = links.get(id);
+      links.set(id, { ...(cur || { state: 'connecting', info: null }), id, pub: true, hostId: hid, addr: H.addr, name: H.name, host: H.host, sid: s.sid, title: s.title || (cur && cur.title) || '', cwd: s.cwd || (cur && cur.cwd) || '', busy: s.busy });
+      if (!cur) api.rsConnect(id);
+    }
+    dropPub(hid, sids);
+    H.n = sids.size;
+    A().renderSidebar();
+  }
+  setTimeout(loadHosts, 1800);
+  setInterval(() => { for (const id of hosts.keys()) refreshHost(id); }, 15000);
+  if (api.onRsHosts) api.onRsHosts(() => loadHosts());
+  async function forgetHost(H) {
+    if (!(await CG.confirmDialog('Quên máy này?', `Máy này sẽ không tự thấy các phiên công khai của ${H.name} nữa (muốn kết nối lại phải dùng token). Liên kết bằng token đã thêm vẫn giữ.`, 'Quên', true))) return;
+    await api.rsForget(H.id);
+    hosts.delete(H.id);
+    dropPub(H.id, new Set());
+    A().renderSidebar();
+  }
+  function hostMenu(H, anchor) {
+    CG.menu(anchor, [
+      { header: `${H.name} · ${H.addr}` },
+      { label: 'Làm mới danh sách phiên', icon: 'refresh', onClick: () => refreshHost(H.id).then(() => toast(H.state === 'online' ? `✓ ${H.name}: ${H.n} phiên công khai` : H.state === 'revoked' ? `${H.name} đã gỡ máy này — kết nối lại bằng token` : 'Không kết nối được: ' + (H.error || ''), H.state !== 'online')) },
+      { label: 'Thêm phiên bằng token…', icon: 'plus', onClick: () => addDialog({ addr: H.addr }) },
+      '-',
+      { label: 'Quên máy này', icon: 'trash', danger: true, onClick: () => forgetHost(H) },
+    ]);
+  }
   async function refreshInfo(id) {
     const L = links.get(id);
     if (!L) return;
@@ -267,13 +354,24 @@
 
   // thanh bên: nhóm 🏢 <máy> cho các phiên đã thêm bằng token
   function renderGroup(list) {
-    if (!links.size) return;
+    if (!links.size && !hosts.size) return;
     const byHost = new Map();
-    for (const L of links.values()) { const k = L.host || L.name; if (!byHost.has(k)) byHost.set(k, []); byHost.get(k).push(L); }
-    for (const arr of byHost.values()) {
-      const on = arr.some((L) => L.state === 'online');
-      list.append(h('div', { class: 'grp-head rs-head', title: `Phiên trên máy ${arr[0].name} (qua Tailscale / LAN)` },
-        h('span', { class: 'rs-dot ' + (on ? 'on' : 'off') }), h('span', { class: 'g-name ellipsis', text: '🏢 ' + (arr[0].name || arr[0].host) }), h('span', { class: 'g-count', text: arr.length })));
+    for (const H of hosts.values()) byHost.set(H.host || H.name, []);
+    for (const L of links.values()) {
+      if (L.pub && tokLinkFor(L.host, L.sid)) continue;
+      const k = L.host || L.name; if (!byHost.has(k)) byHost.set(k, []); byHost.get(k).push(L);
+    }
+    for (const [hk, arr] of byHost) {
+      const H = [...hosts.values()].find((x) => (x.host || x.name) === hk);
+      const nm = (H && H.name) || (arr[0] && (arr[0].name || arr[0].host)) || hk;
+      const on = arr.some((L) => L.state === 'online') || (H && H.state === 'online');
+      const head = h('div', { class: 'grp-head rs-head', title: `Phiên trên máy ${nm} (qua Tailscale / LAN)${H ? '\nMáy đã kết nối — tự hiện các phiên bên đó công khai · chuột phải để làm mới / quên' : ''}` },
+        h('span', { class: 'rs-dot ' + (on ? 'on' : 'off') }), h('span', { class: 'g-name ellipsis', text: '🏢 ' + nm }), h('span', { class: 'g-count', text: arr.length || '' }));
+      if (H) head.oncontextmenu = (e) => { e.preventDefault(); hostMenu(H, CG.pointAnchor(e.clientX, e.clientY)); };
+      list.append(head);
+      if (!arr.length && H) {
+        list.append(h('div', { class: 'rs-none', text: H.state === 'revoked' ? `${nm} đã gỡ máy này — chuột phải tiêu đề → Thêm phiên bằng token` : H.state === 'online' ? 'Chưa có phiên công khai — ở máy kia chuột phải phiên → “Công khai cho máy đã kết nối”' : H.state === 'connecting' ? 'Đang kết nối…' : 'Mất kết nối (máy tắt / Tailscale chưa bật)' }));
+      }
       for (const L of arr) {
         const c = rsConv(L, L.sid);
         const busy = c ? c.busy : L.busy;
@@ -301,6 +399,14 @@
     }
   }
   function linkMenu(L, anchor) {
+    if (L.pub) {
+      const H = hosts.get(L.hostId);
+      return CG.menu(anchor, [
+        { label: 'Mở', icon: 'message', onClick: () => openRemote(L, { id: L.sid, title: L.title, cwd: L.cwd }) },
+        { label: 'Kiểm tra kết nối', icon: 'refresh', onClick: () => refreshInfo(L.id).then(() => toast(L.state === 'online' ? `✓ Kết nối được máy ${L.name}` : 'Không kết nối được', L.state !== 'online')) },
+        ...(H ? ['-', { label: 'Máy ' + H.name + '…', icon: 'monitor', onClick: () => hostMenu(H, anchor) }] : []),
+      ]);
+    }
     CG.menu(anchor, [
       { label: 'Mở', icon: 'message', disabled: L.state === 'revoked', onClick: () => openRemote(L, { id: L.sid, title: L.title, cwd: L.cwd }) },
       { label: 'Dán token mới…', icon: 'refresh', onClick: () => addDialog({ addr: L.addr }) },
@@ -315,11 +421,13 @@
     const tok = h('input', { type: 'text', class: 'text-input mono', value: '', placeholder: 'cgs_XXXXXX-XXXXXX-XXXXXX-XXXXXX' });
     const msg = h('div', { class: 'rs-msg' });
     const peers = (ts.peers || []).filter((p) => p.os === 'windows' || p.os === 'macOS' || p.os === 'linux');
+    const known = [...hosts.values()];
     const body = h('div', { class: 'rs-add' },
       h('label', { class: 'rs-lbl', text: 'Địa chỉ máy đang chạy phiên' }), addr,
+      known.length ? h('div', { class: 'rs-peers' }, h('span', { class: 'pk-muted', text: 'Máy đã kết nối: ' }), ...known.map((H) => h('button', { class: 'btn sm', title: `${H.addr} · ${H.n || 0} phiên công khai`, text: '🏢 ' + H.name, onclick: () => { addr.value = H.addr; tok.focus(); } }))) : null,
       peers.length ? h('div', { class: 'rs-peers' }, h('span', { class: 'pk-muted', text: 'Máy trong Tailscale của bạn: ' }), ...peers.map((p) => h('button', { class: 'btn sm' + (p.online ? '' : ' dim'), title: `${p.dns || p.host} · ${p.ip}${p.online ? '' : ' · đang offline'}`, text: (p.online ? '● ' : '○ ') + p.host, onclick: () => { addr.value = p.host; } }))) : null,
       h('label', { class: 'rs-lbl', text: 'Token của phiên' }), tok,
-      h('div', { class: 'pk-muted', text: 'Lấy ở máy kia: chuột phải phiên → “Cho máy khác thấy & điều khiển” (hoặc “Xem / sao chép token”).' }),
+      h('div', { class: 'pk-muted', text: 'Lấy ở máy kia: chuột phải phiên → “Chia sẻ bằng token…”. Kết nối được một lần là hai máy nhớ nhau: sau đó ở máy kia chỉ cần chuột phải phiên → “Công khai cho máy đã kết nối”, không cần token nữa.' }),
       !ts.running ? h('div', { class: 'pk-warn' }, '⚠ Máy này chưa vào Tailscale — chỉ kết nối được máy cùng mạng LAN. ', h('a', { href: '#', text: 'Hướng dẫn cài Tailscale', onclick: (e) => { e.preventDefault(); m.close(); CG.openSettings('remote'); } })) : null,
       msg);
     const go = async () => {
@@ -328,6 +436,7 @@
       if (!r.ok) { msg.textContent = '✗ ' + (r.status === 401 ? 'Token không đúng hoặc phiên đã ngừng chia sẻ.' : r.error); msg.className = 'rs-msg bad'; return; }
       m.close();
       await loadLinks();
+      loadHosts();
       const L = links.get(r.link.id);
       if (L) { L.state = 'online'; L.info = r.info; openRemote(L, { id: L.sid, title: L.title, cwd: L.cwd }); }
       toast(`Đã thêm phiên “${r.link.title}” từ máy ${r.link.name}.`);
@@ -345,6 +454,7 @@
     const s = S().settings;
     const ts = info.tailscale || {};
     const shares = await api.rsShares();
+    const devList = api.rsDevices ? await api.rsDevices() : [];
     const st = info.on ? `Đang mở cổng ${info.port}` : info.want ? (info.error ? 'Lỗi: ' + info.error : 'Đang mở cổng…') : 'Đang tắt';
     const myAddr = ts.dns ? ts.dns.split('.')[0] : '';
     const ext = (url) => h('a', { href: '#', text: url.replace(/^https?:\/\//, ''), onclick: (e) => { e.preventDefault(); api.openExternal ? api.openExternal(url) : copy(url); } });
@@ -361,26 +471,36 @@
           step(2, ts.running, 'Đăng nhập CÙNG MỘT tài khoản ở cả hai máy', h('div', {}, 'Bấm biểu tượng Tailscale ở khay hệ thống (góc phải thanh tác vụ) → Log in → chọn Google / Microsoft… Hai máy phải cùng tài khoản thì mới thấy nhau.'),
             ts.running && peers.length ? h('div', { class: 'rs-peers' }, h('span', { class: 'pk-muted', text: 'Các máy cùng tài khoản: ' }), ...peers.map((p) => h('span', { class: 'rs-peer' + (p.online ? ' on' : ''), title: `${p.dns} · ${p.ip}`, text: (p.online ? '● ' : '○ ') + p.host }))) : null),
           step(3, !!s.rsOn && info.on, 'Máy công ty: bật “Cho máy khác kết nối” (ngay bên dưới)', h('div', {}, 'Lần đầu Windows có thể hỏi cho Claude GUI dùng mạng — chọn Cho phép (Allow). Để máy không tự ngủ khi bạn về: Settings › System › Power › Screen and sleep → “Never” khi cắm điện.')),
-          step(4, shares.length > 0, 'Máy công ty: chia sẻ phiên muốn mở từ nhà', h('div', {}, 'Chuột phải phiên ở thanh bên → “Cho máy khác thấy & điều khiển” → Sao chép token. Gửi token cho chính bạn (ghi chú riêng, email cá nhân…), đừng dán vào nhóm chat chung.')),
-          step(5, links.size > 0, 'Máy ở nhà: thêm phiên bằng token', h('div', {}, 'Mở Claude GUI → nút lọc ở thanh bên → “Thêm phiên từ máy khác…” → địa chỉ là tên máy công ty trong Tailscale', myAddr ? [' (máy này: ', h('code', { text: myAddr }), ')'] : '', ' + token → Kết nối. Phiên hiện ở nhóm 🏢 trên thanh bên.'),
-            h('button', { class: 'btn sm', style: 'margin-top:6px', text: 'Thêm phiên từ máy khác…', onclick: () => addDialog() })))),
-      u.group('Máy này cho máy khác kết nối', 'Bật ở máy chạy phiên (máy công ty). Chỉ phiên bạn bật chia sẻ mới mở được từ xa, và máy kia phải có token của đúng phiên đó.',
+          step(4, shares.length > 0 || devList.length > 0, 'Máy công ty: lấy token của một phiên (chỉ lần đầu)', h('div', {}, 'Chuột phải phiên ở thanh bên → “Chia sẻ bằng token…” → Sao chép token. Gửi token cho chính bạn (ghi chú riêng, email cá nhân…), đừng dán vào nhóm chat chung.')),
+          step(5, links.size > 0 || hosts.size > 0, 'Máy ở nhà: kết nối bằng token (chỉ lần đầu)', h('div', {}, 'Mở Claude GUI → nút lọc ở thanh bên → “Thêm phiên từ máy khác…” → địa chỉ là tên máy công ty trong Tailscale', myAddr ? [' (máy này: ', h('code', { text: myAddr }), ')'] : '', ' + token → Kết nối. Hai máy nhớ nhau từ đây.'),
+            h('button', { class: 'btn sm', style: 'margin-top:6px', text: 'Thêm phiên từ máy khác…', onclick: () => addDialog() })),
+          step(6, shares.some((x) => x.pub), 'Từ đó trở đi: máy công ty chuột phải phiên → “Công khai cho máy đã kết nối”', h('div', {}, 'Máy ở nhà tự thấy phiên ở nhóm 🏢 trên thanh bên (cập nhật mỗi 15 giây), xem và điều khiển được, không cần token. Thôi công khai thì máy kia mất phiên đó ngay.')))),
+      u.group('Máy này cho máy khác kết nối', 'Bật ở máy chạy phiên (máy công ty). Chỉ phiên bạn công khai (cho máy đã kết nối) hoặc chia sẻ bằng token (máy kia cần token của đúng phiên đó) mới mở được từ xa.',
         u.row('Cho máy khác kết nối', st + ' · chỉ nhận kết nối trong Tailscale / mạng nội bộ', u.toggle(!!s.rsOn, async (v) => { await u.set({ rsOn: v }); await api.rsApply(); setTimeout(u.render, 400); })),
         u.row('Máy khác được duyệt quyền', 'Tắt → máy kia chỉ xem, nhắn và Dừng; thẻ xin quyền (chạy lệnh, sửa tệp…) phải duyệt ngay tại máy này.', u.toggle(s.rsAllowPerm !== false, (v) => u.set({ rsAllowPerm: v }))),
         u.row('Địa chỉ máy này', 'Nhập ở máy kia (tên Tailscale không đổi khi đổi mạng).', h('div', { class: 'lan-addrs' }, [myAddr, ts.ip, info.host].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).map((x) => h('button', { class: 'btn sm mono', title: 'Chép', text: x, onclick: () => copy(x) })))),
-        ...(shares.length ? shares.map((x) => u.row('📡 ' + (x.title || x.sid.slice(0, 8)), `Chia sẻ từ ${fmtT(x.t)}${x.viewers.length ? ' · đang xem: ' + x.viewers.join(', ') : ''}`, h('div', { style: 'display:flex;gap:6px' },
-          h('button', { class: 'btn sm', text: 'Chép token', onclick: () => copy(x.token) }),
-          h('button', { class: 'btn sm', text: 'Thu hồi', onclick: async () => { await api.rsShare({ sid: x.sid, on: false }); await loadShared(); u.render(); } }))))
-          : [u.row('Phiên đang chia sẻ', 'Chưa có — chuột phải một phiên ở thanh bên → “Cho máy khác thấy & điều khiển”.', null)])),
-      u.group('Phiên từ máy khác (máy này đang xem)', 'Các phiên đã thêm bằng token — hiện ở nhóm 🏢 trên thanh bên.',
-        ...(links.size ? [...links.values()].map((L) => u.row(`🏢 ${L.name} · ${L.title || ''}`, `${L.addr} · ${L.state === 'online' ? 'đang kết nối' : L.state === 'revoked' ? 'token hết hiệu lực' : 'mất kết nối'}`,
+        ...(shares.length ? shares.map((x) => u.row('📡 ' + (x.title || x.sid.slice(0, 8)), `${[x.pub ? 'công khai cho máy đã kết nối' : '', x.token ? 'chia sẻ bằng token' : ''].filter(Boolean).join(' + ')} · từ ${fmtT(x.t)}${x.viewers.length ? ' · đang xem: ' + x.viewers.join(', ') : ''}`, h('div', { style: 'display:flex;gap:6px' },
+          x.token ? h('button', { class: 'btn sm', text: 'Chép token', onclick: () => copy(x.token) }) : null,
+          x.pub ? h('button', { class: 'btn sm', text: 'Thôi công khai', onclick: async () => { await api.rsPublish({ sid: x.sid, on: false }); await loadShared(); u.render(); } }) : null,
+          x.token ? h('button', { class: 'btn sm', text: 'Thu hồi token', onclick: async () => { await api.rsShare({ sid: x.sid, on: false }); await loadShared(); u.render(); } }) : null)))
+          : [u.row('Phiên đang chia sẻ', 'Chưa có — chuột phải một phiên ở thanh bên → “Công khai cho máy đã kết nối” hoặc “Chia sẻ bằng token…”.', null)])),
+      u.group('Máy đã kết nối tới máy này', 'Máy từng vào bằng token được nhớ lại: chúng tự thấy & điều khiển mọi phiên bạn “Công khai cho máy đã kết nối”. Gỡ một máy → máy đó mất quyền ngay (muốn vào lại phải dùng token).',
+        ...(devList.length ? devList.map((d) => u.row((d.live ? '● ' : '○ ') + d.name, `Kết nối lần đầu ${fmtT(d.t)}${d.last ? ' · lần cuối ' + fmtT(d.last) : ''}${d.live ? ' · đang xem' : ''}`,
+          h('button', { class: 'btn sm', text: 'Gỡ', onclick: async () => { if (!(await CG.confirmDialog('Gỡ máy ' + d.name + '?', 'Máy đó không xem / điều khiển được các phiên công khai nữa, bị ngắt ngay.', 'Gỡ', true))) return; await api.rsUnpair(d.id); await loadShared(); u.render(); } })))
+          : [u.row('Chưa có', 'Máy khác kết nối lần đầu bằng token của một phiên bất kỳ thì sẽ hiện ở đây.', null)])),
+      u.group('Máy đã kết nối (máy này xem được)', 'Máy bạn từng kết nối tới — các phiên bên đó công khai tự hiện ở nhóm 🏢 trên thanh bên.',
+        ...(hosts.size ? [...hosts.values()].map((H) => u.row(`🏢 ${H.name}`, `${H.addr} · ${H.state === 'online' ? `đang kết nối · ${H.n || 0} phiên công khai` : H.state === 'revoked' ? 'máy kia đã gỡ máy này' : 'mất kết nối'}`,
+          h('button', { class: 'btn sm', text: 'Quên', onclick: async () => { await forgetHost(H); u.render(); } })))
+          : [u.row('Chưa có', 'Kết nối bằng token một lần là máy được nhớ ở đây.', h('button', { class: 'btn sm', text: 'Thêm…', onclick: () => addDialog() }))])),
+      u.group('Phiên thêm bằng token (máy này đang xem)', 'Các phiên đã thêm bằng token — hiện ở nhóm 🏢 trên thanh bên.',
+        ...([...links.values()].some((L) => !L.pub) ? [...links.values()].filter((L) => !L.pub).map((L) => u.row(`🏢 ${L.name} · ${L.title || ''}`, `${L.addr} · ${L.state === 'online' ? 'đang kết nối' : L.state === 'revoked' ? 'token hết hiệu lực' : 'mất kết nối'}`,
           h('button', { class: 'btn sm', text: 'Gỡ', onclick: async () => { await api.rsRemoveLink(L.id); await loadLinks(); u.render(); } })))
           : [u.row('Chưa có', 'Thêm bằng token lấy ở máy kia.', h('button', { class: 'btn sm', text: 'Thêm…', onclick: () => addDialog() }))])),
     );
   }
 
   CG.remote = {
-    emit, userSent, permDone, busyChanged, isShared, watching, menuItems, titleChip, setShare, showToken,
+    emit, userSent, permDone, busyChanged, isShared, watching, menuItems, titleChip, setShare, setPublic, showToken, _hosts: hosts, reloadHosts: loadHosts,
     renderGroup, openRemote, openChild, send, respond, stop, api: rsApi, addDialog, settingsPage, _links: links, _shared: () => shared, reload: loadLinks,
   };
 })();

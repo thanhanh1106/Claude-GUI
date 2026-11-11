@@ -2963,7 +2963,17 @@ const rsSubs = new Map(); // sid -> Set<{ res, hash, client, name, ip }>
 const rsSeq = new Map();
 const rsFails = new Map(); // ip -> { n, t }
 const rsPend = new Map();
-function rsLoad() { rsTok.clear(); for (const [sid, x] of Object.entries(settings.rsShares || {})) if (x && x.hash) rsTok.set(x.hash, sid); }
+// Máy đã ghép: máy xem kết nối thành công bằng token phiên một lần → nhận khoá máy (cgd_…) để lần sau tự thấy mọi phiên
+// được "Công khai cho máy đã kết nối" (settings.rsPublic) mà không cần token riêng. Gỡ máy → khoá hết hiệu lực, ngắt ngay.
+const rsDevs = new Map(); // băm khoá máy -> id thiết bị
+const rsPub = new Set(); // sid công khai cho máy đã ghép
+const rsSeen = new Map(); // id thiết bị -> lần cuối kết nối
+function rsLoad() {
+  rsTok.clear(); rsDevs.clear(); rsPub.clear();
+  for (const [sid, x] of Object.entries(settings.rsShares || {})) if (x && x.hash) rsTok.set(x.hash, sid);
+  for (const [id, d] of Object.entries(settings.rsDevices || {})) if (d && d.hash) rsDevs.set(d.hash, id);
+  for (const sid of Object.keys(settings.rsPublic || {})) rsPub.add(sid);
+}
 const rsDec = (enc) => { try { return enc ? safeStorage.decryptString(Buffer.from(enc, 'base64')) : ''; } catch { return ''; } };
 const rsEnc = (t) => (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(String(t)).toString('base64') : '');
 function rsNewToken() {
@@ -2989,12 +2999,13 @@ function rsPush(sid, m, onlyHash) {
   const line = 'data: ' + JSON.stringify({ seq, m }) + '\n\n';
   for (const s of subs) if (!onlyHash || s.hash === onlyHash) { try { s.res.write(line); } catch {} }
 }
-// ngắt máy đang xem (tắt chia sẻ / đổi token): báo trước rồi đóng
-function rsKick(sid, keepHash) {
+// ngắt máy đang xem (tắt chia sẻ / đổi token): báo trước rồi đóng · only(s) → chỉ ngắt kết nối thoả điều kiện
+function rsKick(sid, keepHash, only) {
   const subs = rsSubs.get(sid);
   if (!subs) return;
   for (const s of [...subs]) {
     if (keepHash && s.hash === keepHash) continue;
+    if (only && !only(s)) continue;
     try { s.res.write('data: ' + JSON.stringify({ m: { type: 'gui_revoked' } }) + '\n\n'); s.res.end(); } catch {}
     subs.delete(s);
   }
@@ -3028,7 +3039,31 @@ function rsShare(o) {
   return { ok: true, token, t: all[o.sid].t, renewed: !!old };
 }
 function rsShares() {
-  return Object.entries(settings.rsShares || {}).map(([sid, x]) => ({ sid, title: x.title, t: x.t, token: rsDec(x.enc), viewers: [...(rsSubs.get(sid) || [])].map((s) => s.name || s.ip) }));
+  const viewers = (sid) => [...new Set([...(rsSubs.get(sid) || [])].map((s) => s.name || s.ip))];
+  return [
+    ...Object.entries(settings.rsShares || {}).map(([sid, x]) => ({ sid, title: x.title, t: x.t, token: rsDec(x.enc), viewers: viewers(sid), pub: rsPub.has(sid) })),
+    ...Object.entries(settings.rsPublic || {}).filter(([sid]) => !(settings.rsShares || {})[sid]).map(([sid, x]) => ({ sid, title: x.title, t: x.t, token: '', viewers: viewers(sid), pub: true })),
+  ];
+}
+// công khai / thôi công khai một phiên cho mọi máy đã ghép
+function rsPublish(o) {
+  const all = { ...(settings.rsPublic || {}) };
+  if (o.on) all[o.sid] = { t: Date.now(), title: String(o.title || '').slice(0, 140) };
+  else delete all[o.sid];
+  settings.rsPublic = all; saveSettings(); rsLoad();
+  if (!o.on) rsKick(o.sid, null, (s) => s.dev); // chỉ ngắt máy vào bằng khoá máy, máy có token phiên vẫn xem tiếp
+  return { ok: true };
+}
+function rsDevices() {
+  return Object.entries(settings.rsDevices || {}).map(([id, d]) => ({ id, name: d.name, t: d.t, last: rsSeen.get(id) || d.last || 0, live: [...rsSubs.values()].some((ss) => [...ss].some((s) => s.dev === id)) }));
+}
+function rsUnpair(id) {
+  const all = { ...(settings.rsDevices || {}) };
+  if (!all[id]) return { ok: true };
+  delete all[id];
+  settings.rsDevices = all; saveSettings(); rsLoad();
+  for (const sid of [...rsSubs.keys()]) rsKick(sid, null, (s) => s.dev === id);
+  return { ok: true };
 }
 async function rsTailscale() {
   const ip = lanAddrs().find((a) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(a)) || '';
@@ -3064,8 +3099,36 @@ async function rsHandle(req, res) {
     const u = new URL(req.url, 'http://x');
     if (!u.pathname.startsWith('/rs/')) return json(404, { ok: false, error: 'Không có' });
     const tok = String(req.headers['x-cg-token'] || '');
-    const hash = rsHash(tok);
-    const sid = tok && rsTok.get(hash);
+    const devKey = String(req.headers['x-cg-dev'] || '');
+    const hash = rsHash(devKey || tok);
+    const devId = devKey ? rsDevs.get(hash) : null;
+    const name0 = String(req.headers['x-cg-name'] || ip).slice(0, 60);
+    if (devId) {
+      rsFails.delete(ip);
+      rsSeen.set(devId, Date.now());
+      const d = (settings.rsDevices || {})[devId];
+      if (d && d.name !== name0) { d.name = name0; saveSettings(); }
+      // danh sách phiên công khai (máy xem hỏi định kỳ)
+      if (req.method === 'GET' && u.pathname === '/rs/list') {
+        const sids = [...rsPub];
+        const st = sids.length ? await rsAsk('states', { sids }, 8000) : { ok: true, v: {} };
+        const sessions = sids.map((sid) => {
+          const x = (st.ok && st.v && st.v[sid]) || {};
+          let meta = null;
+          if (!x.title || !x.cwd) { const f = rsFileOf(sid); if (f) { try { meta = sessionMeta(f, fs.statSync(f)); } catch {} } }
+          const pub = (settings.rsPublic || {})[sid] || {};
+          return { sid, title: x.title || (meta && meta.title) || pub.title || '', cwd: x.cwd || (meta && meta.cwd) || '', busy: !!x.busy, t: pub.t || 0 };
+        });
+        return json(200, { ok: true, name: settings.lanName || os.hostname(), host: os.hostname(), sessions });
+      }
+      if (req.method === 'POST' && u.pathname === '/rs/unpair') { rsUnpair(devId); return json(200, { ok: true }); }
+    }
+    let sid = tok && !devKey ? rsTok.get(hash) : null;
+    if (devId) {
+      const want = String(req.headers['x-cg-sid'] || '');
+      if (want && rsPub.has(want)) sid = want;
+      else return json(401, { ok: false, error: 'Phiên đã thôi công khai cho máy đã kết nối' });
+    }
     if (!sid) {
       const x = rsFails.get(ip) || { n: 0, t: Date.now() };
       if (Date.now() - x.t > 10 * 60000) { x.n = 0; x.t = Date.now(); }
@@ -3076,6 +3139,17 @@ async function rsHandle(req, res) {
     const client = String(req.headers['x-cg-client'] || '').slice(0, 60);
     const name = String(req.headers['x-cg-name'] || ip).slice(0, 60);
     const own = (id) => id === sid || String(id || '').startsWith(sid + '/');
+    // ghép máy: máy xem vừa vào được bằng token phiên → cấp khoá máy (một máy một khoá, ghép lại thì khoá cũ hết hiệu lực)
+    if (req.method === 'POST' && u.pathname === '/rs/pair' && !devId) {
+      if (!safeStorage.isEncryptionAvailable()) return json(400, { ok: false, error: 'Máy kia không lưu khoá an toàn được' });
+      const all = { ...(settings.rsDevices || {}) };
+      for (const [id, d] of Object.entries(all)) if (d.name === name) { delete all[id]; for (const s2 of [...rsSubs.keys()]) rsKick(s2, null, (s) => s.dev === id); }
+      const id = crypto.randomBytes(6).toString('hex');
+      const key = 'cgd_' + crypto.randomBytes(24).toString('base64url');
+      all[id] = { hash: rsHash(key), name, t: Date.now(), last: Date.now() };
+      settings.rsDevices = all; saveSettings(); rsLoad();
+      return json(200, { ok: true, dev: key, name: settings.lanName || os.hostname(), host: os.hostname() });
+    }
     if (req.method === 'GET' && u.pathname === '/rs/info') {
       const st = await rsAsk('state', { sid }, 8000);
       const file = rsFileOf(sid);
@@ -3099,7 +3173,7 @@ async function rsHandle(req, res) {
     if (req.method === 'GET' && u.pathname === '/rs/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
       res.write(': ok\n\n');
-      const sub = { res, hash, client, name, ip };
+      const sub = { res, hash, client, name, ip, dev: devId || '' };
       if (!rsSubs.has(sid)) rsSubs.set(sid, new Set());
       rsSubs.get(sid).add(sub);
       rsLive();
@@ -3148,8 +3222,9 @@ function rsUrl(addr) {
 async function rsFetch(addr, token, p, method, body, ms) {
   const ac = new AbortController();
   const tm = setTimeout(() => ac.abort(), ms || 15000);
+  const auth = typeof token === 'object' && token ? token : { 'x-cg-token': token };
   try {
-    const res = await net.fetch(rsUrl(addr) + p, { method: method || 'GET', headers: { 'x-cg-token': token, 'x-cg-client': rsClientId, 'x-cg-name': os.hostname(), 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: ac.signal });
+    const res = await net.fetch(rsUrl(addr) + p, { method: method || 'GET', headers: { ...auth, 'x-cg-client': rsClientId, 'x-cg-name': os.hostname(), 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: ac.signal });
     const j = await res.json().catch(() => ({}));
     return res.ok ? j : { ok: false, status: res.status, error: j.error || `HTTP ${res.status}` };
   } catch (e) { return { ok: false, error: ac.signal.aborted ? 'Máy kia không trả lời (máy tắt / ngủ, Tailscale chưa bật, Claude GUI bên đó chưa bật Truy cập từ xa, hoặc tường lửa chặn cổng)' : e.message }; } finally { clearTimeout(tm); }
@@ -3164,14 +3239,54 @@ async function rsAddLink(o) {
   const list = rsLinks().filter((L) => !(L.sid === info.sid && L.host === info.host));
   const L = { id: crypto.randomBytes(6).toString('hex'), addr, tokEnc: rsEnc(token), name: info.name, host: info.host, sid: info.sid, title: info.title, cwd: info.cwd, t: Date.now() };
   settings.rsLinks = [...list, L]; saveSettings();
+  await rsPair(L).catch(() => {});
   return { ok: true, link: rsLinkOut(L), info };
+}
+// ---- máy đã kết nối (settings.rsHosts): khoá máy nhận khi ghép, xem được mọi phiên bên đó công khai ----
+const rsHosts = () => settings.rsHosts || [];
+const rsHostOut = (H) => ({ id: H.id, addr: H.addr, name: H.name, host: H.host, t: H.t });
+async function rsPair(L) {
+  const r = await rsFetch(L.addr, rsDec(L.tokEnc), '/rs/pair', 'POST', {});
+  if (!r.ok || !r.dev || !safeStorage.isEncryptionAvailable()) return r;
+  const old = rsHosts().find((H) => H.host === r.host);
+  const H = { id: old ? old.id : crypto.randomBytes(6).toString('hex'), addr: L.addr, name: r.name, host: r.host, devEnc: rsEnc(r.dev), t: Date.now() };
+  settings.rsHosts = [...rsHosts().filter((x) => x.host !== r.host), H]; saveSettings();
+  send('rs:hosts');
+  return { ok: true, host: rsHostOut(H) };
+}
+// liên kết token cũ (từ bản trước) chưa ghép máy → ghép luôn
+async function rsPairOld() {
+  for (const L of rsLinks()) if (!rsHosts().some((H) => H.host === L.host)) await rsPair(L).catch(() => {});
+}
+async function rsHostList(id) {
+  const H = rsHosts().find((x) => x.id === id);
+  if (!H) return { ok: false, error: 'Không còn máy này' };
+  const r = await rsFetch(H.addr, { 'x-cg-dev': rsDec(H.devEnc) }, '/rs/list', 'GET', null, 10000);
+  if (r.ok && (r.name !== H.name)) { H.name = r.name; saveSettings(); }
+  return r;
+}
+async function rsForget(id) {
+  const H = rsHosts().find((x) => x.id === id);
+  if (!H) return true;
+  for (const k of [...rsStreams.keys()]) if (k.startsWith('h:' + id + ':')) rsDisconnect(k);
+  rsFetch(H.addr, { 'x-cg-dev': rsDec(H.devEnc) }, '/rs/unpair', 'POST', {}, 5000).catch(() => {});
+  settings.rsHosts = rsHosts().filter((x) => x.id !== id); saveSettings();
+  return true;
+}
+// id liên kết: id của liên kết token, hoặc "h:<máy>:<sid>" = phiên công khai của máy đã ghép
+function rsCred(id) {
+  const m = /^h:([^:]+):(.+)$/.exec(String(id || ''));
+  if (m) { const H = rsHosts().find((x) => x.id === m[1]); return H ? { addr: H.addr, auth: { 'x-cg-dev': rsDec(H.devEnc), 'x-cg-sid': m[2] } } : null; }
+  const L = rsLinks().find((x) => x.id === id);
+  return L ? { addr: L.addr, auth: { 'x-cg-token': rsDec(L.tokEnc) }, L } : null;
 }
 function rsRemoveLink(id) { rsDisconnect(id); settings.rsLinks = rsLinks().filter((L) => L.id !== id); saveSettings(); return true; }
 async function rsCall(o) {
-  const L = rsLinks().find((x) => x.id === o.link);
-  if (!L) return { ok: false, error: 'Không còn liên kết này' };
-  const r = await rsFetch(L.addr, rsDec(L.tokEnc), o.path, o.method, o.body, o.ms);
-  if (r.ok && o.path === '/rs/info' && (r.title !== L.title || r.cwd !== L.cwd)) { L.title = r.title; L.cwd = r.cwd; saveSettings(); }
+  const C = rsCred(o.link);
+  if (!C) return { ok: false, error: 'Không còn liên kết này' };
+  const r = await rsFetch(C.addr, C.auth, o.path, o.method, o.body, o.ms);
+  const L = C.L;
+  if (L && r.ok && o.path === '/rs/info' && (r.title !== L.title || r.cwd !== L.cwd)) { L.title = r.title; L.cwd = r.cwd; saveSettings(); }
   return r;
 }
 function rsConnect(id) {
@@ -3179,11 +3294,11 @@ function rsConnect(id) {
   const st = { stop: false, req: null, timer: null, wait: 2000 };
   rsStreams.set(id, st);
   const go = () => {
-    const L = rsLinks().find((x) => x.id === id);
-    if (!L || st.stop) { rsStreams.delete(id); return; }
+    const C = rsCred(id);
+    if (!C || st.stop) { rsStreams.delete(id); return; }
     let url;
-    try { url = new URL(rsUrl(L.addr) + '/rs/events'); } catch (e) { send('rs:state', { link: id, state: 'offline', error: e.message }); return; }
-    const req = require('http').get(url, { headers: { 'x-cg-token': rsDec(L.tokEnc), 'x-cg-client': rsClientId, 'x-cg-name': os.hostname() } }, (res) => {
+    try { url = new URL(rsUrl(C.addr) + '/rs/events'); } catch (e) { send('rs:state', { link: id, state: 'offline', error: e.message }); return; }
+    const req = require('http').get(url, { headers: { ...C.auth, 'x-cg-client': rsClientId, 'x-cg-name': os.hostname() } }, (res) => {
       if (res.statusCode === 401) { send('rs:state', { link: id, state: 'revoked' }); res.resume(); st.stop = true; rsStreams.delete(id); return; }
       if (res.statusCode !== 200) { res.resume(); return; }
       st.wait = 2000;
@@ -3288,6 +3403,12 @@ function registerIpc() {
   ipcMain.handle('rs:connect', (_e, id) => rsConnect(id));
   ipcMain.handle('rs:disconnect', (_e, id) => rsDisconnect(id));
   ipcMain.handle('rs:client', () => ({ id: rsClientId, host: os.hostname() }));
+  ipcMain.handle('rs:publish', (_e, o) => rsPublish(o || {}));
+  ipcMain.handle('rs:devices', () => rsDevices());
+  ipcMain.handle('rs:unpair', (_e, id) => rsUnpair(id));
+  ipcMain.handle('rs:hosts', async () => { await rsPairOld().catch(() => {}); return rsHosts().map(rsHostOut); });
+  ipcMain.handle('rs:hostList', (_e, id) => rsHostList(id));
+  ipcMain.handle('rs:forget', (_e, id) => rsForget(id));
   ipcMain.handle('stats:get', () => statsLoad());
   ipcMain.handle('stats:habit', (_e, kind, key, o) => statsHabit(kind, key, o || {}));
   ipcMain.handle('files:pick', async (_e, o = {}) => {
