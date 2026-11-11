@@ -48,9 +48,24 @@
     if (!(r && r.error)) save(true);
   }
   let saveT = null;
+  // phiên do lịch chạy (từng bước, task dự án, phiên điều phối) → báo main để máy đã kết nối cũng thấy
+  function schedSids() {
+    const out = {};
+    for (const p of D.plans) {
+      if (p.demo) continue;
+      for (const sid of (p.run && p.run.sids) || []) if (sid) out[sid] = p.name;
+      if (p.kind === 'project' && p.proj) {
+        for (const t of p.proj.tasks || []) if (t.sid) out[t.sid] = p.name;
+        if (p.proj.plannerSid) out[p.proj.plannerSid] = p.name + ' · điều phối';
+      }
+    }
+    return out;
+  }
+  let lastSids = '';
+  function pushSids() { const m = schedSids(), k = JSON.stringify(m); if (k !== lastSids && api.rsSchedSids) { lastSids = k; api.rsSchedSids(m); } }
   function save(now) {
     clearTimeout(saveT);
-    const go = () => { api.schedSave({ plans: D.plans.filter((p) => !p.demo) }).then((ok) => { if (ok === false && !save.warned) { save.warned = true; toast('Không lưu được lịch (schedules.json) — kiểm tra quyền ghi thư mục dữ liệu.', true); } }).catch(() => {}); api.schedPending(pendingCount()); };
+    const go = () => { pushSids(); api.schedSave({ plans: D.plans.filter((p) => !p.demo) }).then((ok) => { if (ok === false && !save.warned) { save.warned = true; toast('Không lưu được lịch (schedules.json) — kiểm tra quyền ghi thư mục dữ liệu.', true); } }).catch(() => {}); api.schedPending(pendingCount()); };
     if (now) go(); else saveT = setTimeout(go, 300);
   }
   const pendingCount = () => D.plans.filter((p) => !p.demo && p.on && (p.run.state === 'running' || p.run.state === 'waiting' || p.run.state === 'paused' || nextFire(p) != null || p.trig.type === 'after' || p.trig.type.startsWith('reset'))).length;
@@ -377,6 +392,7 @@
   function openPage(planId) {
     ensurePage();
     if (CG.skills) CG.skills.close();
+    if (CG.remote && CG.remote.closeSched) CG.remote.closeSched();
     U.open = true;
     if (planId) U.sel = planId;
     if (!U.sel || !D.plans.find((p) => p.id === U.sel)) U.sel = D.plans[0] && D.plans[0].id;
@@ -410,6 +426,7 @@
       h('div', { class: 'sc-bar' }, h('i', { style: `width:${Math.min(100, x ? x.pct : 0)}%` })));
     pg.append(h('div', { class: 'sc-hdr' },
       h('h2', { text: 'Lịch & hàng đợi' }),
+      CG.remote && CG.remote.schedSwitch ? CG.remote.schedSwitch(null) : null,
       h('button', { class: 'btn primary sm', id: 'sc-new', onclick: () => templates() }, icon('plus', 14), 'Kế hoạch mới'),
       CG.pack ? h('button', { class: 'btn sm', title: 'Nhập kế hoạch / dự án tự động xuất từ Claude GUI ở máy khác (tệp .cgpack)', onclick: () => CG.pack.importPlan() }, icon('download', 13), 'Nhập') : null,
       h('button', { class: 'icon-btn sm', id: 'sc-help', title: 'Xem hướng dẫn', html: '?', onclick: () => tour() }),
@@ -941,5 +958,34 @@
     setTimeout(() => whatsNew(false), 1500);
   }, 100);
 
-  CG.sched = { queueAfter, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText, resumeTime }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
+  // ----- máy đã kết nối xem / điều khiển lịch (remote.js gọi qua rs:req) -----
+  function remoteSnapshot() {
+    if (!D.loaded) return { ok: false, error: 'Lịch ở máy kia chưa tải xong' };
+    const L = limits();
+    return { ok: true, limits: L, t: Date.now(), plans: D.plans.filter((p) => !p.demo).map((p) => {
+      const r = p.run || {};
+      const o = { id: p.id, name: p.name, kind: p.kind || 'plan', on: !!p.on, trig: trigText(p), status: statusText(p), state: r.state || 'idle', note: r.note || '', idx: r.idx || 0, resumeAt: r.resumeAt || 0,
+        busy: busyPlan(p) || running.has(p.id), missed: !!(r.missedAt && p.trig.missed === 'ask' && nextFire(p) === r.missedAt) };
+      if (o.kind === 'project' && CG.autopilot && p.proj) o.proj = CG.autopilot.remoteView(p);
+      else o.steps = (p.nodes || []).map((n, i) => ({ kind: n.kind, prompt: String(n.prompt || '').slice(0, 600), st: (r.st && r.st[i]) || 'wait', sid: (r.sids && r.sids[i]) || '', where: n.kind === 'new' ? (n.cwd ? basename(n.cwd) : '') : n.target === 'prev' ? (i ? 'phiên của bước trước' : (p.trig.sess && p.trig.sess.title) || '') : n.targetTitle || '', model: n.model || '', cond: CONDS[n.cond] ? CONDS[n.cond].replace('vài', String(n.waitMin || 10)) : '' }));
+      return o;
+    }) };
+  }
+  async function remoteAct(d) {
+    const p = D.plans.find((x) => x.id === d.id && !x.demo);
+    if (!p) return { ok: false, error: 'Không còn kế hoạch này' };
+    const r = p.run;
+    if (p.kind === 'project' && CG.autopilot && !['toggle'].includes(d.act)) return CG.autopilot.remoteAct(p, d.act, d.arg || {});
+    switch (d.act) {
+      case 'toggle': p.on = !p.on; if (p.on) p.armedAt = Date.now(); else if (busyPlan(p) || running.has(p.id)) { if (p.kind === 'project' && CG.autopilot) CG.autopilot.stop(p); else stopPlan(p); p.run.note = 'Đã tắt.'; } save(); render(); break;
+      case 'run': if (busyPlan(p) && r.state !== 'paused') return { ok: false, error: 'Kế hoạch đang chạy' }; runPlan(p, r.state === 'paused' ? r.idx || 0 : 0, r.state === 'paused'); break;
+      case 'stop': stopPlan(p); break;
+      case 'missedRun': r.missedAt = 0; r.note = 'Chạy bù theo yêu cầu (từ máy khác).'; fire(p); render(); break;
+      case 'missedSkip': r.missedAt = 0; r.firedAt = Date.now(); r.note = ''; save(); render(); break;
+      default: return { ok: false, error: 'Không rõ thao tác' };
+    }
+    return { ok: true };
+  }
+  setTimeout(pushSids, 3000);
+  CG.sched = { queueAfter, remoteSnapshot, remoteAct, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText, resumeTime }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
 })();

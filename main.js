@@ -2968,6 +2968,10 @@ const rsPend = new Map();
 const rsDevs = new Map(); // băm khoá máy -> id thiết bị
 const rsPub = new Set(); // sid công khai cho máy đã ghép
 const rsSeen = new Map(); // id thiết bị -> lần cuối kết nối
+// phiên do Lịch & hàng đợi chạy (cửa sổ chính báo sang) — máy đã kết nối thấy luôn nếu bật "xem Lịch & hàng đợi"
+let rsSched = new Map(); // sid -> tên kế hoạch
+const rsSchedOn = () => settings.rsSchedRemote !== false;
+const rsVisible = (sid) => rsPub.has(sid) || (rsSchedOn() && rsSched.has(sid));
 function rsLoad() {
   rsTok.clear(); rsDevs.clear(); rsPub.clear();
   for (const [sid, x] of Object.entries(settings.rsShares || {})) if (x && x.hash) rsTok.set(x.hash, sid);
@@ -3110,23 +3114,31 @@ async function rsHandle(req, res) {
       if (d && d.name !== name0) { d.name = name0; saveSettings(); }
       // danh sách phiên công khai (máy xem hỏi định kỳ)
       if (req.method === 'GET' && u.pathname === '/rs/list') {
-        const sids = [...rsPub];
+        const sids = [...new Set([...rsPub, ...(rsSchedOn() ? rsSched.keys() : [])])];
         const st = sids.length ? await rsAsk('states', { sids }, 8000) : { ok: true, v: {} };
         const sessions = sids.map((sid) => {
           const x = (st.ok && st.v && st.v[sid]) || {};
           let meta = null;
           if (!x.title || !x.cwd) { const f = rsFileOf(sid); if (f) { try { meta = sessionMeta(f, fs.statSync(f)); } catch {} } }
           const pub = (settings.rsPublic || {})[sid] || {};
-          return { sid, title: x.title || (meta && meta.title) || pub.title || '', cwd: x.cwd || (meta && meta.cwd) || '', busy: !!x.busy, t: pub.t || 0 };
-        });
-        return json(200, { ok: true, name: settings.lanName || os.hostname(), host: os.hostname(), sessions });
+          return { sid, title: x.title || (meta && meta.title) || pub.title || '', cwd: x.cwd || (meta && meta.cwd) || '', busy: !!x.busy, t: pub.t || (meta && meta.mtime) || 0, pub: rsPub.has(sid), plan: rsPub.has(sid) ? '' : rsSched.get(sid) || '' };
+        }).filter((x) => x.pub || x.title || x.busy); // phiên lịch chưa ghi gì (chưa có tệp) thì bỏ
+        return json(200, { ok: true, name: settings.lanName || os.hostname(), host: os.hostname(), sched: rsSchedOn(), sessions });
+      }
+      // Lịch & hàng đợi của máy này
+      if (u.pathname === '/rs/sched' || u.pathname === '/rs/sched/act') {
+        if (!rsSchedOn()) return json(403, { ok: false, error: 'Máy kia không cho xem Lịch & hàng đợi từ xa' });
+        if (req.method === 'GET') return json(200, await rsAsk('sched', {}, 10000));
+        const b = JSON.parse(await lanBody(req, 1e6) || '{}');
+        const v = await rsAsk('schedAct', { id: b.id, act: b.act, arg: b.arg || {}, from: name0 }, 30000);
+        return json(v.ok ? 200 : 400, v);
       }
       if (req.method === 'POST' && u.pathname === '/rs/unpair') { rsUnpair(devId); return json(200, { ok: true }); }
     }
     let sid = tok && !devKey ? rsTok.get(hash) : null;
     if (devId) {
       const want = String(req.headers['x-cg-sid'] || '');
-      if (want && rsPub.has(want)) sid = want;
+      if (want && rsVisible(want)) sid = want;
       else return json(401, { ok: false, error: 'Phiên đã thôi công khai cho máy đã kết nối' });
     }
     if (!sid) {
@@ -3264,6 +3276,12 @@ async function rsHostList(id) {
   const r = await rsFetch(H.addr, { 'x-cg-dev': rsDec(H.devEnc) }, '/rs/list', 'GET', null, 10000);
   if (r.ok && (r.name !== H.name)) { H.name = r.name; saveSettings(); }
   return r;
+}
+async function rsHostSched(o) {
+  const H = rsHosts().find((x) => x.id === o.id);
+  if (!H) return { ok: false, error: 'Không còn máy này' };
+  const auth = { 'x-cg-dev': rsDec(H.devEnc) };
+  return o.act ? rsFetch(H.addr, auth, '/rs/sched/act', 'POST', { id: o.plan, act: o.act, arg: o.arg || {} }, 40000) : rsFetch(H.addr, auth, '/rs/sched', 'GET', null, 15000);
 }
 async function rsForget(id) {
   const H = rsHosts().find((x) => x.id === id);
@@ -3404,6 +3422,13 @@ function registerIpc() {
   ipcMain.handle('rs:disconnect', (_e, id) => rsDisconnect(id));
   ipcMain.handle('rs:client', () => ({ id: rsClientId, host: os.hostname() }));
   ipcMain.handle('rs:publish', (_e, o) => rsPublish(o || {}));
+  ipcMain.on('rs:schedSids', (_e, m) => {
+    const next = new Map(Object.entries(m || {}).filter(([k]) => typeof k === 'string' && k));
+    // phiên không còn trong lịch (kế hoạch bị xoá…) → ngắt máy đang xem bằng khoá máy, trừ khi phiên vẫn công khai
+    for (const sid of rsSched.keys()) if (!next.has(sid) && !rsPub.has(sid)) rsKick(sid, null, (s) => s.dev);
+    rsSched = next;
+  });
+  ipcMain.handle('rs:hostSched', (_e, o) => rsHostSched(o || {}));
   ipcMain.handle('rs:devices', () => rsDevices());
   ipcMain.handle('rs:unpair', (_e, id) => rsUnpair(id));
   ipcMain.handle('rs:hosts', async () => { await rsPairOld().catch(() => {}); return rsHosts().map(rsHostOut); });

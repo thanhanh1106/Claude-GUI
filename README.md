@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.22.1-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.23.0-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -65,6 +65,8 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - Máy xem: nút lọc ở thanh bên → **Thêm phiên từ máy khác…** → tên máy (gợi ý sẵn các máy trong Tailscale) + token → phiên hiện ở nhóm 🏢 trên thanh bên, kèm phiên con (tác tử phụ). Mở ra là khung chat như thường: chữ chạy trực tiếp, nhắn tiếp / nhắn giữa lượt, duyệt hoặc từ chối thẻ xin quyền và câu hỏi, Dừng — bên nào bấm trước thì thẻ bên kia tự đóng; tin gửi từ máy khác có nhãn "gửi từ <máy>".
 - Không có token thì không thấy gì (kể cả tên phiên); token phiên cha dùng cho cả phiên con. Đổi token / tắt chia sẻ → máy đang dùng token cũ bị ngắt ngay. Token lưu mã hoá; sai token nhiều lần thì chặn địa chỉ đó 10 phút. Tuỳ chọn "Máy khác được duyệt quyền" (tắt → máy kia chỉ xem, nhắn, Dừng).
 - **Máy đã kết nối (1.22.1)**: kết nối bằng token một lần là hai máy nhớ nhau (máy xem nhận khoá máy riêng, lưu mã hoá). Từ đó ở máy chạy phiên chỉ cần chuột phải phiên → **Công khai cho máy đã kết nối** → máy kia tự thấy phiên ở nhóm 🏢 (cập nhật mỗi 15 giây), xem & điều khiển được, không cần token; **Thôi công khai** → máy kia mất phiên ngay (máy có token riêng vẫn xem). Nhóm 🏢 của máy đã kết nối luôn hiện trên thanh bên kể cả khi chưa có phiên nào; chuột phải tiêu đề nhóm → làm mới, thêm phiên bằng token, quên máy. Cài đặt › Truy cập từ xa có danh sách "Máy đã kết nối tới máy này" (Gỡ → máy đó mất quyền ngay) và "Máy đã kết nối (máy này xem được)" (Quên). Liên kết token đã thêm từ bản trước tự ghép máy khi cả hai máy lên bản mới.
+- **Lịch & hàng đợi từ xa (1.23)**: máy đã kết nối mở được Lịch & hàng đợi của máy kia — nút chuyển "Máy này / 🏢 <máy>" ở đầu trang Lịch & hàng đợi, dòng **📅 Lịch & hàng đợi** trong nhóm 🏢 ở thanh bên, hoặc chuột phải tiêu đề nhóm. Xem trạng thái từng kế hoạch / bước / task (tự cập nhật 4 giây/lần, kèm giới hạn 5 giờ / tuần của máy kia); Bật / Tắt, Chạy ngay / Chạy tiếp, Dừng, Chạy bù; với dự án tự động: Duyệt & chạy, duyệt bản sửa lịch (Áp dụng & chạy tiếp / Áp dụng / Bỏ), xử lý các ô "cần bạn xem" (xin đổi lịch, chưa đạt tiêu chí, lỗi, điểm dừng, design đổi, chờ phiên điều phối), chạy lại / bỏ qua task; nút Mở phiên của từng bước / task / phiên điều phối. Máy chạy lịch hiện thông báo "🏠 <máy> điều khiển lịch: …". Sửa nội dung kế hoạch vẫn làm ở máy chạy lịch.
+- **Phiên do lịch chạy tự hiện ở máy đã kết nối**: phiên của từng bước, task dự án, phiên điều phối — không cần công khai từng phiên; phiên đang chạy hiện ngay trong nhóm 🏢, phiên khác gom dưới dòng 📅 (bấm "N phiên ▸" để mở). Tắt ở máy chạy lịch: Cài đặt › Truy cập từ xa › "Máy đã kết nối xem & điều khiển Lịch & hàng đợi".
 - Máy chạy phiên phải đang bật (không ngủ) và mở Claude GUI.
 
 **Hỏi người thật qua Lark** (Cài đặt → Lark) — Claude soạn câu hỏi cho game designer / người khác, bạn duyệt rồi bot gửi, câu trả lời quay về đúng phiên:

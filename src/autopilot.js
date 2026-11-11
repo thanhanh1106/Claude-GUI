@@ -809,5 +809,47 @@ ${sj.gdd && sj.gdd.sha ? `- Tài liệu thiết kế: gọi công cụ get_chang
     const m = modal('Bộ skill của Claude GUI', body, [h('button', { class: 'btn', text: 'Đóng', onclick: () => m.close() })], { cls: 'm-wide' });
   }
 
-  CG.autopilot = { onToolResult, onTurnEnd, recheckPlan, run, stop, status, renderFlow, planFromComposer, skillsDialog, _onPlanFile: onPlanFile, _designCheck: designCheck, _applyPending: applyPending };
+  // ----- máy đã kết nối xem / điều khiển dự án từ xa (remote.js ⇄ sched.js) -----
+  function remoteView(p) {
+    const P = p.proj, hd = P.hold;
+    const tn = (id) => { const t = P.tasks.find((x) => x.id === id); return t ? `Task ${P.tasks.indexOf(t) + 1} — “${t.title}”` : ''; };
+    let pend = null;
+    if (P.pending) {
+      const d = diffTasks(P.tasks, P.pending.tasks);
+      pend = { change: P.pending.change || '', lines: [...d.add.map((x) => '+ ' + x.title), ...d.chg.map(({ t: x, keys }) => `~ #${taskNo(P, x.id)} ${x.title} (${keys.join(', ')})`), ...d.del.map((x) => `− #${taskNo(P, x.id)} ${x.title}`)] };
+    }
+    return {
+      goal: P.goal || '', dir: P.dir || '', approved: !!P.approved, plannerSid: P.plannerSid || '', status: status(p), checking: !!(hd && hd.kind === 'check' && running.has(p.id)),
+      hold: hd ? { kind: hd.kind, who: hd.task ? tn(hd.task) : '', reason: hd.reason || hd.why || '', proposal: hd.proposal || '', acc: hd.acc || '', text: String(hd.text || '').slice(0, 1500), items: hd.items || [], answered: hd.answered || 0, task: hd.task || '', sid: (hd.task && (P.tasks.find((x) => x.id === hd.task) || {}).sid) || '' } : null,
+      pending: pend,
+      phases: [...new Set(P.tasks.map((t) => +t.phase || 1))].sort((a, b) => a - b).map((ph) => ({ ph, name: phaseName(P, ph) })),
+      tasks: P.tasks.map((t, i) => ({ id: t.id, no: i + 1, title: t.title, st: t.st || 'wait', model: MN[t.model] || t.model, effort: t.effort, phase: +t.phase || 1, sid: t.sid || '', why: t.why || '' })),
+    };
+  }
+  // act: run · stop · approve · apply · applyRun · dropPending · resume · taskRetry · taskSkip · taskDone · taskCont · askPlanner · skipCheck · recheck · designAccept · designAnalyze
+  async function remoteAct(p, act, arg) {
+    const P = p.proj, hd = P.hold || {}, t = arg && arg.task ? P.tasks.find((x) => x.id === arg.task) : hd.task ? P.tasks.find((x) => x.id === hd.task) : null;
+    const resume = () => { P.hold = null; run(p); };
+    switch (act) {
+      case 'run': P.hold = null; run(p); break;
+      case 'stop': stop(p); break;
+      case 'approve': await approve(p); break;
+      case 'apply': applyPending(p); break;
+      case 'applyRun': applyPending(p); run(p); break;
+      case 'dropPending': P.pending = null; P.hold = { kind: 'blocked' }; save(); render(); break;
+      case 'resume': resume(); break;
+      case 'taskRetry': if (!t) return { ok: false, error: 'Không thấy task' }; t.st = 'wait'; t.sid = ''; if (arg && arg.only) { save(); render(); } else resume(); break;
+      case 'taskSkip': if (!t) return { ok: false, error: 'Không thấy task' }; t.st = 'skip'; if (arg && arg.only) { save(); render(); } else resume(); break;
+      case 'taskDone': if (!t) return { ok: false, error: 'Không thấy task' }; t.st = 'done'; resume(); break;
+      case 'taskCont': if (!t) return { ok: false, error: 'Không thấy task' }; t.st = 'pause'; resume(); break;
+      case 'askPlanner': if (hd.kind === 'replan') await askPlanner(p, replanText(p, hd), `🔁 Task ${hd.task} xin đổi lịch`); else if (hd.kind === 'acc') await askPlanner(p, `Task ${hd.task} chưa đạt tiêu chí (${hd.acc}). Xem bàn giao ${join(P.run, 'handoff', hd.task + '.md')} rồi sửa kế hoạch cho phù hợp.`, `⚠ Task ${hd.task} chưa đạt tiêu chí`); else return { ok: false, error: 'Không có yêu cầu đổi lịch' }; break;
+      case 'skipCheck': P.hold = null; (P.checkedPhases = P.checkedPhases || []).push(+hd.phase); run(p); break;
+      case 'recheck': { const ok = await recheckPlan(p, A().convs().find((x) => x.sid === P.plannerSid && !x.rs)); return { ok: true, changed: !!ok }; }
+      case 'designAccept': await acceptDesign(p); resume(); break;
+      case 'designAnalyze': P.designReq = { text: 'Phát hiện tự động trước ' + phaseName(P, hd.phase), items: hd.items }; await askPlannerDesign(p); break;
+      default: return { ok: false, error: 'Không rõ thao tác' };
+    }
+    return { ok: true };
+  }
+  CG.autopilot = { onToolResult, onTurnEnd, recheckPlan, run, stop, status, renderFlow, planFromComposer, skillsDialog, remoteView, remoteAct, _onPlanFile: onPlanFile, _designCheck: designCheck, _applyPending: applyPending };
 })();

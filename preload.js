@@ -141,6 +141,8 @@ contextBridge.exposeInMainWorld('api', {
   rsDisconnect: inv('rs:disconnect'),
   rsClient: inv('rs:client'),
   rsPublish: inv('rs:publish'),
+  rsSchedSids: (m) => ipcRenderer.send('rs:schedSids', m),
+  rsHostSched: inv('rs:hostSched'),
   rsDevices: inv('rs:devices'),
   rsUnpair: inv('rs:unpair'),
   rsHosts: inv('rs:hosts'),

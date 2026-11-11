@@ -49,10 +49,18 @@
     try { v = await onReq(kind, data || {}); } catch (e) { v = { ok: false, error: e.message }; }
     api.rsRes(rid, v);
   });
+  const ACT_VI = { toggle: 'bật / tắt', run: 'chạy', stop: 'dừng', approve: 'duyệt & chạy', apply: 'áp dụng bản sửa', applyRun: 'áp dụng bản sửa & chạy tiếp', dropPending: 'bỏ bản sửa', resume: 'chạy tiếp', taskRetry: 'chạy lại task', taskSkip: 'bỏ qua task', taskDone: 'coi task là xong', taskCont: 'làm tiếp task', askPlanner: 'nhờ phiên điều phối sửa lịch', skipCheck: 'bỏ qua kiểm tra design', recheck: 'kiểm tra lại plan.json', designAccept: 'ghi nhận design mới', designAnalyze: 'phân tích design đổi', missedRun: 'chạy bù', missedSkip: 'bỏ qua lần lỡ' };
   const stateOf = (c) => ({ open: !!c, busy: !!(c && c.busy), title: c ? c.title : '', cwd: c ? c.cwd : '' });
   async function onReq(kind, d) {
     // máy đã kết nối hỏi danh sách phiên công khai
     if (kind === 'states') { const v = {}; for (const sid of d.sids || []) v[sid] = stateOf(localConv(sid)); return { ok: true, v }; }
+    if (kind === 'sched') return CG.sched ? CG.sched.remoteSnapshot() : { ok: false, error: 'Lịch chưa sẵn sàng' };
+    if (kind === 'schedAct') {
+      if (!CG.sched) return { ok: false, error: 'Lịch chưa sẵn sàng' };
+      const v = await CG.sched.remoteAct(d);
+      if (v.ok) { const p = CG.sched.plans.find((x) => x.id === d.id); toast(`🏠 ${d.from || 'Máy khác'} điều khiển lịch: ${ACT_VI[d.act] || d.act}${p ? ' · ' + p.name : ''}`); }
+      return v;
+    }
     // máy chủ đã kiểm token; danh sách ở đây có thể chưa kịp làm mới
     if (!shared.has(d.sid)) { await loadShared(); if (!shared.has(d.sid)) return { ok: false, error: 'Phiên không còn được chia sẻ' }; }
     if (kind === 'state') {
@@ -202,14 +210,15 @@
     const r = await api.rsHostList(hid).catch((e) => ({ ok: false, error: e.message }));
     if (!hosts.has(hid)) return;
     if (!r.ok) { H.state = r.status === 401 ? 'revoked' : 'offline'; H.error = r.error; if (r.status === 401) dropPub(hid, new Set()); A().renderSidebar(); return; }
-    H.state = 'online'; H.name = r.name || H.name;
+    H.state = 'online'; H.name = r.name || H.name; H.sched = !!r.sched;
+    if (RQ.hid === hid && r.sched === false) { closeSched(); toast(`Máy ${H.name} đã tắt xem Lịch & hàng đợi từ xa.`, true); }
     const sids = new Set();
     for (const s of r.sessions || []) {
       if (tokLinkFor(H.host, s.sid)) continue; // đã có liên kết bằng token
       sids.add(s.sid);
       const id = `h:${hid}:${s.sid}`;
       const cur = links.get(id);
-      links.set(id, { ...(cur || { state: 'connecting', info: null }), id, pub: true, hostId: hid, addr: H.addr, name: H.name, host: H.host, sid: s.sid, title: s.title || (cur && cur.title) || '', cwd: s.cwd || (cur && cur.cwd) || '', busy: s.busy });
+      links.set(id, { ...(cur || { state: 'connecting', info: null }), id, pub: true, hostId: hid, addr: H.addr, name: H.name, host: H.host, sid: s.sid, title: s.title || (cur && cur.title) || '', cwd: s.cwd || (cur && cur.cwd) || '', busy: s.busy, plan: s.plan || '' });
       if (!cur) api.rsConnect(id);
     }
     dropPub(hid, sids);
@@ -230,6 +239,7 @@
     CG.menu(anchor, [
       { header: `${H.name} · ${H.addr}` },
       { label: 'Làm mới danh sách phiên', icon: 'refresh', onClick: () => refreshHost(H.id).then(() => toast(H.state === 'online' ? `✓ ${H.name}: ${H.n} phiên công khai` : H.state === 'revoked' ? `${H.name} đã gỡ máy này — kết nối lại bằng token` : 'Không kết nối được: ' + (H.error || ''), H.state !== 'online')) },
+      { label: 'Mở Lịch & hàng đợi của máy này', icon: 'clock', disabled: !H.sched, desc: H.sched ? '' : 'máy kia chưa cho xem từ xa', onClick: () => openSched(H.id) },
       { label: 'Thêm phiên bằng token…', icon: 'plus', onClick: () => addDialog({ addr: H.addr }) },
       '-',
       { label: 'Quên máy này', icon: 'trash', danger: true, onClick: () => forgetHost(H) },
@@ -369,17 +379,19 @@
         h('span', { class: 'rs-dot ' + (on ? 'on' : 'off') }), h('span', { class: 'g-name ellipsis', text: '🏢 ' + nm }), h('span', { class: 'g-count', text: arr.length || '' }));
       if (H) head.oncontextmenu = (e) => { e.preventDefault(); hostMenu(H, CG.pointAnchor(e.clientX, e.clientY)); };
       list.append(head);
-      if (!arr.length && H) {
+      const runningOf = (L) => { const c = rsConv(L, L.sid); return c ? c.busy : L.busy; };
+      const first = arr.filter((L) => !L.plan || runningOf(L)), rest = arr.filter((L) => L.plan && !runningOf(L));
+      if (!first.length && !rest.length && H && !(H.sched && H.state === 'online')) {
         list.append(h('div', { class: 'rs-none', text: H.state === 'revoked' ? `${nm} đã gỡ máy này — chuột phải tiêu đề → Thêm phiên bằng token` : H.state === 'online' ? 'Chưa có phiên công khai — ở máy kia chuột phải phiên → “Công khai cho máy đã kết nối”' : H.state === 'connecting' ? 'Đang kết nối…' : 'Mất kết nối (máy tắt / Tailscale chưa bật)' }));
       }
-      for (const L of arr) {
+      const one = (L) => {
         const c = rsConv(L, L.sid);
         const busy = c ? c.busy : L.busy;
         const wait = c && c.perms.size;
         const active = S().active && S().active.key === convKey(L, L.sid);
-        const row = h('div', { class: 'sess rs-sess' + (active ? ' active' : '') + (L.state === 'revoked' ? ' rs-dead' : ''), title: `${L.title}\n${L.cwd || ''}\nMáy ${L.name} · ${L.state === 'online' ? 'đang kết nối' : L.state === 'revoked' ? 'đã ngừng chia sẻ' : 'mất kết nối'}` },
+        const row = h('div', { class: 'sess rs-sess' + (active ? ' active' : '') + (L.state === 'revoked' ? ' rs-dead' : ''), title: `${L.title}\n${L.cwd || ''}${L.plan ? '\n📅 ' + L.plan : ''}\nMáy ${L.name} · ${L.state === 'online' ? 'đang kết nối' : L.state === 'revoked' ? 'đã ngừng chia sẻ' : 'mất kết nối'}` },
           h('span', { class: 'st ' + (busy ? (wait ? 'wait' : 'run') : '') }),
-          h('span', { class: 's-title ellipsis', text: L.title || '(phiên)' }),
+          h('span', { class: 's-title ellipsis', text: (L.plan ? '📅 ' : '') + (L.title || '(phiên)') }),
           h('span', { class: 's-time', text: L.state === 'revoked' ? '✕' : L.state === 'online' ? '' : '…' }));
         row.onclick = () => (L.state === 'revoked' ? linkMenu(L, row) : openRemote(L, { id: L.sid, title: L.title, cwd: L.cwd }));
         row.oncontextmenu = (e) => { e.preventDefault(); linkMenu(L, CG.pointAnchor(e.clientX, e.clientY)); };
@@ -395,9 +407,20 @@
           }
           list.append(box);
         }
+      };
+      for (const L of first) one(L);
+      if (H && H.sched && H.state === 'online') {
+        const exp = schedOpen.has(H.id);
+        const row = h('div', { class: 'sess rs-sess rs-qrow' + (RQ.hid === H.id ? ' active' : ''), title: `Lịch & hàng đợi của máy ${nm} — xem, chạy / dừng, duyệt bản sửa` },
+          h('span', { class: 'rs-qic', text: '📅' }), h('span', { class: 's-title ellipsis', text: 'Lịch & hàng đợi' }),
+          rest.length ? h('span', { class: 'rs-qexp', title: exp ? 'Ẩn phiên do lịch chạy' : 'Hiện phiên do lịch chạy', text: `${rest.length} phiên ${exp ? '▾' : '▸'}` }) : null);
+        row.onclick = (e) => { if (e.target.closest('.rs-qexp')) { exp ? schedOpen.delete(H.id) : schedOpen.add(H.id); A().renderSidebar(); return; } openSched(H.id); };
+        list.append(row);
+        if (exp) for (const L of rest) one(L);
       }
     }
   }
+  const schedOpen = new Set();
   function linkMenu(L, anchor) {
     if (L.pub) {
       const H = hosts.get(L.hostId);
@@ -477,6 +500,7 @@
           step(6, shares.some((x) => x.pub), 'Từ đó trở đi: máy công ty chuột phải phiên → “Công khai cho máy đã kết nối”', h('div', {}, 'Máy ở nhà tự thấy phiên ở nhóm 🏢 trên thanh bên (cập nhật mỗi 15 giây), xem và điều khiển được, không cần token. Thôi công khai thì máy kia mất phiên đó ngay.')))),
       u.group('Máy này cho máy khác kết nối', 'Bật ở máy chạy phiên (máy công ty). Chỉ phiên bạn công khai (cho máy đã kết nối) hoặc chia sẻ bằng token (máy kia cần token của đúng phiên đó) mới mở được từ xa.',
         u.row('Cho máy khác kết nối', st + ' · chỉ nhận kết nối trong Tailscale / mạng nội bộ', u.toggle(!!s.rsOn, async (v) => { await u.set({ rsOn: v }); await api.rsApply(); setTimeout(u.render, 400); })),
+        u.row('Máy đã kết nối xem & điều khiển Lịch & hàng đợi', 'Máy đã kết nối mở được trang Lịch & hàng đợi của máy này (chạy, dừng, bật / tắt, duyệt bản sửa…) và thấy luôn các phiên do lịch chạy ở nhóm 🏢. Sửa nội dung kế hoạch vẫn chỉ làm ở máy này.', u.toggle(s.rsSchedRemote !== false, (v) => u.set({ rsSchedRemote: v }))),
         u.row('Máy khác được duyệt quyền', 'Tắt → máy kia chỉ xem, nhắn và Dừng; thẻ xin quyền (chạy lệnh, sửa tệp…) phải duyệt ngay tại máy này.', u.toggle(s.rsAllowPerm !== false, (v) => u.set({ rsAllowPerm: v }))),
         u.row('Địa chỉ máy này', 'Nhập ở máy kia (tên Tailscale không đổi khi đổi mạng).', h('div', { class: 'lan-addrs' }, [myAddr, ts.ip, info.host].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).map((x) => h('button', { class: 'btn sm mono', title: 'Chép', text: x, onclick: () => copy(x) })))),
         ...(shares.length ? shares.map((x) => u.row('📡 ' + (x.title || x.sid.slice(0, 8)), `${[x.pub ? 'công khai cho máy đã kết nối' : '', x.token ? 'chia sẻ bằng token' : ''].filter(Boolean).join(' + ')} · từ ${fmtT(x.t)}${x.viewers.length ? ' · đang xem: ' + x.viewers.join(', ') : ''}`, h('div', { style: 'display:flex;gap:6px' },
@@ -499,7 +523,194 @@
     );
   }
 
+  // =====================================================================
+  // LỊCH & HÀNG ĐỢI CỦA MÁY ĐÃ KẾT NỐI (máy nhà xem / điều khiển lịch ở máy công ty)
+  // =====================================================================
+  const RQ = { page: null, hid: null, data: null, sel: null, timer: null, err: '', open: new Set(), busy: false };
+  const TSTR = { wait: ['○', 'chờ', ''], run: ['', 'đang chạy', 'run'], done: ['✓', 'xong', 'done'], err: ['✕', 'lỗi', 'err'], skip: ['–', 'bỏ qua', ''], pause: ['⏸', 'tạm dừng', 'pause'], ask: ['?', 'cần bạn xem', 'err'], part: ['◐', 'dừng giữa chừng', 'pause'] };
+  const fmtHM = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} ${d.getDate()}/${d.getMonth() + 1}`; };
+  function schedSwitch(cur) {
+    const hs = [...hosts.values()].filter((H) => H.sched !== false);
+    if (!hs.length) return null;
+    return h('div', { class: 'seg sm rs-sw', title: 'Xem Lịch & hàng đợi của máy khác (máy đã kết nối)' },
+      h('button', { class: !cur ? 'on' : '', text: 'Máy này', onclick: () => { if (cur) { closeSched(); CG.sched.open(); } } }),
+      ...hs.map((H) => h('button', { class: cur === H.id ? 'on' : '', title: H.addr, text: '🏢 ' + H.name, onclick: () => { if (cur !== H.id) openSched(H.id); } })));
+  }
+  function openSched(hid) {
+    if (CG.sched && CG.sched._U && CG.sched._U.open) CG.sched.close();
+    if (CG.skills && CG.skills.isOpen) CG.skills.close();
+    if (!RQ.page) { RQ.page = h('div', { id: 'rsched-page', class: 'sched rsq hidden' }); document.getElementById('main').append(RQ.page); }
+    if (RQ.hid !== hid) { RQ.data = null; RQ.sel = null; RQ.err = ''; }
+    RQ.hid = hid;
+    RQ.page.classList.remove('hidden');
+    renderSched();
+    loadSched();
+    clearInterval(RQ.timer);
+    RQ.timer = setInterval(() => { if (!RQ.busy && document.visibilityState === 'visible') loadSched(); }, 4000);
+  }
+  function closeSched() {
+    if (!RQ.page || RQ.page.classList.contains('hidden')) return;
+    RQ.page.classList.add('hidden');
+    clearInterval(RQ.timer);
+    RQ.hid = null;
+  }
+  async function loadSched() {
+    const hid = RQ.hid;
+    if (!hid) return;
+    const r = await api.rsHostSched({ id: hid }).catch((e) => ({ ok: false, error: e.message }));
+    if (RQ.hid !== hid) return;
+    if (!r.ok) { RQ.err = r.status === 401 ? 'Máy kia đã gỡ máy này — kết nối lại bằng token.' : r.error || 'Không kết nối được'; }
+    else { RQ.err = ''; RQ.data = r; if (!RQ.sel || !r.plans.some((p) => p.id === RQ.sel)) RQ.sel = r.plans[0] && r.plans[0].id; }
+    renderSched();
+  }
+  async function act(p, a, arg, label) {
+    RQ.busy = true;
+    const r = await api.rsHostSched({ id: RQ.hid, plan: p.id, act: a, arg }).catch((e) => ({ ok: false, error: e.message }));
+    RQ.busy = false;
+    if (!r.ok) toast('Máy kia không làm được: ' + (r.error || ''), true);
+    else { toast(label ? `✓ ${label}` : '✓ Đã gửi sang máy kia'); if (a === 'recheck' && !r.changed) toast('plan.json chưa đổi từ lúc gửi phiên điều phối.'); }
+    await loadSched();
+    setTimeout(loadSched, 1500);
+  }
+  // mở phiên của bước / task ở máy kia (tạo liên kết nếu danh sách chưa kịp có)
+  function openHostSess(sid, title) {
+    const H = hosts.get(RQ.hid);
+    if (!H || !sid) return;
+    const id = `h:${H.id}:${sid}`;
+    let L = links.get(id) || tokLinkFor(H.host, sid);
+    if (!L) { L = { id, pub: true, hostId: H.id, addr: H.addr, name: H.name, host: H.host, sid, title: title || '', cwd: '', state: 'connecting', info: null }; links.set(id, L); api.rsConnect(id); }
+    closeSched();
+    openRemote(L, { id: sid, title: L.title || title, cwd: L.cwd });
+  }
+  function renderSched() {
+    const pg = RQ.page;
+    if (!pg || pg.classList.contains('hidden')) return;
+    const H = hosts.get(RQ.hid) || { name: '?' };
+    const keep = pg.querySelector('.sc-flow') ? pg.querySelector('.sc-flow').scrollTop : 0;
+    pg.innerHTML = '';
+    const d = RQ.data;
+    const lim = (x, n) => h('div', { class: 'sc-lim' + (x && x.pct >= 100 ? ' bad' : x && x.pct >= 80 ? ' warn' : '') },
+      h('div', {}, `${n}: `, h('b', { text: x ? Math.round(x.pct) + '%' : '?' }), ' · hồi ', h('b', { text: x && x.reset ? fmtHM(x.reset) : '?' })),
+      h('div', { class: 'sc-bar' }, h('i', { style: `width:${Math.min(100, x ? x.pct : 0)}%` })));
+    pg.append(h('div', { class: 'sc-hdr' },
+      h('h2', { text: 'Lịch & hàng đợi' }), schedSwitch(RQ.hid),
+      h('button', { class: 'icon-btn sm', title: 'Tải lại', html: svg('refresh', 15), onclick: () => loadSched() }),
+      h('div', { class: 'spacer' }),
+      d && d.limits ? h('div', { class: 'sc-lims', title: 'Giới hạn của tài khoản bên máy ' + H.name }, lim(d.limits.s, '5 giờ'), lim(d.limits.w, 'tuần')) : null,
+      h('button', { class: 'icon-btn', title: 'Đóng (Esc)', html: svg('x', 16), onclick: closeSched })));
+    if (RQ.err) pg.append(h('div', { class: 'sc-note err rs-qerr', text: `🏢 ${H.name}: ${RQ.err}` }));
+    if (!d) { pg.append(h('div', { class: 'sc-empty', text: RQ.err ? '' : `Đang tải lịch từ máy ${H.name}…` })); return; }
+    const body = h('div', { class: 'sc-body' });
+    const list = h('div', { class: 'sc-plans' });
+    list.append(h('div', { class: 'rs-qhint', text: `🏢 Lịch đang chạy trên máy ${H.name}. Bấm Chạy / Dừng / duyệt ở đây là máy đó làm; sửa nội dung kế hoạch thì làm ở máy đó.` }));
+    if (!d.plans.length) list.append(h('div', { class: 'sc-empty', text: 'Máy kia chưa có kế hoạch nào.' }));
+    for (const p of d.plans) {
+      const tog = h('span', { class: 'sc-tog' + (p.on ? ' on' : ''), title: p.on ? 'Đang bật — bấm để tắt' : 'Đang tắt — bấm để bật' });
+      const card = h('div', { class: 'sc-plan' + (p.id === RQ.sel ? ' on' : '') + (p.state === 'running' ? ' running' : '') },
+        h('div', { class: 'nm' }, h('span', { class: 'ellipsis', text: p.name }), tog),
+        h('div', { class: 'tr', text: p.trig }),
+        h('div', { class: 'meta' }, h('span', { text: p.kind === 'project' ? `🤖 ${p.proj.tasks.length} task` : `${p.steps.length} bước` }), h('span', { class: 'ellipsis', text: p.status })));
+      card.onclick = (e) => { if (e.target === tog) { act(p, 'toggle', null, p.on ? 'Đã tắt kế hoạch' : 'Đã bật kế hoạch'); return; } RQ.sel = p.id; renderSched(); };
+      list.append(card);
+    }
+    body.append(list);
+    const flow = h('div', { class: 'sc-flow' });
+    const p = d.plans.find((x) => x.id === RQ.sel);
+    if (p) (p.kind === 'project' ? projView : planView)(flow, p, H);
+    body.append(flow);
+    pg.append(body);
+    flow.scrollTop = keep;
+  }
+  const B = (txt, fn, cls, ic) => h('button', { class: 'btn sm ' + (cls || ''), onclick: fn }, ic ? CG.icon(ic, 13) : null, txt);
+  function planView(flow, p) {
+    const head = h('div', { class: 'sc-flow-h' }, h('h3', { class: 'ellipsis', text: p.name }));
+    if (p.state === 'running' || p.state === 'waiting' || (p.state === 'paused' && p.resumeAt)) head.append(B('Dừng', () => act(p, 'stop', null, 'Đã dừng'), '', 'square'));
+    else head.append(B(p.state === 'paused' ? 'Chạy tiếp' : 'Chạy ngay', () => act(p, 'run', null, 'Đã chạy'), 'primary', 'play'));
+    flow.append(head);
+    if (p.note) flow.append(h('div', { class: 'sc-note ' + (p.state === 'error' ? 'err' : ''), text: p.note }));
+    if (p.missed) flow.append(h('div', { class: 'row', style: 'gap:8px;margin:-4px 0 10px' }, B('Chạy bù ngay', () => act(p, 'missedRun', null, 'Đã chạy bù'), 'primary'), B('Bỏ qua lần này', () => act(p, 'missedSkip'))));
+    flow.append(h('div', { class: 'sc-node trig' }, h('div', { class: 'top' }, h('span', { class: 'tag trg', text: 'Kích hoạt' }), h('span', { class: 'st', text: p.status })), h('div', { class: 'pr', text: p.trig })));
+    p.steps.forEach((n, i) => {
+      if (i > 0 && p.steps[i - 1].cond) flow.append(h('div', { class: 'sc-link' + (p.steps[i - 1].st === 'done' ? ' lit' : '') }, h('span', { class: 'cond', text: p.steps[i - 1].cond })));
+      else flow.append(h('div', { class: 'sc-link' }, h('span', { class: 'cond', text: i ? '' : 'khi kích hoạt' })));
+      const st = TSTR[n.st] || TSTR.wait;
+      const el = h('div', { class: 'sc-node' + (st[2] ? ' ' + st[2] : '') },
+        h('div', { class: 'top' }, h('span', { class: 'tag ' + n.kind, text: n.kind === 'new' ? 'Phiên mới' : 'Nối tiếp phiên' }), h('span', { class: 'idx', text: `Bước ${i + 1}` }),
+          h('span', { class: 'st ' + st[2] }, st[2] === 'run' ? h('span', { class: 'spinner' }) : st[0], ' ' + st[1])),
+        h('div', { class: 'pr', text: n.prompt || '(chưa có prompt)' }),
+        h('div', { class: 'chips' }, n.where ? h('span', { class: 'chip' }, CG.icon(n.kind === 'new' ? 'folder' : 'cornerDownRight', 12), h('span', { class: 'ellipsis', text: n.where })) : null,
+          n.sid ? h('button', { class: 'btn xs', text: 'Mở phiên', onclick: (e) => { e.stopPropagation(); openHostSess(n.sid, `${p.name} · bước ${i + 1}`); } }) : null));
+      flow.append(el);
+    });
+  }
+  function projView(flow, p) {
+    const P = p.proj;
+    flow.classList.add('ap-flow');
+    const head = h('div', { class: 'sc-flow-h ap-head' }, h('h3', { class: 'ellipsis', text: '🤖 ' + p.name }), h('span', { class: 'ap-pill ' + (p.state === 'running' ? 'run' : P.hold ? 'warn' : ''), text: P.status }));
+    if (!P.approved) head.append(B('Duyệt & chạy', () => act(p, 'approve', null, 'Đã duyệt'), 'primary', 'check'));
+    else if (p.state === 'running' || (p.state === 'paused' && p.resumeAt)) head.append(B('Dừng', () => act(p, 'stop', null, 'Đã dừng'), '', 'square'));
+    else if (!P.pending && !(P.hold && (P.hold.kind === 'planning' || P.hold.kind === 'check')) && (p.state !== 'done' || P.tasks.some((t) => t.st !== 'done' && t.st !== 'skip'))) head.append(B(p.state === 'paused' || p.state === 'idle' ? 'Chạy tiếp' : 'Chạy', () => act(p, 'run', null, 'Đã chạy'), P.hold ? '' : 'primary', 'play'));
+    if (P.plannerSid) head.append(B('Phiên điều phối', () => openHostSess(P.plannerSid, p.name + ' · điều phối'), '', 'bot'));
+    flow.append(head);
+    const live = P.tasks.filter((t) => t.st !== 'skip'), done = live.filter((t) => t.st === 'done').length;
+    flow.append(h('div', { class: 'ap-trk' }, h('div', { class: 'ap-trk-bar' }, h('i', { style: { width: Math.round((done / (live.length || 1)) * 100) + '%' } })), h('div', { class: 'ap-trk-lbl', text: `${done}/${live.length} task xong` })));
+    const hd = P.hold;
+    if (P.pending) {
+      flow.append(h('div', { class: 'ap-alert pending' }, h('h3', {}, '🗓 Bản sửa lịch từ phiên điều phối'), P.pending.change ? h('blockquote', { text: P.pending.change }) : null,
+        h('div', { class: 'ap-df' }, P.pending.lines.length ? P.pending.lines.map((x) => h('div', { class: x[0] === '+' ? 'p' : x[0] === '~' ? 'c' : 'm', text: x })) : h('div', { class: 'note', text: 'Không có thay đổi task.' })),
+        h('div', { class: 'ap-row2' }, B('Áp dụng & chạy tiếp', () => act(p, 'applyRun', null, 'Đã áp dụng & chạy tiếp'), 'primary'), B('Áp dụng, chưa chạy', () => act(p, 'apply', null, 'Đã áp dụng')),
+          P.plannerSid ? B('Mở phiên điều phối', () => openHostSess(P.plannerSid, p.name + ' · điều phối')) : null, B('Bỏ bản sửa', () => act(p, 'dropPending', null, 'Đã bỏ bản sửa'), 'danger-text'))));
+    } else if (hd) {
+      const openT = hd.sid ? B('Mở phiên task', () => openHostSess(hd.sid, hd.who)) : null;
+      const T = (a, label, cls) => B(label, () => act(p, a, { task: hd.task }, label), cls);
+      const K = {
+        replan: () => [h('h3', {}, '🔁 Task xin đổi lịch'), h('div', { class: 'who', text: hd.who }), h('blockquote', { text: hd.reason }), hd.proposal ? h('div', { class: 'note', text: 'Đề xuất của task: ' + hd.proposal }) : null, [B('Nhờ phiên điều phối soạn bản sửa', () => act(p, 'askPlanner', null, 'Đã gửi phiên điều phối'), 'primary'), T('taskRetry', 'Bỏ qua, chạy lại task đó'), T('taskSkip', 'Bỏ qua task, chạy tiếp'), openT]],
+        acc: () => [h('h3', {}, '⚠ Task chưa đạt tiêu chí'), h('div', { class: 'who', text: `${hd.who} — bàn giao ghi “${hd.acc}”` }), hd.text ? h('pre', { class: 'ap-pre', text: hd.text }) : null, [T('taskDone', 'Coi như xong, chạy tiếp', 'primary'), T('taskRetry', 'Chạy lại bằng phiên mới'), B('Nhờ phiên điều phối sửa lịch', () => act(p, 'askPlanner', null, 'Đã gửi phiên điều phối')), openT]],
+        err: () => [h('h3', {}, '✕ Task gặp lỗi'), h('div', { class: 'who', text: hd.who || hd.text }), [hd.task ? T('taskRetry', 'Chạy lại bằng phiên mới', 'primary') : B('Chạy tiếp', () => act(p, 'resume', null, 'Đã chạy tiếp'), 'primary'), hd.task ? T('taskSkip', 'Bỏ qua task, chạy tiếp') : null, openT]],
+        stopped: () => [h('h3', {}, '⏹ Task bị dừng giữa chừng'), h('div', { class: 'who', text: hd.who }), [hd.sid ? T('taskCont', 'Làm tiếp trong phiên đó', 'primary') : null, T('taskRetry', 'Chạy lại bằng phiên mới'), T('taskSkip', 'Bỏ qua task'), openT]],
+        cp: () => [h('h3', {}, '⏸ Điểm dừng chờ duyệt'), h('div', { class: 'who', text: `Xong ${hd.who}. Xem kết quả rồi chạy tiếp.` }), [B('Chạy tiếp', () => act(p, 'resume', null, 'Đã chạy tiếp'), 'primary'), openT]],
+        designchg: () => [h('h3', {}, '🎨 Design đã đổi từ lúc lập kế hoạch'), h('div', { class: 'ap-df' }, hd.items.map((x) => h('div', { class: 'c', text: '~ ' + x }))), [B('Phân tích & đề xuất sửa lịch', () => act(p, 'designAnalyze', null, 'Đã gửi phiên điều phối'), 'primary'), B('Bỏ qua, chạy tiếp', () => act(p, 'resume', null, 'Đã chạy tiếp')), B('Ghi nhận bản mới, không sửa lịch', () => act(p, 'designAccept', null, 'Đã ghi nhận'))]],
+        planning: () => [h('h3', {}, h('span', { class: 'spinner' }), ' Đang chờ phiên điều phối soạn bản sửa lịch'), h('div', { class: 'who', text: hd.reason }),
+          hd.answered ? h('div', { class: 'pk-warn', text: `Phiên điều phối đã trả lời lúc ${fmtHM(hd.answered)} nhưng chưa ghi lại plan.json — có thể nó đang hỏi lại bạn.` }) : null,
+          [P.plannerSid ? B('Mở phiên điều phối', () => openHostSess(P.plannerSid, p.name + ' · điều phối'), 'primary') : null, B('Kiểm tra lại plan.json', () => act(p, 'recheck')), B('Huỷ, chạy tiếp như cũ', () => act(p, 'resume', null, 'Đã chạy tiếp'))]],
+        check: () => [h('h3', {}, h('span', { class: 'spinner' }), ' Đang kiểm tra design có đổi không'), [!P.checking ? B('Bỏ qua kiểm tra, chạy tiếp', () => act(p, 'skipCheck', null, 'Đã chạy tiếp'), 'primary') : null]],
+        blocked: () => [h('h3', {}, '⏸ Tạm dừng'), h('div', { class: 'who', text: p.note || 'Một số task cần bạn xem.' }), [B('Chạy tiếp', () => act(p, 'resume', null, 'Đã chạy tiếp'), 'primary')]],
+      };
+      const parts = (K[hd.kind] || K.blocked)();
+      const btns = parts.pop();
+      flow.append(h('div', { class: 'ap-alert ' + hd.kind }, ...parts.filter(Boolean), h('div', { class: 'ap-row2' }, ...btns.filter(Boolean))));
+    } else if (p.note) flow.append(h('div', { class: 'sc-note', text: p.note }));
+    if (P.goal) flow.append(h('div', { class: 'ap-box rs-qgoal' }, h('h4', { text: 'Mục tiêu' }), h('div', { class: 'ap-goal', text: P.goal }), P.dir ? h('div', { class: 'ap-path' }, CG.icon('folder', 12), h('span', { class: 'ellipsis', text: P.dir })) : null));
+    const el = h('div', { class: 'ap-tasks' });
+    for (const ph of P.phases) {
+      const ts = P.tasks.filter((t) => t.phase === ph.ph);
+      el.append(h('div', { class: 'ap-ph' }, h('b', { text: ph.name }), h('small', { text: `${ts.length} task · ${ts.filter((t) => t.st === 'done' || t.st === 'skip').length} xong` })));
+      for (const t of ts) {
+        const st = TSTR[t.st] || TSTR.wait, open = RQ.open.has(t.id);
+        const th = h('div', { class: 'ap-th' },
+          h('span', { class: 'ap-dot ' + t.st }, t.st === 'run' ? h('span', { class: 'spinner' }) : t.st === 'wait' ? String(t.no) : st[0]),
+          h('div', { class: 'ap-tt' }, h('b', { text: t.title }), h('small', {}, t.why ? h('i', { text: t.why }) : null, t.st !== 'wait' ? h('span', { class: 'ap-stt', text: ' · ' + st[1] }) : null)),
+          h('span', { class: 'ap-m', text: `${t.model} · ${t.effort || ''}` }));
+        th.onclick = () => { open ? RQ.open.delete(t.id) : RQ.open.add(t.id); renderSched(); };
+        const row = h('div', { class: 'ap-task' + (open ? ' open' : '') + ' s-' + t.st }, th);
+        if (open) {
+          const acts = [];
+          if (t.sid) acts.push(h('button', { class: 'btn xs', text: 'Mở phiên', onclick: () => openHostSess(t.sid, `#${t.no} ${t.title}`) }));
+          if (t.st !== 'run' && t.st !== 'wait') acts.push(h('button', { class: 'btn xs', text: 'Chạy lại task', onclick: () => act(p, 'taskRetry', { task: t.id, only: true }, `Task #${t.no} sẽ chạy lại khi dự án chạy tiếp`) }));
+          if (['wait', 'ask', 'err', 'part'].includes(t.st)) acts.push(h('button', { class: 'btn xs', text: 'Bỏ qua task', onclick: () => act(p, 'taskSkip', { task: t.id, only: true }, `Đã bỏ qua task #${t.no}`) }));
+          row.append(h('div', { class: 'ap-td' }, h('div', { class: 'ap-acts' }, h('span', { class: 'spacer' }), ...acts)));
+        }
+        el.append(row);
+      }
+    }
+    flow.append(el);
+  }
+
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && RQ.hid && !document.querySelector('.popover, .modal-bg')) closeSched(); });
+  document.addEventListener('click', (e) => { if (RQ.hid && (e.target.closest('#nav-sched, #nav-skills, #btn-new') || (e.target.closest('#session-list') && !e.target.closest('.rs-qrow')))) closeSched(); }, true);
+
   CG.remote = {
+    openSched, closeSched, schedSwitch,
     emit, userSent, permDone, busyChanged, isShared, watching, menuItems, titleChip, setShare, setPublic, showToken, _hosts: hosts, reloadHosts: loadHosts,
     renderGroup, openRemote, openChild, send, respond, stop, api: rsApi, addDialog, settingsPage, _links: links, _shared: () => shared, reload: loadLinks,
   };
