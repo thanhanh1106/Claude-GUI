@@ -90,7 +90,7 @@
   function materialize(t) {
     if (!t || t.loaded) return;
     t.loaded = true;
-    if (t.kind === 'web') buildWeb(t); else loadFile(t);
+    if (t.kind === 'panel') t.render(t.body); else if (t.kind === 'web') buildWeb(t); else loadFile(t);
   }
   function unload(t) {
     if (!t.loaded) return;
@@ -125,6 +125,7 @@
     if (!V.tabs.length) { renderBar(); saveTabs(CUR); }
   }
   function tabLabel(t) {
+    if (t.kind === 'panel') return t.label;
     if (t.kind === 'web') return t.title || (t.url || '').replace(/^https?:\/\//, '').replace(/\/$/, '') || 'Trang web';
     return basename(t.path);
   }
@@ -134,9 +135,9 @@
     for (const t of V.tabs) {
       const x = h('button', { class: 'icon-btn sm vw-tab-x', title: 'Đóng (Ctrl+W)', html: svg('x', 12) });
       x.onclick = (e) => { e.stopPropagation(); closeTab(t); };
-      const el = h('div', { class: 'vw-tab' + (t === V.cur ? ' on' : ''), title: t.kind === 'web' ? t.url : t.path },
-        icon(t.kind === 'web' ? 'globe' : t.fileKind === 'image' ? 'image' : t.fileKind === 'pdf' ? 'file' : t.ext === 'md' ? 'book' : 'code', 13),
-        h('span', { class: 'ellipsis', text: tabLabel(t) }), x);
+      const el = h('div', { class: 'vw-tab' + (t === V.cur ? ' on' : '') + (t.kind === 'panel' ? ' vw-ptab' : ''), title: t.kind === 'panel' ? t.label : t.kind === 'web' ? t.url : t.path },
+        icon(t.kind === 'panel' ? t.icon : t.kind === 'web' ? 'globe' : t.fileKind === 'image' ? 'image' : t.fileKind === 'pdf' ? 'file' : t.ext === 'md' ? 'book' : 'code', 13),
+        h('span', { class: 'ellipsis', text: tabLabel(t) }), t.kind === 'panel' && t.badge ? h('span', { class: 'vw-badge', text: t.badge }) : null, x);
       el.onclick = () => select(t);
       el.onauxclick = (e) => { if (e.button === 1) closeTab(t); };
       if (t.kind === 'file') el.oncontextmenu = (e) => { e.preventDefault(); fileMenu(t, el); };
@@ -152,7 +153,7 @@
   function allTabsMenu() {
     menu($('#vw-alltabs'), [{ header: `${V.tabs.length} tab đang mở` }, ...V.tabs.map((t) => ({
       label: tabLabel(t), desc: t.kind === 'web' ? t.url : t.path, checked: t === V.cur,
-      icon: t.kind === 'web' ? 'globe' : t.fileKind === 'image' ? 'image' : t.ext === 'md' ? 'book' : 'code', onClick: () => select(t),
+      icon: t.kind === 'panel' ? t.icon : t.kind === 'web' ? 'globe' : t.fileKind === 'image' ? 'image' : t.ext === 'md' ? 'book' : 'code', onClick: () => select(t),
     })), '-', { label: 'Đóng các tab khác', icon: 'x', disabled: V.tabs.length < 2 || !V.cur, onClick: () => { for (const t of V.tabs.filter((x) => x !== V.cur)) closeTab(t); } }], { checks: true });
   }
   // Lưu theo phiên (giữ ~50 phiên gần nhất) → mở lại phiên cũ, kể cả sau khi tắt app, vẫn thấy đúng các tab của nó
@@ -165,7 +166,10 @@
       const all = readStore();
       st.t = Date.now();
       if (!st.tabs.length && !st.open) delete all[st.key];
-      else all[st.key] = { tabs: st.tabs.map((t) => (t.kind === 'web' ? { url: t.url, auto: t.auto || undefined } : { path: t.path, auto: t.auto || undefined })), cur: st.tabs.indexOf(st.cur), open: st.open, t: st.t };
+      else {
+        const keep = st.tabs.filter((t) => t.kind !== 'panel'); // tab tự dựng (Gợi ý…) không lưu — mở lại từ chat
+        all[st.key] = { tabs: keep.map((t) => (t.kind === 'web' ? { url: t.url, auto: t.auto || undefined } : { path: t.path, auto: t.auto || undefined })), cur: keep.indexOf(st.cur), open: st.open && keep.length > 0, t: st.t };
+      }
       const keys = Object.keys(all);
       if (keys.length > STORE_MAX) keys.sort((a, b) => (all[b].t || 0) - (all[a].t || 0)).slice(STORE_MAX).forEach((k) => delete all[k]);
       localStorage.setItem(STORE, JSON.stringify(all));
@@ -224,8 +228,8 @@
     const bar = $('#vw-bar');
     bar.innerHTML = '';
     const t = V.cur;
-    bar.classList.toggle('hidden', !t);
-    if (!t) return;
+    bar.classList.toggle('hidden', !t || t.kind === 'panel');
+    if (!t || t.kind === 'panel') return;
     if (t.kind === 'web') {
       const wv = t.wv;
       t.back = btn('chevronLeft', 'Lùi', () => wv.canGoBack() && wv.goBack());
@@ -291,6 +295,7 @@
   // Tách tab đang xem ra cửa sổ riêng (vd đặt sang màn hình thứ 2); tab vẫn còn ở đây
   async function popOut(t) {
     if (!t) return toast('Chưa có tab nào để tách.', true);
+    if (t.kind === 'panel') return toast('Tab này không tách ra cửa sổ riêng được.', true);
     const title = tabLabel(t) + ' · Claude GUI';
     if (t.kind === 'web') return api.popout({ url: t.url, title });
     if (t.fileKind === 'pdf') return api.popout({ url: fileUrl(t.path), title });
@@ -866,8 +871,27 @@
     if (bg) { st.fresh = true; CG.renderSidebar && CG.renderSidebar(); }
     return t;
   }
+  // Tab tự dựng nội dung (vd "Gợi ý" của suggest.js): o = { key, id, label, icon, badge, render(body), show, rerender, create }
+  //  show: mở khung + chọn tab (phiên đang ẩn: chỉ ghi nhớ + chấm báo) · rerender: dựng lại nội dung · create:false → chỉ cập nhật nếu đã có
+  function panel(o) {
+    const st = o.key == null || o.key === CUR.key ? CUR : setFor(o.key);
+    let t = st.tabs.find((x) => x.kind === 'panel' && x.pid === o.id);
+    if (!t) {
+      if (o.create === false) return null;
+      t = addTab({ kind: 'panel', pid: o.id, label: o.label, icon: o.icon || 'sparkles', render: o.render }, st);
+    }
+    if (o.label) t.label = o.label;
+    if (o.render) t.render = o.render;
+    if ('badge' in o) t.badge = o.badge;
+    if (o.rerender && t.loaded) t.render(t.body);
+    if (o.show) {
+      if (st === CUR) { setOpen(true); select(t); }
+      else { st.open = true; st.cur = t; st.fresh = true; CG.renderSidebar && CG.renderSidebar(); }
+    } else if (st === CUR && CUR.open) renderTabs();
+    return t;
+  }
   // Tab tệp đang mở trong phiên (để app.js biết sửa tệp đã mở thì chỉ cần tự tải lại)
   const hasFile = (key, f) => { const st = key == null || key === CUR.key ? CUR : SETS.get(key); return !!(st && st.tabs.some((t) => t.kind === 'file' && samePath(t.path, f))); };
-  CG.viewer = { autoShow, toggle, setOpen, openFile, openPath, openUrl, quickOpen, handleLink, lightbox, isLocalHost, useSession, fresh, hasFile, get state() { return V; } };
+  CG.viewer = { panel, autoShow, toggle, setOpen, openFile, openPath, openUrl, quickOpen, handleLink, lightbox, isLocalHost, useSession, fresh, hasFile, get state() { return V; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })();

@@ -59,8 +59,16 @@
     xb.onclick = () => { for (const it of open()) ST[it.key] = { st: 'dismissed', t: Date.now() }; saveST(); paintAll(); };
     async function startAll() { for (const it of open()) await start(c, it, defaults(c, it)); }
     function saveAll() { const n = open().length; for (const it of open()) queue(c, it, { when: 'now', branch: it.branch, base: '', finish: 'commit', model: '', mode: 'acceptEdits' }, true); if (n) toast(`Đã lưu ${n} việc vào Lịch & hàng đợi${policy() ? ', mỗi việc một nhánh riêng' : ''}.`); }
-    function paintAll() { for (const it of items) paint(c, it); const left = open().length; if (foot) foot.classList.toggle('hidden', left < 2); xb.classList.toggle('hidden', !left); }
-    const rec = { el, paint: paintAll };
+    function paintAll() {
+      for (const it of items) paint(c, it);
+      const left = open().length;
+      if (foot) foot.classList.toggle('hidden', left < 2);
+      xb.classList.toggle('hidden', !left);
+      if (rec.strip) rec.strip.classList.toggle('done', !left);
+      if (rec.keep) badge(c);
+    }
+    const rec = { el, paint: paintAll, items, c };
+    el._sgRec = rec;
     cards.add(rec);
     el._sgPaint = paintAll;
     paintAll();
@@ -84,10 +92,10 @@
       h('dt', { text: 'Vì sao không sửa ở đây' }), h('dd', {}, CG.mdEl ? CG.mdEl(t.why_not_here || '') : t.why_not_here),
       h('dt', { text: 'Hướng sửa' }), h('dd', {}, CG.mdEl ? CG.mdEl(t.fix || '') : t.fix));
     const panels = h('div');
-    const warn = h('span', { class: 'sg-warn hidden', text: `⚠ Làm ở đây sẽ sửa thẳng trên nhánh đang làm${c.git && c.git.branch ? ' (' + c.git.branch + ')' : ''}, trái quy trình nhóm.` });
-    const bHere = h('button', { class: 'btn sm', text: 'Làm ở đây', onclick: () => doHere(c, it) });
-    if (policy() && c.git) { bHere.onmouseenter = () => warn.classList.remove('hidden'); bHere.onmouseleave = () => warn.classList.add('hidden'); }
-    const btns = h('div', { class: 'sg-btns' }, warn,
+    // cảnh báo nổi thành bong bóng phía trên nút (không chiếm chỗ trong hàng → không đẩy nút chạy khỏi con trỏ)
+    const warn = policy() && c.git ? h('span', { class: 'sg-bub', text: `⚠ Làm ở đây sẽ sửa thẳng trên nhánh đang làm${c.git.branch ? ' (' + c.git.branch + ')' : ''}, trái quy trình nhóm.` }) : null;
+    const bHere = h('span', { class: 'sg-here' }, h('button', { class: 'btn sm', text: 'Làm ở đây', onclick: () => doHere(c, it) }), warn);
+    const btns = h('div', { class: 'sg-btns' },
       h('button', { class: 'btn sm', text: 'Tuỳ chọn', onclick: () => panel(c, it, panels, 'opt') }),
       bHere,
       h('button', { class: 'btn sm sg-q', onclick: () => panel(c, it, panels, 'q') }, icon('clock', 13), 'Lưu vào hàng đợi'),
@@ -177,7 +185,9 @@
   }
 
   // ---------- trạng thái từng việc ----------
-  function paintKey(key) { for (const r of cards) if (r.el.isConnected) r.paint(); else cards.delete(r); }
+  // thẻ nằm trong tab "Gợi ý" (keep) có thể tạm rời DOM khi tab bị dỡ → vẫn giữ để vẽ lại trạng thái
+  const alive = (r) => r.el.isConnected || (r.keep && (r.c._sgList || []).some((e) => e.rec === r));
+  function paintKey(key) { for (const r of cards) if (alive(r)) r.paint(); else cards.delete(r); }
   function paint(c, it) {
     const s = ST[it.key];
     it.el.classList.toggle('done', !!s);
@@ -213,7 +223,65 @@
     toast('Chưa tìm thấy phiên này (có thể chưa ghi gì).', true);
   }
   // phiên con đang chạy → cập nhật chấm trạng thái trên thẻ
-  setInterval(() => { for (const r of cards) { if (!r.el.isConnected) { cards.delete(r); continue; } if (r.el.querySelector('.sg-state:not(.hidden)')) r.paint(); } }, 1500);
+  setInterval(() => { for (const r of cards) { if (!alive(r)) { cards.delete(r); continue; } if (r.el.querySelector('.sg-state:not(.hidden)')) r.paint(); } }, 1500);
+
+  // ---------- trong chat: dải một dòng · thẻ đầy đủ nằm ở tab "Gợi ý" của khung xem bên phải ----------
+  const inlineMode = () => S().settings.sgInline === true;
+  const openCount = (c) => (c._sgList || []).reduce((n, e) => n + e.rec.items.filter((it) => !ST[it.key]).length, 0);
+  function badge(c) { if (CG.viewer && CG.viewer.panel) CG.viewer.panel({ key: c.key, id: 'sg', badge: openCount(c) || '', create: false }); }
+  function tool(c, inp, live) {
+    const el = card(c, inp);
+    const rec = el._sgRec;
+    if (inlineMode() || !rec || !CG.viewer || !CG.viewer.panel) return el;
+    const L = c._sgList || (c._sgList = []);
+    const k = rec.items.map((it) => it.key).join('\n');
+    const ent = { k, el, rec };
+    const old = L.findIndex((x) => x.k === k); // vẽ lại lịch sử → thay thẻ cũ, không nhân đôi
+    if (old >= 0) L[old] = ent; else if (c.renderingOlder) L.unshift(ent); else L.push(ent);
+    rec.keep = true;
+    const t0 = rec.items[0].t, [sc, sl] = SEV[t0.severity] || SEV.medium, n = rec.items.length;
+    const strip = h('div', { class: 'sg-strip', title: 'Xem chi tiết ở tab "Gợi ý" bên phải' }, icon('sparkles', 14, 'sg-strip-ic'), h('span', { class: 'rv-sev ' + sc, text: sl }),
+      h('span', { class: 'sg-strip-t' }, h('b', { text: t0.title }), n > 1 ? h('span', { class: 'muted', text: ` · và ${n - 1} việc khác` }) : t0.summary ? h('span', { class: 'muted', text: ' — ' + t0.summary }) : null),
+      h('span', { class: 'sg-strip-go', text: 'Xem ở khung bên ›' }));
+    strip.onclick = () => show(c, ent);
+    rec.strip = strip;
+    rec.paint();
+    if (live) show(c, ent, true); else badge(c);
+    return strip;
+  }
+  function renderPanel(c, body) {
+    body.innerHTML = '';
+    const L = (c._sgList || []).slice().reverse(); // mới nhất trên cùng
+    const f = c._sgFilter || 'open';
+    const all = L.flatMap((e) => e.rec.items), nOpen = all.filter((it) => !ST[it.key]).length;
+    const chip = (v, label) => h('span', { class: 'sg-chip' + (f === v ? ' on' : ''), text: label, onclick: () => { c._sgFilter = v; renderPanel(c, body); } });
+    const bar = h('div', { class: 'sg-pbar' }, chip('open', `Chưa xử lý (${nOpen})`), chip('done', `Đã xử lý (${all.length - nOpen})`), chip('all', `Tất cả (${all.length})`));
+    const list = h('div', { class: 'sg-plist' });
+    let shown = 0;
+    for (const e of L) {
+      let vis = 0;
+      for (const it of e.rec.items) { const ok = f === 'all' || (f === 'open' ? !ST[it.key] : !!ST[it.key]); it.el.classList.toggle('hidden', !ok); vis += ok ? 1 : 0; }
+      e.el.classList.toggle('hidden', !vis);
+      shown += vis;
+      list.append(e.el);
+    }
+    const empty = !shown ? h('div', { class: 'sg-pempty', text: f === 'open' ? (all.length ? 'Đã xử lý hết các gợi ý của phiên này.' : 'Phiên này chưa có gợi ý nào.') : 'Không có gợi ý nào ở mục này.' }) : null;
+    body.append(h('div', { class: 'sg-pane' }, bar, list, empty));
+  }
+  function show(c, ent, auto) {
+    const s = S();
+    if (!auto && c !== s.active && A().activate) A().activate(c); // bấm dải ở khung chia đôi → đưa phiên ra khung chính
+    // Claude vừa gợi ý: chỉ tự bật tab khi khung xem không bận việc khác (đang xem tệp / web thì chỉ cập nhật số trên tab)
+    const V = CG.viewer.state;
+    const busyView = auto && c === s.active && V.open && V.cur && V.cur.kind !== 'panel';
+    CG.viewer.panel({ key: c.key, id: 'sg', label: 'Gợi ý', icon: 'sparkles', badge: openCount(c) || '', render: (b) => renderPanel(c, b), show: !busyView, rerender: true });
+    if (!ent || auto) return;
+    for (const x of ent.rec.items) x.el.classList.remove('hidden');
+    ent.el.classList.remove('hidden');
+    const it = ent.rec.items.find((x) => !ST[x.key]);
+    if (it) it.el.classList.add('exp');
+    requestAnimationFrame(() => { ent.el.scrollIntoView({ block: 'start', behavior: 'smooth' }); ent.el.classList.remove('sg-flash'); void ent.el.offsetWidth; ent.el.classList.add('sg-flash'); });
+  }
 
   // Claude rút lại gợi ý (công cụ withdraw_task)
   function withdraw(c, inp) {
@@ -257,5 +325,5 @@
   // phiên chạy từ hàng đợi (việc gợi ý đã lưu) cũng nằm dưới phiên đã gợi ý
   function linkChild(sid, parent, title, branch) { if (!sid || !parent || KIDS[sid]) return; KIDS[sid] = { parent, title, branch: branch || '', t: Date.now() }; saveK(); }
 
-  CG.suggest = { card, withdraw, onTurnEnd, kidsOf, parentOf, linkChild };
+  CG.suggest = { card, tool, withdraw, onTurnEnd, kidsOf, parentOf, linkChild };
 })();

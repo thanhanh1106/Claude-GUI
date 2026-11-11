@@ -126,7 +126,34 @@ body.fx-reduce .sg-body { transition: none; }
 .sg-prompt { display: none; margin-top: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: 12.5px/1.5 var(--mono, Consolas, monospace); color: var(--text-2); white-space: pre-wrap; max-height: 260px; overflow: auto; }
 .sg-item.pr .sg-prompt { display: block; }
 .sg-btns { display: flex; gap: 7px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; align-items: center; }
-.sg-btns .sg-warn { margin-right: auto; color: var(--warn); font-size: 12px; }
+.sg-here { position: relative; display: inline-flex; }
+.sg-bub { position: absolute; bottom: calc(100% + 8px); right: -30px; width: 270px; background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); color: var(--warn); font-size: 12px; line-height: 1.4; padding: 6px 9px; border-radius: 8px; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.sg-here:hover .sg-bub { opacity: 1; transform: none; }
+/* dải gợi ý một dòng trong chat (thẻ đầy đủ ở tab "Gợi ý" của khung xem) */
+.sg-strip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 9px; background: var(--surface); padding: 6px 11px; margin: 6px 0; cursor: pointer; font-size: 13px; transition: border-color .2s, opacity .2s; animation: sg-in .5s cubic-bezier(.2, .8, .2, 1); }
+.sg-strip:hover { border-color: var(--accent); }
+.sg-strip .sg-strip-ic { color: var(--accent); flex: none; }
+.sg-strip .rv-sev { flex: none; }
+.sg-strip-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sg-strip-t b { font-weight: 600; }
+.sg-strip-go { color: var(--accent); font-size: 12.5px; white-space: nowrap; flex: none; }
+.sg-strip.done { border-left-color: var(--ok); opacity: .7; }
+.sg-strip.done .sg-strip-ic { color: var(--ok); }
+body.fx-reduce .sg-strip { animation: none; }
+/* tab "Gợi ý" */
+.vw-pane .sg-pane { padding: 12px; overflow: auto; height: 100%; box-sizing: border-box; }
+.sg-pbar { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.sg-chip { padding: 2px 10px; border-radius: 12px; border: 1px solid var(--border); color: var(--text-2); cursor: pointer; font-size: 12px; }
+.sg-chip:hover { color: var(--text); }
+.sg-chip.on { background: var(--active, var(--hover)); color: var(--text); }
+.sg-pane .sg-card { margin: 0 0 10px; animation: none; }
+.sg-pane .sg-card::after { animation: none; }
+.sg-pane .sg-card.sg-flash::after { animation: sg-attn 1.4s ease-out; }
+.sg-pane .sg-why { grid-template-columns: 110px 1fr; }
+.sg-pane .sg-panel { grid-template-columns: 110px 1fr; }
+.sg-pempty { color: var(--muted); font-size: 13px; padding: 20px 4px; text-align: center; }
+.vw-badge { background: var(--accent); color: #fff; font-size: 10.5px; border-radius: 8px; padding: 0 5px; line-height: 16px; flex: none; }
+.vw-ptab svg { color: var(--accent); }
 .btn.sg-q { display: inline-flex; gap: 5px; align-items: center; }
 .sg-panel { margin-top: 10px; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; background: var(--bg); font-size: 13px; display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; align-items: center; }
 .sg-panel h4 { grid-column: 1 / -1; margin: 0 0 2px; font-size: 13px; display: flex; gap: 5px; align-items: center; }
@@ -148,3 +175,4 @@ body.fx-reduce .sg-body { transition: none; }
 .sg-report.err { border-left-color: var(--err, #e06c75); }
 .sg-report.err b { color: var(--err, #e06c75); }
 .sg-report .sg-link { margin-left: 6px; }
+.sg-pane .sg-cat { white-space: normal; max-width: 100px; text-align: right; }

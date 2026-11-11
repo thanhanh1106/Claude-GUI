@@ -1680,6 +1680,208 @@ function guiSkillsInfo() {
     return { ok: true, version: meta.version, skills: out, supported: cliHas('--plugin-dir'), on: settings.guiSkills !== false };
   } catch (e) { return { ok: false, error: e.message, skills: out }; }
 }
+// ---------- Trang Skill: liệt kê / đọc / sửa / tạo skill & lệnh / của Claude Code ----------
+// Nguồn: dự án (.claude/skills, .claude/commands ở thư mục phiên và các thư mục cha), cá nhân (~/.claude/skills|commands),
+// đồng bộ từ tài khoản (~/.claude/skills/synced, chỉ xem), plugin (đường dẫn từ phiên đang chạy + plugin đã cài, chỉ xem).
+function skFront(t) {
+  t = String(t || '').replace(/^﻿/, '');
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(t);
+  const meta = {};
+  if (!m) return { meta, body: t };
+  const lines = m[1].split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const r = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(lines[i]);
+    if (!r) continue;
+    let v = r[2].trim();
+    if (/^[>|][-+]?$/.test(v)) { // khối nhiều dòng
+      const buf = [];
+      while (i + 1 < lines.length && (/^\s+\S/.test(lines[i + 1]) || !lines[i + 1].trim())) buf.push(lines[++i].trim());
+      v = buf.join(v[0] === '>' ? ' ' : '\n').trim();
+    } else if (/^(['"]).*\1$/.test(v)) v = v[0] === "'" ? v.slice(1, -1).replace(/''/g, "'") : v.slice(1, -1).replace(/\\(["\\n])/g, (_, c) => (c === 'n' ? '\n' : c));
+    meta[r[1]] = v;
+  }
+  return { meta, body: t.slice(m[0].length) };
+}
+function skFiles(dir) {
+  const out = [];
+  const walk = (d, rel, depth) => {
+    let es = [];
+    try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of es) {
+      if (out.length >= 40 || e.name.startsWith('.')) continue;
+      const r = rel ? rel + '/' + e.name : e.name;
+      if (e.isDirectory()) { if (depth < 2) walk(path.join(d, e.name), r, depth + 1); else out.push(r + '/…'); } else out.push(r);
+    }
+  };
+  walk(dir, '', 0);
+  return out;
+}
+function skItem(file, o) {
+  try {
+    const st = fs.statSync(file);
+    const { meta } = skFront(fs.readFileSync(file, 'utf8').slice(0, 20000));
+    const isCmd = o.kind === 'command';
+    const base = isCmd ? (o.cmdName || path.basename(file, '.md')) : path.basename(path.dirname(file));
+    const name = (o.prefix ? o.prefix + ':' : '') + (isCmd ? base : (meta.name || base));
+    return { name, base, desc: meta.description || '', meta, file, dir: isCmd ? '' : path.dirname(file), kind: o.kind, src: o.src, group: o.group, ro: !!o.ro, roWhy: o.roWhy || '', mtime: st.mtimeMs, manual: String(meta['disable-model-invocation']) === 'true' };
+  } catch { return null; }
+}
+function skScan(root, o, out) {
+  let es = [];
+  try { es = fs.readdirSync(path.join(root, 'skills'), { withFileTypes: true }); } catch {}
+  for (const e of es) {
+    if (!e.isDirectory() || e.name === 'synced' || e.name.startsWith('.')) continue;
+    const f = path.join(root, 'skills', e.name, 'SKILL.md');
+    if (fs.existsSync(f)) { const it = skItem(f, { ...o, kind: 'skill' }); if (it) out.push(it); }
+  }
+  let cs = [];
+  try { cs = fs.readdirSync(path.join(root, 'commands'), { withFileTypes: true }); } catch {}
+  for (const e of cs) {
+    const p = path.join(root, 'commands', e.name);
+    if (e.isFile() && /\.md$/i.test(e.name)) { const it = skItem(p, { ...o, kind: 'command' }); if (it) out.push(it); }
+    else if (e.isDirectory()) { // commands/nhom/ten.md → /nhom:ten
+      let sub = [];
+      try { sub = fs.readdirSync(p).filter((n) => /\.md$/i.test(n)); } catch {}
+      for (const n of sub) { const it = skItem(path.join(p, n), { ...o, kind: 'command', cmdName: e.name + ':' + path.basename(n, '.md') }); if (it) out.push(it); }
+    }
+  }
+}
+function skPluginRoots(extra) {
+  const roots = new Map(); // path → name
+  const add = (p, name) => { if (p && fs.existsSync(p)) { const k = path.resolve(p); if (![...roots.keys()].some((x) => samePathMain(x, k))) roots.set(k, name); } };
+  for (const p of extra || []) if (p && p.path) add(p.path, p.name);
+  const pd = path.join(claudeDir(), 'plugins');
+  try { // plugin cài qua marketplace
+    const j = JSON.parse(fs.readFileSync(path.join(pd, 'installed_plugins.json'), 'utf8'));
+    for (const [k, v] of Object.entries(j.plugins || j || {})) for (const x of Array.isArray(v) ? v : [v]) if (x && x.installPath) add(x.installPath, k.split('@')[0]);
+  } catch {}
+  try { // plugin đồng bộ từ tài khoản
+    for (const b of fs.readdirSync(path.join(pd, 'synced'))) {
+      if (b.startsWith('.')) continue;
+      for (const n of fs.readdirSync(path.join(pd, 'synced', b))) {
+        const r = path.join(pd, 'synced', b, n);
+        try { const j = JSON.parse(fs.readFileSync(path.join(r, '.claude-plugin', 'plugin.json'), 'utf8')); add(r, j.name || n); } catch {}
+      }
+    }
+  } catch {}
+  return roots;
+}
+function samePathMain(a, b) { return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase(); }
+function skList(o = {}) {
+  const out = [];
+  const home = claudeDir();
+  // dự án: thư mục phiên và các thư mục cha (bỏ ~/.claude vì đó là cá nhân)
+  const projRoots = [];
+  if (o.cwd) {
+    let d = path.resolve(o.cwd);
+    for (let i = 0; i < 12; i++) {
+      const c = path.join(d, '.claude');
+      if (!samePathMain(c, home) && fs.existsSync(c)) projRoots.push(c);
+      const up = path.dirname(d);
+      if (up === d) break;
+      d = up;
+    }
+  }
+  for (const r of projRoots) skScan(r, { src: 'proj', group: r }, out);
+  skScan(home, { src: 'me', group: home }, out);
+  try {
+    for (const b of fs.readdirSync(path.join(home, 'skills', 'synced'))) {
+      if (b.startsWith('.')) continue;
+      const root = path.join(home, 'skills', 'synced', b);
+      for (const n of fs.readdirSync(root)) {
+        const f = path.join(root, n, 'SKILL.md');
+        if (fs.existsSync(f)) { const it = skItem(f, { src: 'synced', group: 'anthropic-skills', prefix: 'anthropic-skills', kind: 'skill', ro: true, roWhy: 'Skill đồng bộ từ tài khoản Claude — sửa ở đây sẽ bị ghi đè lần đồng bộ sau' }); if (it) out.push(it); }
+      }
+    }
+  } catch {}
+  const gui = path.join(__dirname, 'assets', 'gui-plugin');
+  const roots = skPluginRoots(o.plugins);
+  for (const [r, n] of roots) {
+    if (samePathMain(r, guiPluginDir() || gui)) continue;
+    skScan(r, { src: 'plug', group: n, prefix: n, ro: true, roWhy: `Thuộc plugin ${n} — sửa sẽ bị ghi đè khi plugin cập nhật` }, out);
+  }
+  skScan(gui, { src: 'gui', group: 'claude-gui', prefix: 'claude-gui', ro: true, roWhy: 'Bộ skill đi kèm Claude GUI — cập nhật theo bản GUI' }, out);
+  return { ok: true, items: out, projRoots, home, guiOn: settings.guiSkills !== false };
+}
+// chỉ cho sửa / xoá trong .claude/skills|commands của dự án hoặc cá nhân (không đụng plugin, synced, bộ skill GUI)
+function skWritable(file) {
+  const n = path.resolve(String(file || ''));
+  const parts = n.split(/[\\/]/);
+  const i = parts.lastIndexOf('.claude');
+  if (i < 0 || !['skills', 'commands'].includes(parts[i + 1])) return false;
+  if (parts[i + 2] === 'synced' || parts.includes('plugins')) return false;
+  if (n.startsWith(path.resolve(__dirname))) return false;
+  return /\.md$/i.test(n);
+}
+const SK_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+function skSave(o) {
+  try {
+    let file = o.file;
+    if (o.isNew) {
+      if (!SK_NAME.test(o.name || '')) return { ok: false, error: 'Tên chỉ gồm chữ thường, số, gạch ngang (tối đa 64 ký tự).' };
+      const root = o.scope === 'me' ? claudeDir() : o.root ? path.resolve(o.root) : o.cwd ? path.join(path.resolve(o.cwd), '.claude') : '';
+      if (!root) return { ok: false, error: 'Chưa biết thư mục dự án.' };
+      file = o.kind === 'command' ? path.join(root, 'commands', o.name + '.md') : path.join(root, 'skills', o.name, 'SKILL.md');
+      if (fs.existsSync(file) || (o.kind !== 'command' && fs.existsSync(path.dirname(file)))) return { ok: false, error: 'Đã có skill tên này ở đó.' };
+    }
+    if (!skWritable(file)) return { ok: false, error: 'Skill này chỉ được xem, không sửa được.' };
+    // sao chép skill chỉ-xem (plugin / tài khoản) thành skill cá nhân: chép cả thư mục (script, tài liệu kèm theo)
+    if (o.isNew && o.copyFrom && o.kind !== 'command' && fs.existsSync(path.join(String(o.copyFrom), 'SKILL.md'))) fs.cpSync(String(o.copyFrom), path.dirname(file), { recursive: true });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, String(o.text || ''), 'utf8');
+    return { ok: true, file };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+async function skDelete(file) {
+  if (!skWritable(file)) return { ok: false, error: 'Không xoá được skill này.' };
+  try {
+    const isSkill = /[\\/]SKILL\.md$/i.test(file);
+    await shell.trashItem(isSkill ? path.dirname(file) : file);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+// đếm số lần dùng 7 ngày qua: Claude gọi công cụ Skill + người dùng gõ /lệnh (đọc các phiên có sửa trong 7 ngày)
+let skUseCache = null;
+async function skUsage() {
+  if (skUseCache && Date.now() - skUseCache.t < 5 * 60e3) return skUseCache.data;
+  const since = Date.now() - 7 * 864e5, counts = {};
+  const root = path.join(claudeDir(), 'projects');
+  const files = [];
+  try {
+    for (const d of fs.readdirSync(root)) {
+      let es = [];
+      try { es = fs.readdirSync(path.join(root, d)); } catch { continue; }
+      for (const n of es) if (n.endsWith('.jsonl')) { const f = path.join(root, d, n); try { if (fs.statSync(f).mtimeMs >= since) files.push(f); } catch {} }
+    }
+  } catch {}
+  const reSkill = /"name":"Skill","input":\{"skill":"([^"]+)"/g, reCmd = /<command-name>\/?([^<\s]+)<\/command-name>/g, reTs = /"timestamp":"([^"]+)"/;
+  for (const f of files.slice(0, 400)) {
+    await new Promise((res) => {
+      const s = fs.createReadStream(f, { encoding: 'utf8' });
+      lineReader(s, (line) => {
+        if (!line.includes('"Skill"') && !line.includes('command-name')) return;
+        const ts = reTs.exec(line);
+        if (ts && Date.parse(ts[1]) < since) return;
+        for (const re of [reSkill, reCmd]) { re.lastIndex = 0; let m; while ((m = re.exec(line))) counts[m[1]] = (counts[m[1]] || 0) + 1; }
+      });
+      s.on('close', res); s.on('error', res);
+    });
+  }
+  skUseCache = { t: Date.now(), data: counts };
+  return counts;
+}
+// "Nhờ Claude soạn": qua CLI (-p, Sonnet), trả về toàn bộ SKILL.md để người dùng duyệt
+async function skDraft(o) {
+  const prompt = 'Viết một Claude Code skill (tệp SKILL.md) theo mô tả của người dùng bên dưới. Không dùng công cụ nào, không hỏi lại — chỉ in ra đúng nội dung tệp SKILL.md, không code block, không giải thích.\n'
+    + 'Định dạng: frontmatter YAML giữa hai dòng --- gồm name (chữ thường, số, gạch ngang) và description (một dòng: skill làm gì + "Dùng khi …" liệt kê cách người dùng hay nói / tình huống kích hoạt; Claude chỉ đọc description để quyết định có dùng skill), '
+    + 'rồi tới nội dung markdown: tiêu đề, các bước làm cụ thể, lệnh mẫu nếu cần, lỗi hay gặp. Viết cùng ngôn ngữ với mô tả của người dùng. Ngắn gọn, đủ dùng.\n\n'
+    + (o.current ? 'Bản nháp hiện có (sửa / hoàn thiện nó):\n' + String(o.current).slice(0, 20000) + '\n\n' : '')
+    + 'Mô tả của người dùng:\n' + String(o.ask || '').slice(0, 4000);
+  const r = await runCli(['-p', '--model', 'sonnet', '--output-format', 'text'], { cwd: o.cwd && fs.existsSync(o.cwd) ? o.cwd : os.homedir(), input: prompt, timeout: 240000 });
+  const out = (r.stdout || '').trim().replace(/^```\w*\n?|```$/g, '').trim();
+  const ok = r.code === 0 && /^---/.test(out);
+  return { ok, text: out, error: ok ? '' : r.code === 0 ? (out ? 'Claude không trả về đúng định dạng SKILL.md' : 'Không có kết quả') : (r.stderr || r.error || '').trim().slice(0, 300) };
+}
 // chỉ cho đọc/ghi trong thư mục .claude-gui (tệp trao đổi giữa agent và GUI)
 function apPath(p) {
   const n = path.resolve(String(p || ''));
@@ -3280,6 +3482,12 @@ function registerIpc() {
   ipcMain.handle('nb:scan', (_e, dir, q) => nbScan(dir, q));
   ipcMain.handle('nb:stat', (_e, paths) => nbStat(paths));
   ipcMain.handle('ap:skills', async () => { await cliFlags().catch(() => {}); return guiSkillsInfo(); });
+  ipcMain.handle('sk:list', (_e, o) => skList(o || {}));
+  ipcMain.handle('sk:read', (_e, f) => { try { const t = fs.readFileSync(String(f), 'utf8'); return { ok: true, text: t, files: /[\\/]SKILL\.md$/i.test(f) ? skFiles(path.dirname(f)) : [path.basename(f)], writable: skWritable(f) }; } catch (e) { return { ok: false, error: e.message }; } });
+  ipcMain.handle('sk:save', (_e, o) => skSave(o || {}));
+  ipcMain.handle('sk:delete', (_e, f) => skDelete(f));
+  ipcMain.handle('sk:usage', () => skUsage());
+  ipcMain.handle('sk:draft', (_e, o) => skDraft(o || {}));
 
   ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
   ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));

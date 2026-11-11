@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo · Gợi ý ngoài phạm vi sang khung bên + Quản lý Skill</title>
+<style>
+  :root { --bg:#1e1f22; --surface:#26282c; --surface2:#2d3035; --border:#3a3d43; --text:#e6e6e6; --text2:#b8bcc4; --muted:#8a8f98; --accent:#d97757; --blue:#5aa9ff; --green:#5cc98a; --red:#ef6b6b; --warn:#e5b45a; --purple:#b48cff; --ease:cubic-bezier(.2,.8,.2,1); }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.55 "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  button { font:inherit; cursor:pointer; color:inherit; }
+  input, textarea, select { font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:5px 9px; }
+  code, .mono { font-family:"Cascadia Code", Consolas, monospace; font-size:12.5px; }
+  code { background:var(--surface2); padding:1px 5px; border-radius:5px; }
+  .top { display:flex; gap:10px; align-items:center; padding:9px 16px; border-bottom:1px solid var(--border); background:#18191c; font-size:13px; }
+  .top b { font-size:14px; }
+  .sp { flex:1; }
+  .seg { display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .seg button { background:none; border:0; padding:5px 12px; font-size:12.5px; color:var(--text2); }
+  .seg button.on { background:var(--surface2); color:var(--text); }
+  .note { color:var(--muted); font-size:12.5px; }
+  .scene { flex:1; display:none; min-height:0; }
+  .scene.on { display:flex; }
+  .btn { background:var(--surface2); border:1px solid var(--border); border-radius:7px; padding:4px 11px; font-size:12.5px; display:inline-flex; align-items:center; gap:5px; }
+  .btn:hover { border-color:#555a62; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.ghost { background:none; }
+  .btn.danger { color:var(--red); }
+  .sev { font-size:11px; padding:1px 7px; border-radius:5px; font-weight:600; }
+  .sev.med { background:#4a3c22; color:var(--warn); }
+  .sev.high { background:#4a2626; color:var(--red); }
+  .sev.low { background:#23392c; color:var(--green); }
+
+  /* ===== cảnh 1: chat + khung xem ===== */
+  .chat { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .msgs { flex:1; overflow:auto; padding:18px 28px; }
+  .m-user { background:var(--surface2); border-radius:12px; padding:8px 13px; max-width:70%; margin:0 0 14px auto; width:fit-content; }
+  .m-ai { color:var(--text2); margin-bottom:12px; }
+  .tool { font-size:12.5px; color:var(--muted); display:flex; gap:6px; align-items:center; margin:4px 0; }
+  .tool .ok { color:var(--green); }
+  /* dải gợi ý gọn trong chat */
+  .sg-strip { display:flex; align-items:center; gap:9px; border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:9px; background:var(--surface); padding:7px 11px; margin:10px 0; cursor:pointer; transition:border-color .2s; animation:pop .5s var(--ease); }
+  .sg-strip:hover { border-color:var(--accent); }
+  .sg-strip .ic { color:var(--accent); }
+  .sg-strip .t { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sg-strip .t b { font-weight:600; }
+  .sg-strip .go { color:var(--accent); font-size:12.5px; white-space:nowrap; }
+  .sg-strip.done { border-left-color:var(--green); opacity:.75; }
+  @keyframes pop { from { opacity:0; transform:translateY(6px); } }
+  .composer { margin:0 28px 16px; border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:10px 13px; color:var(--muted); }
+
+  .viewer { width:520px; flex:none; border-left:1px solid var(--border); display:flex; flex-direction:column; background:var(--surface); }
+  .vw-tabs { display:flex; align-items:flex-end; gap:2px; padding:6px 8px 0; border-bottom:1px solid var(--border); background:#202125; }
+  .vw-tab { padding:5px 11px; font-size:12.5px; border-radius:7px 7px 0 0; color:var(--text2); cursor:pointer; display:flex; gap:6px; align-items:center; border:1px solid transparent; border-bottom:0; }
+  .vw-tab.on { background:var(--surface); color:var(--text); border-color:var(--border); margin-bottom:-1px; }
+  .vw-tab .cnt { background:var(--accent); color:#fff; font-size:10.5px; border-radius:8px; padding:0 5px; }
+  .vw-tab.sg .ic { color:var(--accent); }
+  .vw-body { flex:1; overflow:auto; padding:12px; }
+  .vw-file { font:12.5px/1.6 "Cascadia Code", Consolas, monospace; color:var(--text2); white-space:pre; }
+  .sg-filter { display:flex; gap:6px; margin-bottom:10px; font-size:12px; }
+  .sg-filter span { padding:2px 9px; border-radius:12px; border:1px solid var(--border); color:var(--text2); cursor:pointer; }
+  .sg-filter span.on { background:var(--surface2); color:var(--text); }
+  .sg-card { border:1px solid var(--border); border-radius:11px; margin-bottom:10px; background:var(--bg); overflow:hidden; }
+  .sg-card.hl { box-shadow:0 0 0 1.5px var(--accent); }
+  .sg-sum { display:flex; gap:9px; padding:9px 12px; cursor:pointer; align-items:flex-start; }
+  .sg-sum:hover { background:#24262a; }
+  .sg-title { font-weight:600; font-size:13.5px; display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
+  .sg-sub { color:var(--text2); font-size:12.5px; margin-top:2px; }
+  .sg-from { font-size:11.5px; color:var(--muted); margin-top:3px; }
+  .sg-in { padding:0 12px 12px; display:none; }
+  .sg-card.exp .sg-in { display:block; }
+  dl.why { display:grid; grid-template-columns:110px 1fr; gap:6px 12px; margin:0 0 8px; font-size:12.5px; }
+  dl.why dt { color:var(--muted); }
+  dl.why dd { margin:0; color:var(--text2); min-width:0; }
+  .ev { border:1px solid var(--border); border-radius:7px; overflow:hidden; margin-bottom:4px; }
+  .ev .f { font:11.5px Consolas, monospace; color:var(--accent); padding:2px 8px; border-bottom:1px solid var(--border); }
+  .ev pre { margin:0; padding:4px 8px; font:12px/1.5 Consolas, monospace; overflow-x:auto; background:#4a26261f; }
+  /* nút: cảnh báo nổi lên như bong bóng → KHÔNG đẩy layout */
+  .btns { display:flex; gap:7px; justify-content:flex-end; flex-wrap:wrap; margin-top:10px; }
+  .here { position:relative; }
+  .here .bub { position:absolute; bottom:calc(100% + 8px); right:-40px; width:270px; background:#3b2f1a; border:1px solid #6b5326; color:var(--warn); font-size:12px; padding:6px 9px; border-radius:8px; pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity .15s, transform .15s; text-align:left; line-height:1.4; z-index:5; }
+  .here:hover .bub { opacity:1; transform:none; }
+  .old-btns { display:flex; gap:7px; justify-content:flex-end; flex-wrap:wrap; margin-top:8px; align-items:center; width:330px; border:1px dashed #555; padding:8px; border-radius:8px; }
+  .old-btns .warn { margin-right:auto; color:var(--warn); font-size:12px; }
+  .hidden { display:none !important; }
+  .st { font-size:12.5px; color:var(--green); padding:0 12px 10px; }
+  .bugbox { border:1px dashed var(--border); border-radius:10px; padding:10px 12px; margin-top:18px; font-size:12.5px; color:var(--text2); }
+  .bugbox h4 { margin:0 0 6px; font-size:13px; color:var(--text); }
+
+  /* ===== cảnh 2: trang Skill ===== */
+  .sk { flex:1; display:flex; min-height:0; }
+  .sk-list { width:340px; flex:none; border-right:1px solid var(--border); display:flex; flex-direction:column; background:#1b1c1f; }
+  .sk-list .hd { padding:12px 12px 8px; display:flex; gap:8px; align-items:center; }
+  .sk-list .hd h3 { margin:0; font-size:15px; flex:1; }
+  .sk-search { margin:0 12px 8px; }
+  .sk-search input { width:100%; }
+  .sk-scope { margin:0 12px 6px; font-size:11.5px; color:var(--muted); }
+  .sk-items { flex:1; overflow:auto; padding:0 6px 12px; }
+  .sk-grp { margin:12px 8px 5px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); display:flex; gap:6px; align-items:center; }
+  .sk-grp .path { text-transform:none; letter-spacing:0; font-family:Consolas, monospace; font-size:11px; opacity:.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sk-it { padding:7px 10px; border-radius:8px; cursor:pointer; }
+  .sk-it:hover { background:var(--surface); }
+  .sk-it.on { background:var(--surface2); }
+  .sk-it .n { font-weight:600; font-size:13px; display:flex; gap:6px; align-items:center; }
+  .sk-it .d { color:var(--muted); font-size:12px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .tag { font-size:10.5px; padding:0 6px; border-radius:5px; font-weight:500; }
+  .tag.proj { background:#1f3550; color:var(--blue); }
+  .tag.me { background:#3a2a4f; color:var(--purple); }
+  .tag.plug { background:#2c3036; color:var(--text2); }
+  .tag.gui { background:#4a2f22; color:var(--accent); }
+  .tag.off { background:#3a3a3a; color:var(--muted); }
+  .sk-main { flex:1; overflow:auto; padding:20px 26px; min-width:0; }
+  .sk-main h2 { margin:0 0 4px; font-size:20px; display:flex; gap:9px; align-items:center; }
+  .sk-meta { color:var(--muted); font-size:12.5px; margin-bottom:14px; display:flex; gap:14px; flex-wrap:wrap; }
+  .sk-acts { display:flex; gap:7px; margin-bottom:16px; flex-wrap:wrap; }
+  .box { border:1px solid var(--border); border-radius:11px; background:var(--surface); padding:12px 15px; margin-bottom:14px; }
+  .box h4 { margin:0 0 6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+  .desc { font-size:14px; }
+  .trig { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .trig span { background:var(--surface2); border-radius:12px; padding:1px 10px; font-size:12px; color:var(--text2); }
+  .files { font:12.5px Consolas, monospace; color:var(--text2); }
+  .files div { padding:2px 0; }
+  .md { font-size:13.5px; color:var(--text2); }
+  .md h1 { font-size:17px; color:var(--text); margin:0 0 8px; }
+  .md h2 { font-size:14.5px; color:var(--text); margin:12px 0 6px; }
+  .md p { margin:0 0 8px; }
+  .warnline { color:var(--warn); font-size:12.5px; }
+  .ed { display:grid; grid-template-columns:130px 1fr; gap:10px 14px; align-items:start; }
+  .ed label { color:var(--text2); font-size:13px; padding-top:5px; }
+  .ed .hint { color:var(--muted); font-size:12px; margin-top:3px; }
+  .ed textarea { width:100%; resize:vertical; }
+  .ed input[type=text] { width:100%; }
+  .count { font-size:11.5px; color:var(--muted); text-align:right; }
+  .radio { display:flex; gap:14px; font-size:13px; color:var(--text2); flex-wrap:wrap; padding-top:4px; }
+  .ai { border:1px dashed #6b4a3a; background:#2a221e; border-radius:10px; padding:10px 12px; margin-bottom:14px; }
+  .ai .r { display:flex; gap:8px; margin-top:6px; }
+  .ai input { flex:1; }
+  .pill { display:inline-flex; gap:5px; align-items:center; font-size:12px; color:var(--muted); }
+  .toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); background:#2f3238; border:1px solid var(--border); padding:8px 14px; border-radius:9px; font-size:13px; opacity:0; transition:.25s var(--ease); pointer-events:none; }
+  .toast.on { opacity:1; transform:translateX(-50%); }
+  .slash { position:absolute; bottom:64px; left:28px; width:420px; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 10px 30px #0008; padding:6px; font-size:13px; }
+  .slash div { padding:5px 9px; border-radius:6px; display:flex; gap:8px; }
+  .slash div:first-child { background:var(--surface2); }
+  .slash b { min-width:120px; }
+  .slash span { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style>
+</head>
+<body>
+<div class="top">
+  <b>Demo</b>
+  <div class="seg" id="sceneSeg">
+    <button class="on" data-s="s1">① Gợi ý ngoài phạm vi → khung bên</button>
+    <button data-s="s2">② Quản lý Skill</button>
+  </div>
+  <span class="sp"></span>
+  <span class="note" id="topNote">Bấm vào dải gợi ý trong chat để mở tab “Gợi ý” bên phải</span>
+</div>
+
+<!-- ================= CẢNH 1 ================= -->
+<div class="scene on" id="s1">
+  <div class="chat">
+    <div class="msgs">
+      <div class="m-user">nghiệm thu task 40 (Ác Lang Chiến) đi</div>
+      <div class="tool"><span class="ok">✓</span> Read <code>GoldBossManager.cs</code></div>
+      <div class="tool"><span class="ok">✓</span> Grep <code>IntimacyManager.Increase</code> — 3 kết quả</div>
+      <div class="m-ai">Task 40 đạt các tiêu chí đã nêu. Trong lúc đối chiếu GDD mình thấy một chỗ thiếu ngoài phạm vi task — đã ghi lại thành gợi ý:</div>
+
+      <!-- dải gọn thay cho thẻ to -->
+      <div class="sg-strip" onclick="openSg('a')">
+        <span class="ic">✦</span>
+        <span class="sev med">Trung bình</span>
+        <span class="t"><b>Nối điểm thân mật hảo hữu cho các hoạt động cùng tổ đội</b> — <span style="color:var(--muted)">server chỉ có 3 chỗ gọi IntimacyManager.Increase*</span></span>
+        <span class="go">Xem ở khung bên ›</span>
+      </div>
+
+      <div class="m-ai">Mình tiếp tục commit 3 repo nhé.</div>
+      <div class="tool"><span class="ok">✓</span> Bash <code>git commit -m "task 40: Ác Lang Chiến"</code></div>
+      <div class="sg-strip" onclick="openSg('b')">
+        <span class="ic">✦</span>
+        <span class="sev low">Thấp</span>
+        <span class="t"><b>Log thừa ở LuanKiemSession khi người chơi rời trận</b></span>
+        <span class="go">Xem ở khung bên ›</span>
+      </div>
+
+      <div class="bugbox">
+        <h4>Lỗi giật khi rê chuột vào “Làm ở đây” (bản hiện tại)</h4>
+        Dòng cảnh báo được chèn vào cùng hàng nút → hàng nút xuống dòng → nút chạy khỏi con trỏ → cảnh báo ẩn → nút quay về → lặp lại. Rê thử vào nút dưới đây để thấy:
+        <div class="old-btns" id="oldBtns">
+          <span class="warn hidden" id="oldWarn">⚠ Làm ở đây sẽ sửa thẳng trên nhánh đang làm (task/40), trái quy trình nhóm.</span>
+          <button class="btn">Tuỳ chọn</button>
+          <button class="btn" id="oldHere">Làm ở đây</button>
+          <button class="btn primary">Mở phiên mới</button>
+        </div>
+        <div style="margin-top:8px">Bản mới: cảnh báo nổi lên thành bong bóng phía trên nút, không chiếm chỗ trong hàng → không đẩy layout (thử ở thẻ bên phải).</div>
+      </div>
+    </div>
+    <div class="composer">commit 3 repo đi</div>
+  </div>
+
+  <div class="viewer">
+    <div class="vw-tabs">
+      <div class="vw-tab" data-t="file" onclick="tab('file')">GoldBossManager.cs</div>
+      <div class="vw-tab sg on" data-t="sg" onclick="tab('sg')"><span class="ic">✦</span> Gợi ý <span class="cnt" id="sgCnt">2</span></div>
+    </div>
+    <div class="vw-body" id="vwFile" style="display:none"><div class="vw-file">646        private static void MarkJoined(KPlayer player)
+647        {
+648            try
+649            {
+650                EventBusDispatcher.Fire(new JoinGoldBossEvent(...));
+651                _guildManager.Value.OnMemberJoinActivity(player, ...);
+652                AchievementManager.AddCount(player, ...);
+653            }</div></div>
+    <div class="vw-body" id="vwSg">
+      <div class="sg-filter"><span class="on">Chưa xử lý (2)</span><span>Đã mở / đã lưu (3)</span><span>Đã bỏ (1)</span><span style="margin-left:auto;border:0;color:var(--muted)">phiên này ▾</span></div>
+
+      <div class="sg-card exp" id="card-a">
+        <div class="sg-sum" onclick="this.parentElement.classList.toggle('exp')">
+          <div style="flex:1">
+            <div class="sg-title"><span class="sev med">Trung bình</span> Nối điểm thân mật hảo hữu cho các hoạt động cùng tổ đội (Ác Lang, Boss HK, Phong Lăng Độ…)</div>
+            <div class="sg-sub">GDD hệ Hảo hữu có bảng 12 hoạt động cộng điểm thân mật, nhưng server chỉ có 3 chỗ gọi IntimacyManager.Increase*.</div>
+            <div class="sg-from">thiếu tính năng theo design · gợi ý lúc 14:32</div>
+          </div>
+        </div>
+        <div class="sg-in">
+          <dl class="why">
+            <dt>Vì sao là vấn đề</dt><dd>IntimacyManager đã có API chung nhưng không có bảng luật theo hoạt động và chống cộng trùng theo ngày.</dd>
+            <dt>Bằng chứng</dt><dd>
+              <div class="ev"><div class="f">Core/Friend/IntimacyManager.cs:57</div><pre>public static IntimacyIncreaseResult Increase(KPlayer…</pre></div>
+              <div class="ev"><div class="f">Core/GoldBoss/GoldBossManager.cs:651</div><pre>_guildManager.Value.OnMemberJoinActivity(pl…</pre></div>
+            </dd>
+            <dt>Ảnh hưởng</dt><dd>Người chơi đi Ác Lang / Boss cùng tổ đội không tăng thân mật.</dd>
+            <dt>Hướng sửa</dt><dd>Thêm bảng luật trong IntimacyConfigManager, gọi một hàm chung ở cuối mỗi hoạt động.</dd>
+          </dl>
+          <div class="btns">
+            <button class="btn">Tuỳ chọn</button>
+            <span class="here"><button class="btn">Làm ở đây</button><span class="bub">⚠ Làm ở đây sẽ sửa thẳng trên nhánh đang làm (task/40), trái quy trình nhóm.</span></span>
+            <button class="btn" onclick="done('a','Đã lưu vào Lịch & hàng đợi')">⏱ Lưu vào hàng đợi</button>
+            <button class="btn primary" onclick="done('a','Đã mở phiên con trên nhánh fix/intimacy-activities')">Mở phiên mới</button>
+          </div>
+        </div>
+        <div class="st hidden"></div>
+      </div>
+
+      <div class="sg-card" id="card-b">
+        <div class="sg-sum" onclick="this.parentElement.classList.toggle('exp')">
+          <div style="flex:1">
+            <div class="sg-title"><span class="sev low">Thấp</span> Log thừa ở LuanKiemSession khi người chơi rời trận</div>
+            <div class="sg-sub">Mỗi lần rời trận ghi 3 dòng log Info trùng nhau.</div>
+            <div class="sg-from">dọn dẹp · gợi ý lúc 14:40</div>
+          </div>
+        </div>
+        <div class="sg-in">
+          <dl class="why"><dt>Bằng chứng</dt><dd><div class="ev"><div class="f">GameEvents/LuanKiem/LuanKiemSession.cs:263</div><pre>LogManager.WriteLog(…)</pre></div></dd></dl>
+          <div class="btns">
+            <button class="btn">Tuỳ chọn</button>
+            <span class="here"><button class="btn">Làm ở đây</button><span class="bub">⚠ Làm ở đây sẽ sửa thẳng trên nhánh đang làm (task/40), trái quy trình nhóm.</span></span>
+            <button class="btn" onclick="done('b','Đã lưu vào Lịch & hàng đợi')">⏱ Lưu vào hàng đợi</button>
+            <button class="btn primary" onclick="done('b','Đã mở phiên con')">Mở phiên mới</button>
+          </div>
+        </div>
+        <div class="st hidden"></div>
+      </div>
+
+      <div class="note" style="margin-top:6px">• Tab “Gợi ý” tự hiện (không giành focus) khi Claude gợi ý; số trên tab = việc chưa xử lý.<br>• Đóng tab không mất gợi ý — bấm dải trong chat để mở lại.<br>• Tắt được trong Cài đặt: “Hiện gợi ý trong chat như cũ”.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= CẢNH 2 ================= -->
+<div class="scene" id="s2">
+  <div class="sk">
+    <div class="sk-list">
+      <div class="hd"><h3>Skill</h3><button class="btn primary" onclick="newSkill()">+ Skill mới</button></div>
+      <div class="sk-search"><input placeholder="Tìm theo tên / mô tả…" oninput="filt(this.value)"></div>
+      <div class="sk-scope">Đang xem cho dự án: <code>C:\WSP\GitProject</code></div>
+      <div class="sk-items" id="skItems"></div>
+    </div>
+    <div class="sk-main" id="skMain"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+function toast(t) { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove('on'), 2200); }
+document.querySelectorAll('#sceneSeg button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('#sceneSeg button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.scene').forEach((s) => s.classList.toggle('on', s.id === b.dataset.s));
+  $('#topNote').textContent = b.dataset.s === 's1' ? 'Bấm vào dải gợi ý trong chat để mở tab “Gợi ý” bên phải' : 'Bấm một skill để xem; “Sửa” / “+ Skill mới” để thử trình soạn';
+});
+
+// ---- cảnh 1 ----
+function tab(t) { document.querySelectorAll('.vw-tab').forEach((x) => x.classList.toggle('on', x.dataset.t === t)); $('#vwFile').style.display = t === 'file' ? '' : 'none'; $('#vwSg').style.display = t === 'sg' ? '' : 'none'; }
+function openSg(k) { tab('sg'); const c = $('#card-' + k); c.classList.add('exp', 'hl'); c.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTimeout(() => c.classList.remove('hl'), 1400); }
+let left = 2;
+function done(k, msg) { const c = $('#card-' + k); c.classList.remove('exp'); const st = c.querySelector('.st'); st.textContent = '✓ ' + msg; st.classList.remove('hidden'); left--; $('#sgCnt').textContent = left; $('#sgCnt').style.display = left ? '' : 'none'; document.querySelectorAll('.sg-strip')[k === 'a' ? 0 : 1].classList.add('done'); toast(msg); }
+// tái hiện lỗi giật
+$('#oldHere').onmouseenter = () => $('#oldWarn').classList.remove('hidden');
+$('#oldHere').onmouseleave = () => $('#oldWarn').classList.add('hidden');
+
+// ---- cảnh 2 ----
+const SK = [
+  { n: 'doc-first', src: 'proj', d: 'Luật tra cứu và bồi tài liệu của workspace Võ Lâm GenZ — trước khi quét code thì mở vo-lam-genz/.claude/docs/INDEX.md; đọc tới vùng code chưa có doc thì viết doc lại ngay lượt đó.', trig: ['bắt đầu một việc cần hiểu code', 'khảo sát một hệ thống', 'trước khi kết thúc lượt có đọc code'], files: ['SKILL.md'], used: '12 lần / 7 ngày' },
+  { n: 'fix-bug', src: 'proj', d: 'Quy tắc bắt buộc khi sửa bug trong workspace này — sửa đúng luồng code, cấm vá tạm và trick bẩn.', trig: ['user báo bug', 'nhờ fix lỗi', '/fix-bug'], files: ['SKILL.md'], used: '5 lần / 7 ngày' },
+  { n: 'merge-check', src: 'proj', d: 'Kiểm tra sau khi merge nhánh của client / GameServer / GameDBServer — soát contract giữa 3 tầng (enum TCPGameServerCmds, schema RoleData & RoleDataEx) rồi build lại từng tầng.', trig: ['“Tôi vừa merge”', '“check sau merge”', '/merge-check'], files: ['SKILL.md'], used: '2 lần / 7 ngày' },
+  { n: 'restart-genz-server', src: 'proj', d: 'Owner đã cho phép tự khởi động lại GameServer / GameDBServer của Võ Lâm GenZ để kiểm thử — không phải hỏi lại mỗi lần. Kèm cách bật đúng và cách gõ lệnh console an toàn.', trig: ['cần nạp lại config', 'sau khi build server', 'server treo'], files: ['SKILL.md', 'scripts/send-console.ps1'], used: '9 lần / 7 ngày' },
+  { n: 'commit-and-push', src: 'me', d: 'commit rồi push đi', trig: ['/commit-and-push'], files: ['SKILL.md'], used: '21 lần / 7 ngày', weak: true },
+  { n: 'lap-ke-hoach', src: 'gui', d: 'Lên kế hoạch chi tiết cho một việc lớn rồi hỏi người dùng có muốn tự động lập lịch chạy không; nếu có thì chia thành nhiều task và ghi plan.json.', trig: ['“lên kế hoạch”', '“chia việc”', '“lập lịch chạy”'], files: ['SKILL.md'], used: '3 lần / 7 ngày', ro: 'Bộ skill đi kèm Claude GUI — cập nhật theo bản GUI' },
+  { n: 'lam-task', src: 'gui', d: 'Cách làm một task trong hàng đợi “dự án tự động” của Claude GUI — đọc bàn giao, làm đúng phạm vi, ghi bàn giao cho task sau.', trig: ['prompt có “[Dự án tự động”'], files: ['SKILL.md'], used: '—', ro: 'Bộ skill đi kèm Claude GUI — cập nhật theo bản GUI' },
+  { n: 'skill-creator', src: 'plug', d: 'Create new skills, modify and improve existing skills, and measure skill performance.', trig: ['create a skill', 'edit / optimize a skill'], files: ['SKILL.md', 'scripts/…', 'references/…'], used: '—', ro: 'Plugin anthropic-skills — sửa sẽ bị ghi đè khi plugin cập nhật' },
+  { n: 'pdf', src: 'plug', d: 'Use this skill whenever the user wants to do anything with PDF files: read, merge, split, fill forms, OCR…', trig: ['.pdf'], files: ['SKILL.md', 'scripts/…'], used: '1 lần / 7 ngày', ro: 'Plugin anthropic-skills — sửa sẽ bị ghi đè khi plugin cập nhật' },
+];
+const GRP = { proj: ['Dự án', 'proj', 'C:\\WSP\\GitProject\\.claude\\skills'], me: ['Cá nhân (mọi dự án)', 'me', '~\\.claude\\skills'], gui: ['Bộ skill Claude GUI', 'gui', 'claude-gui:'], plug: ['Plugin', 'plug', 'anthropic-skills:'] };
+const TAG = { proj: 'Dự án', me: 'Cá nhân', gui: 'Claude GUI', plug: 'Plugin' };
+let cur = 'doc-first', q = '';
+function filt(v) { q = v.toLowerCase(); list(); }
+function list() {
+  const box = $('#skItems'); box.innerHTML = '';
+  for (const g of ['proj', 'me', 'gui', 'plug']) {
+    const items = SK.filter((s) => s.src === g && (!q || (s.n + ' ' + s.d).toLowerCase().includes(q)));
+    if (!items.length) continue;
+    box.insertAdjacentHTML('beforeend', `<div class="sk-grp">${GRP[g][0]} · ${items.length} <span class="path">${GRP[g][2]}</span></div>`);
+    for (const s of items) {
+      const el = document.createElement('div'); el.className = 'sk-it' + (s.n === cur ? ' on' : '');
+      el.innerHTML = `<div class="n">${s.n}${s.weak ? ' <span class="tag off" title="Mô tả quá ngắn — Claude khó biết khi nào dùng">mô tả yếu</span>' : ''}</div><div class="d">${s.d}</div>`;
+      el.onclick = () => { cur = s.n; list(); view(s); };
+      box.append(el);
+    }
+  }
+}
+function view(s) {
+  const p = s.src === 'proj' ? `C:\\WSP\\GitProject\\.claude\\skills\\${s.n}` : s.src === 'me' ? `C:\\Users\\Admin\\.claude\\skills\\${s.n}` : s.src === 'gui' ? `resources\\gui-skills\\skills\\${s.n}` : `~\\.claude\\plugins\\…\\${s.n}`;
+  $('#skMain').innerHTML = `
+    <h2>${s.n} <span class="tag ${s.src}">${TAG[s.src]}</span></h2>
+    <div class="sk-meta"><span>📁 <code>${p}</code></span><span>Dùng: ${s.used}</span><span>Gọi tay: <code>/${s.src === 'gui' ? 'claude-gui:' : s.src === 'plug' ? 'anthropic-skills:' : ''}${s.n}</code></span></div>
+    <div class="sk-acts">
+      ${s.ro ? `<button class="btn" onclick="copyMe('${s.n}')">⧉ Sao chép thành skill cá nhân để sửa</button>` : `<button class="btn primary" onclick="edit('${s.n}')">✎ Sửa</button>`}
+      <button class="btn" onclick="toast('Đã chèn /${s.n} vào ô chat')">▶ Dùng trong phiên đang mở</button>
+      <button class="btn" onclick="toast('Đã mở SKILL.md ở khung xem bên phải')">Mở ở khung xem</button>
+      <button class="btn" onclick="toast('Đã mở thư mục skill')">📂 Thư mục</button>
+      ${s.ro ? '' : `<button class="btn ghost danger" onclick="toast('Đã chuyển skill vào thùng rác (khôi phục được)')">Xoá</button>`}
+    </div>
+    ${s.ro ? `<div class="box warnline">🔒 ${s.ro}. Chỉ xem.</div>` : ''}
+    ${s.weak ? `<div class="box warnline">⚠ Mô tả chỉ có 4 từ — Claude dựa vào mô tả để tự quyết khi nào dùng skill. Nên ghi rõ “làm gì” + “Dùng khi …”. <a style="color:var(--accent);cursor:pointer" onclick="edit('${s.n}')">Sửa mô tả</a></div>` : ''}
+    <div class="box"><h4>Mô tả (Claude đọc cái này để quyết định khi nào dùng)</h4><div class="desc">${s.d}</div>
+      <div class="trig">${s.trig.map((t) => `<span>${t}</span>`).join('')}</div></div>
+    <div class="box"><h4>Tệp trong skill</h4><div class="files">${s.files.map((f) => `<div>📄 ${f}</div>`).join('')}</div></div>
+    <div class="box"><h4>Nội dung SKILL.md</h4><div class="md"><h1># ${s.n}</h1><p>${s.d}</p><h2>## Các bước</h2><p>1. … (hiển thị markdown đã render của tệp thật)</p></div></div>`;
+}
+function editor(s, isNew) {
+  $('#skMain').innerHTML = `
+    <h2>${isNew ? 'Skill mới' : 'Sửa skill · ' + s.n}</h2>
+    <div class="sk-meta">Lưu xong: các phiên mở sau dùng được ngay; phiên đang mở cần mở lại để nạp.</div>
+    ${isNew ? `<div class="ai"><b>✦ Nhờ Claude soạn giúp</b> <span class="note">— tả bằng một câu, Claude (Sonnet, qua CLI) viết mô tả + nội dung, bạn duyệt rồi mới lưu</span>
+      <div class="r"><input id="aiIn" placeholder="vd: mỗi khi tôi bảo 'build client' thì chạy build Unity cho Android rồi báo kích thước apk"><button class="btn primary" onclick="aiDraft()">Soạn</button></div></div>` : ''}
+    <div class="box ed">
+      <label>Tên</label><div><input type="text" class="mono" id="fN" value="${s.n}" ${isNew ? '' : 'disabled'}><div class="hint">chữ thường, số, gạch ngang — cũng là lệnh gọi tay <code>/${s.n || 'ten-skill'}</code></div></div>
+      <label>Lưu ở</label><div class="radio"><label><input type="radio" name="w" ${s.src !== 'me' ? 'checked' : ''}> Dự án <code>GitProject\\.claude\\skills</code> (đồng đội pull về cũng có)</label><label><input type="radio" name="w" ${s.src === 'me' ? 'checked' : ''}> Cá nhân <code>~\\.claude\\skills</code> (mọi dự án, chỉ máy này)</label></div>
+      <label>Mô tả</label><div><textarea id="fD" rows="3" oninput="cnt()">${s.d}</textarea><div style="display:flex"><div class="hint" style="flex:1">Ghi rõ skill làm gì + “Dùng khi …”. Claude chỉ thấy mô tả này khi quyết định có dùng skill hay không.</div><div class="count" id="dc"></div></div></div>
+      <label>Tuỳ chọn</label><div class="radio">
+        <label><input type="checkbox"> Chỉ chạy khi tôi gọi <code>/tên</code> (Claude không tự dùng)</label>
+        <label><input type="checkbox"> Giới hạn công cụ được dùng…</label></div>
+      <label>Nội dung</label><div><textarea id="fB" rows="12" class="mono"># ${s.n || 'Tên skill'}\n\n${s.d}\n\n## Các bước\n1. …\n2. …\n</textarea><div class="hint">Markdown. Có thể thêm tệp phụ (script, tài liệu tham khảo) ở thư mục skill sau khi lưu.</div></div>
+    </div>
+    <div class="sk-acts" style="justify-content:flex-end"><button class="btn" onclick="view(SK.find(x=>x.n==='${s.n}')||SK[0])">Huỷ</button><button class="btn primary" onclick="toast('Đã lưu SKILL.md')">Lưu</button></div>`;
+  cnt();
+}
+function cnt() { const d = $('#fD'); if (!d) return; const n = d.value.trim().split(/\s+/).filter(Boolean).length; $('#dc').textContent = n + ' từ' + (n < 12 ? ' · hơi ngắn' : ''); $('#dc').style.color = n < 12 ? 'var(--warn)' : ''; }
+function edit(n) { editor(SK.find((x) => x.n === n), false); }
+function newSkill() { cur = ''; list(); editor({ n: '', d: '', src: 'proj' }, true); }
+function copyMe(n) { const s = SK.find((x) => x.n === n); editor({ ...s, n: s.n + '-cua-toi', src: 'me' }, true); toast('Đã tạo bản sao — sửa rồi Lưu'); }
+function aiDraft() {
+  const v = $('#aiIn').value || 'mỗi khi tôi bảo build client thì chạy build Unity cho Android rồi báo kích thước apk';
+  toast('Claude đang soạn…');
+  setTimeout(() => {
+    $('#fN').value = 'build-client-android';
+    $('#fD').value = 'Build client Unity của Võ Lâm GenZ cho Android (batchmode), rồi báo đường dẫn và kích thước tệp .apk. Dùng khi user nói "build client", "build apk", "xuất bản Android" hoặc gọi /build-client-android.';
+    $('#fB').value = '# Build client Android\n\n## Các bước\n1. Đóng Unity Editor nếu đang mở project client (batchmode không chạy khi project đang mở).\n2. Chạy Unity.exe -batchmode -quit -projectPath … -executeMethod BuildScript.Android -logFile build.log\n3. Đọc build.log — nếu có "Build Failed" thì báo 20 dòng lỗi cuối.\n4. Báo đường dẫn .apk và kích thước (MB).\n';
+    cnt(); toast('Đã soạn xong — xem lại rồi bấm Lưu');
+  }, 900);
+}
+list(); view(SK[0]);
+</script>
+</body>
+</html>

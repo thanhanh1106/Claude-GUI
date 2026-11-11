@@ -443,6 +443,7 @@
         if (m.session_id) this.sid = m.session_id;
         if (m.cwd && !samePath(m.cwd, this.cwd)) { this.cwd = m.cwd; this.refreshGit(); }
         if (m.model) this.modelName = m.model;
+        if (Array.isArray(m.plugins)) this.initPlugins = m.plugins; // trang Skill: đường dẫn plugin phiên đang nạp
         if (m.permissionMode && MODES.some((x) => x.v === m.permissionMode)) this.mode = m.permissionMode;
         if (this.nb && CG.nb) CG.nb.onInit(this, m);
         if (this.btw && CG.btw) CG.btw.onInit(this, m);
@@ -900,7 +901,7 @@
       // /code-review: kết quả báo qua công cụ ReportFindings → thẻ danh sách vấn đề có nút xử lý (giống bản desktop)
       if (name === 'ReportFindings' && CG.parity) { el.classList.add('rv-tool'); el.insertBefore(CG.parity.reviewCard(this, inp), sub); }
       // Claude gợi ý việc ngoài phạm vi (MCP nội bộ claude-gui) → thẻ Mở phiên mới / Làm ở đây / Lưu vào hàng đợi
-      if (name === 'mcp__claude-gui__suggest_task' && CG.suggest) { el.classList.add('rv-tool', 'sg-tool'); el.insertBefore(CG.suggest.card(this, inp), sub); }
+      if (name === 'mcp__claude-gui__suggest_task' && CG.suggest) { el.classList.add('rv-tool', 'sg-tool'); el.insertBefore(CG.suggest.tool(this, inp, !this.replaying && !this.renderingOlder), sub); }
       if (name === 'mcp__claude-gui__withdraw_task' && CG.suggest) { el.classList.add('sg-tool-w'); CG.suggest.withdraw(this, inp); }
       // Nội dung thẻ (diff, output) chỉ dựng khi mở ra — phiên dài có hàng nghìn thẻ công cụ
       let built = false, result = null, patch = null;

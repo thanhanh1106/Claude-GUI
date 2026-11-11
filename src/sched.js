@@ -376,6 +376,7 @@
   }
   function openPage(planId) {
     ensurePage();
+    if (CG.skills) CG.skills.close();
     U.open = true;
     if (planId) U.sel = planId;
     if (!U.sel || !D.plans.find((p) => p.id === U.sel)) U.sel = D.plans[0] && D.plans[0].id;

@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.21.1-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.22.0-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -93,6 +93,13 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - **Dev servers** (nút ▶ trên khung xem): đọc `.claude/launch.json` của dự án (cùng định dạng bản gốc: name, runtimeExecutable, runtimeArgs, cwd, env, port, autoPort, url), bật / tắt từng server, xem log, server lên thì tự mở tab xem trước của phiên. "Thiết lập…" nhờ Claude tự dò và viết launch.json. Tắt app là tắt server.
 - **PR / MR**: chip trên thanh tiêu đề cho nhánh hiện tại — trạng thái CI, số góp ý review, tự merge. Menu: **Tự sửa CI & góp ý** (GUI gom log job CI lỗi + góp ý chưa giải quyết rồi giao Claude sửa, push), **Merge khi sẵn sàng**, Mở trên web, Tạo MR / PR. **GitLab** (kể cả server nội bộ): nhập link server + Personal Access Token (quyền api, lưu mã hoá) ở Cài đặt → Claude Code → Git; GitHub dùng GitHub CLI (`gh`). Tuỳ chọn tự lưu trữ phiên khi MR / PR đã merge hoặc đóng.
 - **Lịch**: lần lỡ (máy tắt / ngủ) chỉ chạy bù **một lần** và chỉ trong 7 ngày; thêm lựa chọn "Hỏi trước khi chạy bù" (nút Chạy bù ngay / Bỏ qua). **Giữ máy không ngủ** khi có lịch trong 30 phút tới hoặc kế hoạch đang chạy.
+
+**Trang Skill, gợi ý ở khung bên (1.22)**
+- **Trang Skill** (thanh bên, dưới Lịch & hàng đợi): xem mọi skill và lệnh `/` mà Claude Code nạp được, chia theo nguồn — **Dự án** (`.claude/skills`, `.claude/commands` ở thư mục phiên và các thư mục cha), **Cá nhân** (`~/.claude/skills|commands`), **Bộ skill Claude GUI**, **Plugin**, **Đồng bộ từ tài khoản**. Tìm theo tên / mô tả; mỗi skill có mô tả, đường dẫn, tệp kèm theo, nội dung SKILL.md, số lần dùng 7 ngày qua (Claude tự gọi + gõ `/lệnh`); gắn cờ **mô tả yếu** khi mô tả quá ngắn (Claude dựa vào mô tả để biết khi nào dùng).
+- Nút: **Sửa** (tên, mô tả có đếm từ, "chỉ chạy khi tôi gọi /tên", công cụ được dùng, nội dung markdown — giữ nguyên các trường frontmatter khác), **Dùng trong phiên đang mở** (chèn `/tên` vào ô chat), **Mở ở khung xem**, **Thư mục**, **Xoá** (vào Thùng rác). Skill của plugin / tài khoản / GUI chỉ xem — có nút **Sao chép thành skill cá nhân** (chép cả thư mục) để sửa.
+- **Skill mới**: lưu ở dự án hoặc cá nhân; **✦ Nhờ Claude soạn giúp** — tả bằng một câu, Claude (Sonnet, qua CLI) viết mô tả + nội dung, bạn duyệt rồi mới lưu (sửa skill cũng nhờ được).
+- **Gợi ý việc ngoài phạm vi chuyển sang khung bên**: trong chat chỉ còn một dải gọn (mức độ + tiêu đề, bấm để xem); thẻ đầy đủ nằm ở tab **✦ Gợi ý** của khung xem bên phải, gom mọi gợi ý của phiên (mới nhất trên cùng), lọc Chưa xử lý / Đã xử lý / Tất cả, số trên tab là việc chưa xử lý. Claude vừa gợi ý mà bạn đang xem tệp / trang web ở khung bên thì chỉ tăng số, không giành tab. Muốn thẻ to trong chat như cũ: Cài đặt → Chung → tắt "Gợi ý hiện ở khung bên".
+- Sửa lỗi rê chuột vào "Làm ở đây" làm hàng nút giật liên tục: cảnh báo giờ nổi thành bong bóng phía trên nút, không chen vào hàng.
 
 **Gợi ý việc ngoài phạm vi, mượt hơn (1.19)**
 - **Claude gợi ý việc ngoài phạm vi** (giống "Start a task that Claude suggests" của bản gốc): đang làm mà thấy lỗi / lỗ hổng ngoài phạm vi, Claude không tự sửa mà gọi công cụ `suggest_task` (MCP nội bộ `claude-gui`) → thẻ trong chat: mức độ, **vì sao là vấn đề, bằng chứng (đoạn code đúng dòng, bấm để mở tệp), ảnh hưởng, vì sao không sửa ở đây, hướng sửa** (thiếu mục nào công cụ trả lỗi để Claude gợi ý lại) và prompt sẽ gửi. Nút: **Mở phiên mới** (phiên con nằm dưới phiên cha ở thanh bên, thẻ hiện trạng thái), **Làm ở đây**, **Lưu vào hàng đợi** (Lịch & hàng đợi: chạy khi bấm / sau khi phiên này xong / khi giới hạn 5 giờ hồi / vào lúc…; xong thì commit, tuỳ chọn push + tạo MR / PR), **Tuỳ chọn** (model, quyền, nhánh, báo kết quả về phiên này), Mở / Lưu tất cả khi có nhiều việc, × để bỏ. Claude rút lại được gợi ý đã cũ (`withdraw_task`).
