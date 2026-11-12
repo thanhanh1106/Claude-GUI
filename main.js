@@ -2969,7 +2969,7 @@ const rsDevs = new Map(); // băm khoá máy -> id thiết bị
 const rsPub = new Set(); // sid công khai cho máy đã ghép
 const rsSeen = new Map(); // id thiết bị -> lần cuối kết nối
 // phiên do Lịch & hàng đợi chạy (cửa sổ chính báo sang) — máy đã kết nối thấy luôn nếu bật "xem Lịch & hàng đợi"
-let rsSched = new Map(); // sid -> tên kế hoạch
+let rsSched = new Map(); // sid -> { plan, pid, label, k }
 const rsSchedOn = () => settings.rsSchedRemote !== false;
 const rsVisible = (sid) => rsPub.has(sid) || (rsSchedOn() && rsSched.has(sid));
 function rsLoad() {
@@ -3121,7 +3121,8 @@ async function rsHandle(req, res) {
           let meta = null;
           if (!x.title || !x.cwd) { const f = rsFileOf(sid); if (f) { try { meta = sessionMeta(f, fs.statSync(f)); } catch {} } }
           const pub = (settings.rsPublic || {})[sid] || {};
-          return { sid, title: x.title || (meta && meta.title) || pub.title || '', cwd: x.cwd || (meta && meta.cwd) || '', busy: !!x.busy, t: pub.t || (meta && meta.mtime) || 0, pub: rsPub.has(sid), plan: rsPub.has(sid) ? '' : rsSched.get(sid) || '' };
+          const sc = !rsPub.has(sid) && rsSched.get(sid);
+          return { sid, title: x.title || (meta && meta.title) || pub.title || '', cwd: x.cwd || (meta && meta.cwd) || '', busy: !!x.busy, t: pub.t || (meta && meta.mtime) || 0, pub: rsPub.has(sid), plan: sc ? sc.plan || '' : '', pid: sc ? sc.pid || '' : '', label: sc ? sc.label || '' : '', k: sc ? +sc.k || 0 : 0 };
         }).filter((x) => x.pub || x.title || x.busy); // phiên lịch chưa ghi gì (chưa có tệp) thì bỏ
         return json(200, { ok: true, name: settings.lanName || os.hostname(), host: os.hostname(), sched: rsSchedOn(), sessions });
       }
@@ -3170,6 +3171,7 @@ async function rsHandle(req, res) {
       const sh = (settings.rsShares || {})[sid] || {};
       return json(200, { ok: true, name: settings.lanName || os.hostname(), host: os.hostname(), user: os.userInfo().username, gui: app.getVersion(), allowPerm: settings.rsAllowPerm !== false,
         sid, title: (st.ok && st.title) || (meta && meta.title) || sh.title || '', cwd: (st.ok && st.cwd) || (meta && meta.cwd) || '', busy: !!(st.ok && st.busy), perms: (st.ok && st.perms) || [],
+        model: (st.ok && st.model) || '', effort: (st.ok && st.effort) || '', modelName: (st.ok && st.modelName) || '',
         children: children.map((c) => ({ id: c.id, agentId: c.agentId, title: c.title, agentType: c.agentType, toolUseId: c.toolUseId, mtime: c.mtime })) });
     }
     if (req.method === 'POST' && u.pathname === '/rs/hist') {
@@ -3193,7 +3195,7 @@ async function rsHandle(req, res) {
       req.on('close', () => { clearInterval(ping); const s = rsSubs.get(sid); if (s) s.delete(sub); rsLive(); });
       return;
     }
-    if (req.method === 'POST' && ['/rs/send', '/rs/perm', '/rs/stop'].includes(u.pathname)) {
+    if (req.method === 'POST' && ['/rs/send', '/rs/perm', '/rs/stop', '/rs/pref'].includes(u.pathname)) {
       const b = JSON.parse(await lanBody(req, 40 * 1024 * 1024) || '{}');
       const kind = u.pathname.slice(4);
       if (kind === 'perm' && settings.rsAllowPerm === false) return json(403, { ok: false, error: 'Máy kia chỉ cho duyệt quyền ngay tại máy đó' });

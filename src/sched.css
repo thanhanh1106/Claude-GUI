@@ -126,3 +126,9 @@ body.has-bg .sched { background: color-mix(in srgb, var(--bg) 92%, transparent);
 .t-tip .dots { display: flex; gap: 4px; margin-right: auto; } .t-tip .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); } .t-tip .dots i.on { background: var(--accent); }
 .t-tip .btn.ghost { border-color: transparent; color: var(--muted); }
 body.fx-reduce .t-block, body.fx-reduce .t-hole, body.fx-reduce .t-tip, body.fx-reduce .sched, body.fx-reduce .sc-drawer { transition: none; animation: none; }
+
+/* thanh bên: phiên do lịch chạy, gom theo kế hoạch */
+.grp-head.sched-head > .g-icon { color: var(--accent); }
+.grp-head.sched-plan { padding-left: 22px; font-size: 12.5px; min-height: 26px; }
+.grp-head.sched-plan .g-name { font-weight: 500; }
+.sess.sched-sess { padding-left: 34px; }

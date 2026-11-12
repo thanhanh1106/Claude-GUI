@@ -1841,13 +1841,22 @@
       const all = sessPrefs();
       delete all[c.sid];
       all[c.sid] = { model: c.model, effort: c.effort || '', t: Date.now() };
+      if (CG.remote && CG.remote.prefChanged) CG.remote.prefChanged(c);
       const keys = Object.keys(all);
       for (const k of keys.slice(0, Math.max(0, keys.length - 300))) delete all[k];
       localStorage.setItem(SESS_PREFS, JSON.stringify(all));
     } catch {}
   }
+  // máy khác (đang xem phiên chia sẻ) đổi model / effort → áp vào phiên ở máy này, không đổi mặc định chung
+  function applyPref(c, o) {
+    if (o.model && o.model !== c.model) { c.model = o.model; api.running(c.key).then((r) => { if (r) c.control({ subtype: 'set_model', model: o.model }); }); }
+    if (o.effort != null && o.effort !== (c.effort || '')) { c.effort = o.effort; api.running(c.key).then((r) => { if (r) c.respawn = true; }); }
+    saveSessPref(c);
+    if (c === S.active) updateComposer();
+  }
   function setModel(v) {
     const c = S.active;
+    if (c.rs) { c.model = v; updateComposer(); return CG.remote.setPref(c, { model: v }); }
     c.model = v;
     saveSessPref(c);
     saveSettings({ model: v });
@@ -1856,6 +1865,7 @@
   }
   function setEffort(v) {
     const c = S.active;
+    if (c.rs) { c.effort = v; updateComposer(); return CG.remote.setPref(c, { effort: v }); }
     c.effort = v;
     saveSessPref(c);
     saveSettings({ effort: v });
@@ -2388,9 +2398,9 @@
     const starred = isStarred(it.id);
     const star = h('button', { class: 's-star' + (starred ? ' on' : ''), text: starred ? '★' : '☆', title: starred ? 'Bỏ đánh dấu' : 'Đánh dấu — ghim lên đầu danh sách' });
     star.onclick = (e) => { e.stopPropagation(); toggleStar(it.id); };
-    const row = h('div', { class: 'sess' + (active ? ' active' : '') + (side ? ' side' : '') + (starred ? ' starred' : ''), title: `${it.title}\n${it.cwd || ''}\n${relTime(it.mtime)}${bg ? `\n${bg} tác vụ đang chạy nền` : ''}${ext ? `\nĐang mở ở terminal khác (${ext.status === 'busy' ? 'đang chạy' : 'rảnh'})` : ''}` },
+    const row = h('div', { class: 'sess' + (active ? ' active' : '') + (side ? ' side' : '') + (starred ? ' starred' : '') + (it.label ? ' sched-sess' : ''), title: `${it.label ? it.label + '\n' : ''}${it.title}\n${it.cwd || ''}\n${relTime(it.mtime)}${bg ? `\n${bg} tác vụ đang chạy nền` : ''}${ext ? `\nĐang mở ở terminal khác (${ext.status === 'busy' ? 'đang chạy' : 'rảnh'})` : ''}` },
       h('span', { class: 'st ' + st }, st === 'ext' ? icon('terminal', 11) : null),
-      h('span', { class: 's-title ellipsis', text: it.title }),
+      h('span', { class: 's-title ellipsis', text: it.label || it.title }),
       CG.remote && CG.remote.isShared(it.id) ? h('span', { class: 's-rs' + (CG.remote.watching(it.id).length ? ' live' : ''), text: '📡', title: CG.remote.watching(it.id).length ? 'Đang được xem từ: ' + CG.remote.watching(it.id).join(', ') : 'Đang chia sẻ — máy có token thấy & điều khiển được' }) : null,
       c && c.xsPending ? h('span', { class: 's-xs', title: `${c.xsPending} tin nhắn từ phiên khác đang chờ bạn xem`, html: svg('message', 12) }) : null,
       autoResWaiting(it.id) ? h('span', { class: 's-ar', title: 'Đang chờ giới hạn hồi để tự chạy tiếp', html: svg('clock', 12) }) : null,
@@ -2429,7 +2439,18 @@
     let arr = sessionItems();
     list.innerHTML = '';
     S.order = [];
-    if (CG.remote && S.filter === 'all') CG.remote.renderGroup(list);
+    // tab: Máy này · 🏢 từng máy đã kết nối (chỉ hiện khi có máy khác)
+    const tabs = CG.remote && CG.remote.machines ? CG.remote.machines() : [];
+    let tab = S.settings.sbTab || 'local';
+    if (tab !== 'local' && !tabs.some((t) => t.key === tab)) tab = 'local';
+    if (tabs.length) {
+      const localRun = arr.some((it) => it.conv && it.conv.working);
+      const T = (key, label, extra, tip) => h('button', { class: 'sb-tab' + (tab === key ? ' on' : ''), title: tip || '', onclick: () => { if (tab !== key) saveSettings({ sbTab: key }).then(renderSidebar); } }, ...label, extra);
+      list.append(h('div', { class: 'sb-tabs' },
+        T('local', [h('span', { text: 'Máy này' })], localRun ? h('span', { class: 'st run' }) : null, 'Phiên trên máy này'),
+        ...tabs.map((m) => T(m.key, [h('span', { class: 'rs-dot ' + (m.online ? 'on' : 'off') }), h('span', { class: 'ellipsis', text: m.name })], m.run ? h('span', { class: 'st ' + (m.wait ? 'wait' : 'run') }) : null, `Phiên trên máy ${m.name} · ${m.count} phiên${m.online ? '' : ' · mất kết nối'}`))));
+    }
+    if (tab !== 'local') { if (CG.remote) CG.remote.renderGroup(list, tab); return; }
     if (S.filter !== 'all') {
       list.append(h('div', { class: 'filter-pill' }, icon('filter', 12), S.filter === 'running' ? 'Đang chạy' : 'Đã lưu trữ', h('button', { class: 'icon-btn sm', html: svg('x', 12), onclick: () => { S.filter = 'all'; renderSidebar(); } })));
     }
@@ -2450,6 +2471,36 @@
       if (!isCol) for (const it of stars) appendSess(list, it, true);
       arr = arr.filter((it) => !starIds.includes(it.id));
       if (!arr.length) return;
+    }
+    // phiên do Lịch & hàng đợi chạy: gom theo kế hoạch (không lẫn vào nhóm thư mục)
+    const sm = !els.search.value.trim() && S.filter === 'all' && CG.sched && CG.sched.sidMap ? CG.sched.sidMap() : null;
+    if (sm) {
+      const byPlan = new Map();
+      for (const it of arr) { const x = sm[it.id]; if (!x) continue; if (!byPlan.has(x.pid)) byPlan.set(x.pid, { pid: x.pid, name: x.plan, items: [] }); byPlan.get(x.pid).items.push({ it, x }); }
+      if (byPlan.size) {
+        arr = arr.filter((it) => !sm[it.id]);
+        const isRun = (it) => !!(it.conv && it.conv.working);
+        const total = [...byPlan.values()].reduce((n, g) => n + g.items.length, 0);
+        const isCol = collapsed.has('__sched');
+        const head = h('div', { class: 'grp-head sched-head' + (isCol ? ' collapsed' : ''), title: 'Phiên do Lịch & hàng đợi chạy — gom theo kế hoạch' }, icon('chevronDown', 13, 'g-chev'), icon('clock', 14, 'g-icon'),
+          h('span', { class: 'g-name ellipsis', text: 'Lịch & hàng đợi' }), [...byPlan.values()].some((g) => g.items.some((y) => isRun(y.it))) ? h('span', { class: 'st run' }) : null, h('span', { class: 'g-count', text: total }));
+        head.onclick = () => { const set = new Set(S.settings.collapsedGroups || []); set.has('__sched') ? set.delete('__sched') : set.add('__sched'); saveSettings({ collapsedGroups: [...set] }).then(renderSidebar); };
+        list.append(head);
+        if (!isCol) {
+          const open = new Set(S.settings.openPlans || []);
+          for (const g of byPlan.values()) {
+            const run = g.items.some((y) => isRun(y.it)) || (CG.sched.planRunning && CG.sched.planRunning(g.pid));
+            const exp = open.has(g.pid) || (run && !open.has('-' + g.pid));
+            const sub = h('div', { class: 'grp-head sched-plan' + (exp ? '' : ' collapsed'), title: `Kế hoạch “${g.name}” — chuột phải để mở trong Lịch & hàng đợi` }, icon('chevronDown', 12, 'g-chev'),
+              h('span', { class: 'g-name ellipsis', text: g.name }), run ? h('span', { class: 'st run' }) : null, h('span', { class: 'g-count', text: g.items.length }));
+            sub.onclick = () => { const o = new Set(S.settings.openPlans || []); o.delete(g.pid); o.delete('-' + g.pid); if (!exp) o.add(g.pid); else if (run) o.add('-' + g.pid); saveSettings({ openPlans: [...o].slice(-60) }).then(renderSidebar); };
+            sub.oncontextmenu = (e) => { e.preventDefault(); menu(pointAnchor(e.clientX, e.clientY), [{ label: 'Mở trong Lịch & hàng đợi', icon: 'clock', onClick: () => CG.sched.open(g.pid) }]); };
+            list.append(sub);
+            if (exp) for (const y of g.items.sort((a, b) => a.x.k - b.x.k)) appendSess(list, { ...y.it, label: y.x.label }, false);
+          }
+        }
+        if (!arr.length) return;
+      }
     }
     if (S.settings.groupBy === 'project' && !els.search.value.trim()) {
       const groups = new Map();
@@ -3506,7 +3557,7 @@
       return [...S.convs.values()].find((x) => x.sid === sid) || null;
     },
     convs: () => [...S.convs.values()],
-    rawConv: (o) => new Conv(o),
+    rawConv: (o) => new Conv(o), applyPref, sessPrefOf: (sid) => sessPrefs()[sid] || null,
     reloadChild: (c) => reloadChild(c),
     archiveSession: (id, on) => archiveSession(id, on),
     addAttachment: (a) => { S.attachments.push(a); renderAttachments(); els.input.focus(); },

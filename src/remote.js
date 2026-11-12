@@ -50,10 +50,15 @@
     api.rsRes(rid, v);
   });
   const ACT_VI = { toggle: 'bật / tắt', run: 'chạy', stop: 'dừng', approve: 'duyệt & chạy', apply: 'áp dụng bản sửa', applyRun: 'áp dụng bản sửa & chạy tiếp', dropPending: 'bỏ bản sửa', resume: 'chạy tiếp', taskRetry: 'chạy lại task', taskSkip: 'bỏ qua task', taskDone: 'coi task là xong', taskCont: 'làm tiếp task', askPlanner: 'nhờ phiên điều phối sửa lịch', skipCheck: 'bỏ qua kiểm tra design', recheck: 'kiểm tra lại plan.json', designAccept: 'ghi nhận design mới', designAnalyze: 'phân tích design đổi', missedRun: 'chạy bù', missedSkip: 'bỏ qua lần lỡ' };
-  const stateOf = (c) => ({ open: !!c, busy: !!(c && c.busy), title: c ? c.title : '', cwd: c ? c.cwd : '' });
+  const stateOf = (c, sid) => {
+    const pref = !c && sid && A().sessPrefOf ? A().sessPrefOf(sid) : null;
+    return { open: !!c, busy: !!(c && c.busy), title: c ? c.title : '', cwd: c ? c.cwd : '', model: c ? c.model : (pref && pref.model) || '', effort: c ? c.effort || '' : (pref && pref.effort) || '', modelName: c ? c.modelName || '' : '' };
+  };
+  // phiên chia sẻ đổi model / effort ở máy này → máy đang xem cập nhật theo
+  function prefChanged(c) { if (!c.rs && live.has(c.sid)) api.rsEmit(c.sid, { type: 'gui_pref', model: c.model, effort: c.effort || '' }); }
   async function onReq(kind, d) {
     // máy đã kết nối hỏi danh sách phiên công khai
-    if (kind === 'states') { const v = {}; for (const sid of d.sids || []) v[sid] = stateOf(localConv(sid)); return { ok: true, v }; }
+    if (kind === 'states') { const v = {}; for (const sid of d.sids || []) v[sid] = stateOf(localConv(sid), sid); return { ok: true, v }; }
     if (kind === 'sched') return CG.sched ? CG.sched.remoteSnapshot() : { ok: false, error: 'Lịch chưa sẵn sàng' };
     if (kind === 'schedAct') {
       if (!CG.sched) return { ok: false, error: 'Lịch chưa sẵn sàng' };
@@ -62,12 +67,14 @@
       return v;
     }
     // máy chủ đã kiểm token; danh sách ở đây có thể chưa kịp làm mới
-    if (!shared.has(d.sid)) { await loadShared(); if (!shared.has(d.sid)) return { ok: false, error: 'Phiên không còn được chia sẻ' }; }
+    const inSched = () => !!(CG.sched && CG.sched.sidMap && CG.sched.sidMap()[d.sid]);
+    if (!shared.has(d.sid) && !inSched()) { await loadShared(); if (!shared.has(d.sid) && !inSched()) return { ok: false, error: 'Phiên không còn được chia sẻ' }; }
     if (kind === 'state') {
       const c = localConv(d.sid);
-      return { ok: true, ...stateOf(c), perms: c ? [...c.perms.values()].map((p) => p.raw).filter(Boolean) : [] };
+      return { ok: true, ...stateOf(c, d.sid), perms: c ? [...c.perms.values()].map((p) => p.raw).filter(Boolean) : [] };
     }
     let c = localConv(d.sid);
+    if (kind === 'pref' && !c) c = await A().convFor(d.sid);
     if (kind === 'send') {
       if (!c) c = await A().convFor(d.sid);
       if (!c) return { ok: false, error: 'Không mở được phiên ở máy này' };
@@ -88,6 +95,7 @@
       c.finishPerm(d.request_id, card, `${lbl} — từ ${d.from || 'máy khác'}`, ok);
       return { ok: true };
     }
+    if (kind === 'pref') { A().applyPref(c, { model: d.model, effort: d.effort }); c.addNote(`${d.model ? 'Model' : 'Effort'} đổi từ ${d.from || 'máy khác'}.`); return { ok: true }; }
     if (kind === 'stop') { c.interrupt(); c.addNote(`Dừng từ ${d.from || 'máy khác'}.`); return { ok: true }; }
     return { ok: false, error: 'Không rõ yêu cầu' };
   }
@@ -218,7 +226,7 @@
       sids.add(s.sid);
       const id = `h:${hid}:${s.sid}`;
       const cur = links.get(id);
-      links.set(id, { ...(cur || { state: 'connecting', info: null }), id, pub: true, hostId: hid, addr: H.addr, name: H.name, host: H.host, sid: s.sid, title: s.title || (cur && cur.title) || '', cwd: s.cwd || (cur && cur.cwd) || '', busy: s.busy, plan: s.plan || '' });
+      links.set(id, { ...(cur || { state: 'connecting', info: null }), id, pub: true, hostId: hid, addr: H.addr, name: H.name, host: H.host, sid: s.sid, title: s.title || (cur && cur.title) || '', cwd: s.cwd || (cur && cur.cwd) || '', busy: s.busy, plan: s.plan || '', pid: s.pid || '', label: s.label || '', k: s.k || 0 });
       if (!cur) api.rsConnect(id);
     }
     dropPub(hid, sids);
@@ -249,7 +257,7 @@
     const L = links.get(id);
     if (!L) return;
     const r = await api.rsCall({ link: id, path: '/rs/info', ms: 10000 });
-    if (r.ok) { L.info = r; L.title = r.title || L.title; L.cwd = r.cwd || L.cwd; L.name = r.name || L.name; L.busy = r.busy; if (L.state !== 'online') L.state = 'online'; }
+    if (r.ok) { L.info = r; L.title = r.title || L.title; L.cwd = r.cwd || L.cwd; L.name = r.name || L.name; L.busy = r.busy; if (L.state !== 'online') L.state = 'online'; applyRemotePref(rsConv(L, L.sid), r); }
     else if (r.status === 401) L.state = 'revoked';
     else if (L.state !== 'online') L.state = 'offline';
     A().renderSidebar();
@@ -287,11 +295,24 @@
       A().afterRender && A().afterRender(c);
       return;
     }
+    if (m.type === 'gui_pref') { applyRemotePref(c, m); return; }
     if (m.type === 'gui_perm_done') { const card = c.perms.get(m.request_id); if (card) c.finishPerm(m.request_id, card, m.label || 'Đã xử lý ở máy kia', !!m.ok); return; }
     if (m.type && m.type.startsWith('gui_')) return;
     c.handle(m);
   });
 
+  function applyRemotePref(c, x) {
+    if (!c || !x) return;
+    if (x.model) c.model = x.model;
+    if (x.effort != null) c.effort = x.effort || '';
+    if (x.modelName) c.modelName = x.modelName;
+    if (S().active === c) A().updateComposer();
+  }
+  async function setPref(c, o) {
+    const r = await api.rsCall({ link: c.rs.link, path: '/rs/pref', method: 'POST', body: o, ms: 20000 });
+    if (!r.ok) toast('Máy ' + c.rs.name + ' không đổi được: ' + r.error, true);
+    else toast(`Đã đổi ${o.model ? 'model' : 'effort'} của phiên ở máy ${c.rs.name}${o.effort != null ? ' — áp dụng từ tin nhắn tiếp theo' : ''}.`);
+  }
   // mở phiên từ xa: dựng Conv như phiên thường, lịch sử lấy từ máy kia
   async function openRemote(L, it) {
     const key = convKey(L, it.id);
@@ -314,6 +335,7 @@
       const info = await api.rsCall({ link: L.id, path: '/rs/info', ms: 10000 });
       if (info.ok) {
         L.info = info;
+        applyRemotePref(conv, info);
         if (info.busy) conv.setBusy(true);
         for (const p of info.perms || []) if (p && p.request_id && !conv.perms.has(p.request_id)) conv.permRequest(p.request_id, p.request);
         conv.rsChildren = info.children || [];
@@ -363,15 +385,42 @@
   }
 
   // thanh bên: nhóm 🏢 <máy> cho các phiên đã thêm bằng token
-  function renderGroup(list) {
-    if (!links.size && !hosts.size) return;
+  // ★ đánh dấu phiên của máy khác (lưu ở máy này)
+  const RS_STAR = 'cg.rsStars';
+  let rsStars = (() => { try { return JSON.parse(localStorage.getItem(RS_STAR)) || []; } catch { return []; } })();
+  const starKey = (L) => `${L.host || L.name}|${L.sid}`;
+  const isStar = (L) => rsStars.includes(starKey(L));
+  function toggleStar(L) {
+    const k = starKey(L);
+    rsStars = rsStars.includes(k) ? rsStars.filter((x) => x !== k) : [k, ...rsStars].slice(0, 200);
+    try { localStorage.setItem(RS_STAR, JSON.stringify(rsStars)); } catch {}
+    A().renderSidebar();
+  }
+  function machineMap() {
     const byHost = new Map();
     for (const H of hosts.values()) byHost.set(H.host || H.name, []);
     for (const L of links.values()) {
       if (L.pub && tokLinkFor(L.host, L.sid)) continue;
       const k = L.host || L.name; if (!byHost.has(k)) byHost.set(k, []); byHost.get(k).push(L);
     }
+    return byHost;
+  }
+  // tab ở thanh bên: mỗi máy khác một tab (máy này do app.js vẽ)
+  function machines() {
+    const out = [];
+    for (const [hk, arr] of machineMap()) {
+      const H = [...hosts.values()].find((x) => (x.host || x.name) === hk);
+      const run = arr.filter((L) => { const c = rsConv(L, L.sid); return c ? c.busy : L.busy; }).length;
+      const wait = arr.some((L) => { const c = rsConv(L, L.sid); return c && c.perms.size; });
+      out.push({ key: hk, name: (H && H.name) || (arr[0] && (arr[0].name || arr[0].host)) || hk, online: arr.some((L) => L.state === 'online') || !!(H && H.state === 'online'), count: arr.length, run, wait });
+    }
+    return out;
+  }
+  function renderGroup(list, only) {
+    if (!links.size && !hosts.size) return;
+    const byHost = machineMap();
     for (const [hk, arr] of byHost) {
+      if (only && hk !== only) continue;
       const H = [...hosts.values()].find((x) => (x.host || x.name) === hk);
       const nm = (H && H.name) || (arr[0] && (arr[0].name || arr[0].host)) || hk;
       const on = arr.some((L) => L.state === 'online') || (H && H.state === 'online');
@@ -380,7 +429,7 @@
       if (H) head.oncontextmenu = (e) => { e.preventDefault(); hostMenu(H, CG.pointAnchor(e.clientX, e.clientY)); };
       list.append(head);
       const runningOf = (L) => { const c = rsConv(L, L.sid); return c ? c.busy : L.busy; };
-      const first = arr.filter((L) => !L.plan || runningOf(L)), rest = arr.filter((L) => L.plan && !runningOf(L));
+      const first = arr.filter((L) => !L.plan), rest = arr.filter((L) => L.plan);
       if (!first.length && !rest.length && H && !(H.sched && H.state === 'online')) {
         list.append(h('div', { class: 'rs-none', text: H.state === 'revoked' ? `${nm} đã gỡ máy này — chuột phải tiêu đề → Thêm phiên bằng token` : H.state === 'online' ? 'Chưa có phiên công khai — ở máy kia chuột phải phiên → “Công khai cho máy đã kết nối”' : H.state === 'connecting' ? 'Đang kết nối…' : 'Mất kết nối (máy tắt / Tailscale chưa bật)' }));
       }
@@ -389,15 +438,22 @@
         const busy = c ? c.busy : L.busy;
         const wait = c && c.perms.size;
         const active = S().active && S().active.key === convKey(L, L.sid);
-        const row = h('div', { class: 'sess rs-sess' + (active ? ' active' : '') + (L.state === 'revoked' ? ' rs-dead' : ''), title: `${L.title}\n${L.cwd || ''}${L.plan ? '\n📅 ' + L.plan : ''}\nMáy ${L.name} · ${L.state === 'online' ? 'đang kết nối' : L.state === 'revoked' ? 'đã ngừng chia sẻ' : 'mất kết nối'}` },
+        const starred = isStar(L);
+        const star = h('button', { class: 's-star' + (starred ? ' on' : ''), text: starred ? '★' : '☆', title: starred ? 'Bỏ đánh dấu' : 'Đánh dấu — ghim lên đầu' });
+        star.onclick = (e) => { e.stopPropagation(); toggleStar(L); };
+        // phiên con (tác tử phụ): thu gọn như ở máy này, bấm "› N" để mở
+        const kids = (c && c.rsChildren) || (L.info && L.info.children) || [];
+        const kidsOpen = kids.length && kidOpen.has(starKey(L));
+        const kidsBtn = kids.length ? h('button', { class: 's-kids' + (kidsOpen ? ' open' : ''), title: `${kids.length} phiên con (tác tử phụ) — bấm để ${kidsOpen ? 'thu gọn' : 'mở'}`,
+          onclick: (e) => { e.stopPropagation(); const k = starKey(L); kidOpen.has(k) ? kidOpen.delete(k) : kidOpen.add(k); A().renderSidebar(); } }, CG.icon('chevronRight', 11), h('span', { text: kids.length })) : null;
+        const row = h('div', { class: 'sess rs-sess' + (L.plan && !L._top ? ' sched-sess' : '') + (starred ? ' starred' : '') + (active ? ' active' : '') + (L.state === 'revoked' ? ' rs-dead' : ''), title: `${L.label ? L.label + '\n' : ''}${L.title}\n${L.cwd || ''}${L.plan ? '\n📅 ' + L.plan : ''}\nMáy ${L.name} · ${L.state === 'online' ? 'đang kết nối' : L.state === 'revoked' ? 'đã ngừng chia sẻ' : 'mất kết nối'}` },
           h('span', { class: 'st ' + (busy ? (wait ? 'wait' : 'run') : '') }),
-          h('span', { class: 's-title ellipsis', text: (L.plan ? '📅 ' : '') + (L.title || '(phiên)') }),
-          h('span', { class: 's-time', text: L.state === 'revoked' ? '✕' : L.state === 'online' ? '' : '…' }));
+          h('span', { class: 's-title ellipsis', text: L.label || L.title || '(phiên)' }),
+          kidsBtn, h('span', { class: 's-time', text: L.state === 'revoked' ? '✕' : L.state === 'online' ? '' : '…' }), star);
         row.onclick = () => (L.state === 'revoked' ? linkMenu(L, row) : openRemote(L, { id: L.sid, title: L.title, cwd: L.cwd }));
         row.oncontextmenu = (e) => { e.preventDefault(); linkMenu(L, CG.pointAnchor(e.clientX, e.clientY)); };
         list.append(row);
-        const kids = (c && c.rsChildren) || (L.info && L.info.children) || [];
-        if (kids.length) {
+        if (kids.length && kidsOpen) {
           const box = h('div', { class: 'sess-kids' });
           for (const k of kids.slice(0, 8)) {
             const ka = S().active && S().active.key === convKey(L, k.id);
@@ -408,30 +464,51 @@
           list.append(box);
         }
       };
-      for (const L of first) one(L);
+      // phiên đã đánh dấu ★ lên đầu
+      const stars = arr.filter(isStar).sort((a, b) => rsStars.indexOf(starKey(a)) - rsStars.indexOf(starKey(b)));
+      if (stars.length) {
+        list.append(h('div', { class: 'grp-head star-head rs-star-head' }, h('span', { class: 'g-star', text: '★' }), h('span', { class: 'g-name ellipsis', text: 'Đã đánh dấu' }), h('span', { class: 'g-count', text: stars.length })));
+        for (const L of stars) { L._top = true; one(L); L._top = false; }
+        if (first.some((L) => !isStar(L)) || (H && H.sched)) list.append(h('div', { class: 'rs-sep' }));
+      }
+      for (const L of first) if (!isStar(L)) one(L);
       if (H && H.sched && H.state === 'online') {
-        const exp = schedOpen.has(H.id);
+        const exp = (schedOpen.has(H.id) || rest.some(runningOf)) && !schedShut.has(H.id);
         const row = h('div', { class: 'sess rs-sess rs-qrow' + (RQ.hid === H.id ? ' active' : ''), title: `Lịch & hàng đợi của máy ${nm} — xem, chạy / dừng, duyệt bản sửa` },
-          h('span', { class: 'rs-qic', text: '📅' }), h('span', { class: 's-title ellipsis', text: 'Lịch & hàng đợi' }),
-          rest.length ? h('span', { class: 'rs-qexp', title: exp ? 'Ẩn phiên do lịch chạy' : 'Hiện phiên do lịch chạy', text: `${rest.length} phiên ${exp ? '▾' : '▸'}` }) : null);
-        row.onclick = (e) => { if (e.target.closest('.rs-qexp')) { exp ? schedOpen.delete(H.id) : schedOpen.add(H.id); A().renderSidebar(); return; } openSched(H.id); };
+          h('span', { class: 'rs-qic', text: '📅' }), h('span', { class: 's-title ellipsis', text: 'Lịch & hàng đợi' }), rest.some(runningOf) ? h('span', { class: 'st run' }) : null,
+          rest.length ? h('span', { class: 'rs-qexp', title: exp ? 'Ẩn phiên do lịch chạy' : 'Hiện phiên do lịch chạy (theo kế hoạch)', text: `${rest.length} phiên ${exp ? '▾' : '▸'}` }) : null);
+        row.onclick = (e) => { if (e.target.closest('.rs-qexp')) { exp ? (schedOpen.delete(H.id), schedShut.add(H.id)) : (schedOpen.add(H.id), schedShut.delete(H.id)); A().renderSidebar(); return; } openSched(H.id); };
         list.append(row);
-        if (exp) for (const L of rest) one(L);
+        if (exp) {
+          const byPlan = new Map();
+          for (const L of rest) { const k = L.pid || L.plan; if (!byPlan.has(k)) byPlan.set(k, { k, name: L.plan, items: [] }); byPlan.get(k).items.push(L); }
+          for (const g of byPlan.values()) {
+            const pk = H.id + ':' + g.k, run = g.items.some(runningOf);
+            const pe = planOpen.has(pk) || (run && !planShut.has(pk));
+            const sub = h('div', { class: 'grp-head sched-plan rs-plan' + (pe ? '' : ' collapsed'), title: `Kế hoạch “${g.name}” trên máy ${nm}` }, CG.icon('chevronDown', 12, 'g-chev'),
+              h('span', { class: 'g-name ellipsis', text: g.name }), run ? h('span', { class: 'st run' }) : null, h('span', { class: 'g-count', text: g.items.length }));
+            sub.onclick = () => { if (pe) { planOpen.delete(pk); planShut.add(pk); } else { planOpen.add(pk); planShut.delete(pk); } A().renderSidebar(); };
+            list.append(sub);
+            if (pe) for (const L of g.items.sort((a, b) => (a.k || 0) - (b.k || 0))) if (!isStar(L)) one(L);
+          }
+        }
       }
     }
   }
-  const schedOpen = new Set();
+  const schedOpen = new Set(), schedShut = new Set(), planOpen = new Set(), planShut = new Set(), kidOpen = new Set();
   function linkMenu(L, anchor) {
     if (L.pub) {
       const H = hosts.get(L.hostId);
       return CG.menu(anchor, [
         { label: 'Mở', icon: 'message', onClick: () => openRemote(L, { id: L.sid, title: L.title, cwd: L.cwd }) },
+        { label: isStar(L) ? 'Bỏ đánh dấu' : 'Đánh dấu ★', icon: 'check', onClick: () => toggleStar(L) },
         { label: 'Kiểm tra kết nối', icon: 'refresh', onClick: () => refreshInfo(L.id).then(() => toast(L.state === 'online' ? `✓ Kết nối được máy ${L.name}` : 'Không kết nối được', L.state !== 'online')) },
         ...(H ? ['-', { label: 'Máy ' + H.name + '…', icon: 'monitor', onClick: () => hostMenu(H, anchor) }] : []),
       ]);
     }
     CG.menu(anchor, [
       { label: 'Mở', icon: 'message', disabled: L.state === 'revoked', onClick: () => openRemote(L, { id: L.sid, title: L.title, cwd: L.cwd }) },
+      { label: isStar(L) ? 'Bỏ đánh dấu' : 'Đánh dấu ★', icon: 'check', onClick: () => toggleStar(L) },
       { label: 'Dán token mới…', icon: 'refresh', onClick: () => addDialog({ addr: L.addr }) },
       { label: 'Kiểm tra kết nối', icon: 'refresh', onClick: () => refreshInfo(L.id).then(() => toast(L.state === 'online' ? `✓ Kết nối được máy ${L.name}` : L.state === 'revoked' ? 'Token không còn hiệu lực' : 'Không kết nối được', L.state !== 'online')) },
       '-',
@@ -710,7 +787,7 @@
   document.addEventListener('click', (e) => { if (RQ.hid && (e.target.closest('#nav-sched, #nav-skills, #btn-new') || (e.target.closest('#session-list') && !e.target.closest('.rs-qrow')))) closeSched(); }, true);
 
   CG.remote = {
-    openSched, closeSched, schedSwitch,
+    openSched, closeSched, schedSwitch, setPref, prefChanged, machines,
     emit, userSent, permDone, busyChanged, isShared, watching, menuItems, titleChip, setShare, setPublic, showToken, _hosts: hosts, reloadHosts: loadHosts,
     renderGroup, openRemote, openChild, send, respond, stop, api: rsApi, addDialog, settingsPage, _links: links, _shared: () => shared, reload: loadLinks,
   };

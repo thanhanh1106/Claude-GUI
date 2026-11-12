@@ -80,3 +80,13 @@
 .rs-qhint { font-size: 12px; color: var(--muted); margin: 0 2px 10px; line-height: 1.45; }
 .rs-qerr { margin: 10px 18px 0; }
 .rs-qgoal { margin: 0 0 12px; }
+
+/* thanh bên: tab Máy này / máy khác */
+.sb-tabs { position: sticky; top: 0; z-index: 3; display: flex; gap: 4px; padding: 2px 4px 6px; margin-bottom: 4px; background: var(--sidebar-bg, var(--bg)); overflow-x: auto; scrollbar-width: none; }
+body.has-bg .sb-tabs { background: transparent; backdrop-filter: blur(12px); }
+.sb-tab { display: inline-flex; align-items: center; gap: 5px; max-width: 150px; flex: none; padding: 3px 10px; border-radius: 8px; border: 1px solid var(--border); background: none; color: var(--text-2); font-size: 12.5px; cursor: pointer; }
+.sb-tab:hover { color: var(--text); background: var(--hover); }
+.sb-tab.on { background: var(--active); color: var(--text); border-color: var(--border-strong, var(--border)); font-weight: 600; }
+.sb-tab .st { margin: 0; }
+.rs-sep { height: 1px; background: var(--border); margin: 6px 10px; opacity: .6; }
+.rs-sess .s-star { margin-left: 2px; }

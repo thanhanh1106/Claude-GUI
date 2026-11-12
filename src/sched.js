@@ -49,15 +49,18 @@
   }
   let saveT = null;
   // phiên do lịch chạy (từng bước, task dự án, phiên điều phối) → báo main để máy đã kết nối cũng thấy
+  // sid -> { plan, pid, label, k } — k để xếp thứ tự trong nhóm của kế hoạch (điều phối trước, rồi theo bước / task)
   function schedSids() {
     const out = {};
+    const cut = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
     for (const p of D.plans) {
       if (p.demo) continue;
-      for (const sid of (p.run && p.run.sids) || []) if (sid) out[sid] = p.name;
+      const add = (sid, label, k) => { if (sid && !out[sid]) out[sid] = { plan: p.name, pid: p.id, label, k }; };
       if (p.kind === 'project' && p.proj) {
-        for (const t of p.proj.tasks || []) if (t.sid) out[t.sid] = p.name;
-        if (p.proj.plannerSid) out[p.proj.plannerSid] = p.name + ' · điều phối';
+        if (p.proj.plannerSid) add(p.proj.plannerSid, 'Phiên điều phối', 0);
+        (p.proj.tasks || []).forEach((t, i) => add(t.sid, `#${i + 1} ${cut(t.title, 60)}`, i + 1));
       }
+      ((p.run && p.run.sids) || []).forEach((sid, i) => add(sid, `Bước ${i + 1}${p.nodes && p.nodes[i] && p.nodes[i].prompt ? ': ' + cut(p.nodes[i].prompt, 50) : ''}`, i + 1));
     }
     return out;
   }
@@ -987,5 +990,5 @@
     return { ok: true };
   }
   setTimeout(pushSids, 3000);
-  CG.sched = { queueAfter, remoteSnapshot, remoteAct, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText, resumeTime }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
+  CG.sched = { queueAfter, remoteSnapshot, remoteAct, sidMap: schedSids, planRunning: (pid) => { const p = D.plans.find((x) => x.id === pid); return !!(p && (p.run.state === 'running' || running.has(p.id))); }, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText, resumeTime }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
 })();
