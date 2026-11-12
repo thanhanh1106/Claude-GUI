@@ -51,6 +51,27 @@
     return (c && c.cwd) || s.home || '';
   };
 
+  // Phiên ở máy khác (Truy cập từ xa): tệp nằm ở máy gốc → đọc qua kết nối (chỉ xem, không sửa). t.rs = id liên kết
+  const convOf = (key) => (key != null && S().convs ? S().convs.get(key) : null);
+  const rsLinkOf = (key) => { const c = convOf(key); return (c && c.rs && c.rs.link) || ''; };
+  const rsOfEl = (el) => {
+    if (!el || !el.closest) return '';
+    const md = el.closest('[data-rs]');
+    if (md) return md.dataset.rs;
+    if (el.closest('#viewer')) return '';
+    const s = S();
+    const c = el.closest('#split-col') ? s.side : s.active;
+    return (c && c.rs && c.rs.link) || '';
+  };
+  const rsNameOf = (link) => { for (const c of (S().convs || new Map()).values()) if (c.rs && c.rs.link === link) return c.rs.name || 'máy kia'; return 'máy kia'; };
+  const FS = (rs) => (rs ? {
+    read: (p) => api.rsFile({ link: rs, op: 'read', p }),
+    resolve: (b, p, hints) => api.rsFile({ link: rs, op: 'resolve', base: b, p, hints }),
+    preview: (p, base) => api.rsPreviewUrl({ link: rs, p, base }),
+  } : { read: (p) => api.readFile(p), resolve: (b, p, hints) => api.resolveFile(b, p, hints), preview: (p, base) => api.previewUrl(p, base) });
+  // thư mục gốc để xem trước HTML: thư mục của phiên sở hữu tab (tab từ xa) hoặc phiên đang xem
+  const baseOf = (t) => { if (t.rs) { const c = convOf(t.set && t.set.key); return (c && c.cwd) || ''; } const s = S(); return (s.active && s.active.cwd) || ''; };
+
   // Các tệp phiên đã đọc/sửa/tạo — để tìm ra tệp khi Claude chỉ ghi tên hoặc đường dẫn tương đối theo thư mục khác
   const hintsFor = (el) => {
     const s = S();
@@ -83,7 +104,7 @@
     t.body = h('div', { class: 'vw-pane off' });
     $('#vw-body').append(t.body);
     st.tabs.push(t);
-    if (t.kind === 'file') api.watchFile(t.path);
+    if (t.kind === 'file' && !t.rs) api.watchFile(t.path);
     return t;
   }
   // Tab chỉ dựng nội dung (đọc tệp / tạo webview) khi được xem — phiên chạy nền, tab khôi phục không tốn gì
@@ -116,7 +137,7 @@
     const i = st.tabs.indexOf(t);
     if (i < 0) return;
     st.tabs.splice(i, 1);
-    if (t.path) api.unwatchFile(t.path);
+    if (t.path && !t.rs) api.unwatchFile(t.path);
     clearTimeout(t.retryTimer);
     t.body.remove();
     if (st !== CUR) { if (st.cur === t) st.cur = st.tabs[i] || st.tabs[i - 1] || null; saveTabs(st); return; }
@@ -127,7 +148,7 @@
   function tabLabel(t) {
     if (t.kind === 'panel') return t.label;
     if (t.kind === 'web') return t.title || (t.url || '').replace(/^https?:\/\//, '').replace(/\/$/, '') || 'Trang web';
-    return basename(t.path);
+    return (t.rs ? '🏢 ' : '') + basename(t.path);
   }
   function renderTabs() {
     const list = $('#vw-tablist');
@@ -135,7 +156,7 @@
     for (const t of V.tabs) {
       const x = h('button', { class: 'icon-btn sm vw-tab-x', title: 'Đóng (Ctrl+W)', html: svg('x', 12) });
       x.onclick = (e) => { e.stopPropagation(); closeTab(t); };
-      const el = h('div', { class: 'vw-tab' + (t === V.cur ? ' on' : '') + (t.kind === 'panel' ? ' vw-ptab' : ''), title: t.kind === 'panel' ? t.label : t.kind === 'web' ? t.url : t.path },
+      const el = h('div', { class: 'vw-tab' + (t === V.cur ? ' on' : '') + (t.kind === 'panel' ? ' vw-ptab' : '') + (t.rs ? ' vw-rtab' : ''), title: t.kind === 'panel' ? t.label : t.kind === 'web' ? t.url : t.path + (t.rs ? ` · tệp ở máy ${rsNameOf(t.rs)} (chỉ xem)` : '') },
         icon(t.kind === 'panel' ? t.icon : t.kind === 'web' ? 'globe' : t.fileKind === 'image' ? 'image' : t.fileKind === 'pdf' ? 'file' : t.ext === 'md' ? 'book' : 'code', 13),
         h('span', { class: 'ellipsis', text: tabLabel(t) }), t.kind === 'panel' && t.badge ? h('span', { class: 'vw-badge', text: t.badge }) : null, x);
       el.onclick = () => select(t);
@@ -168,7 +189,7 @@
       if (!st.tabs.length && !st.open) delete all[st.key];
       else {
         const keep = st.tabs.filter((t) => t.kind !== 'panel'); // tab tự dựng (Gợi ý…) không lưu — mở lại từ chat
-        all[st.key] = { tabs: keep.map((t) => (t.kind === 'web' ? { url: t.url, auto: t.auto || undefined } : { path: t.path, auto: t.auto || undefined })), cur: keep.indexOf(st.cur), open: st.open && keep.length > 0, t: st.t };
+        all[st.key] = { tabs: keep.map((t) => (t.kind === 'web' ? { url: t.url, auto: t.auto || undefined } : { path: t.path, rs: t.rs || undefined, auto: t.auto || undefined })), cur: keep.indexOf(st.cur), open: st.open && keep.length > 0, t: st.t };
       }
       const keys = Object.keys(all);
       if (keys.length > STORE_MAX) keys.sort((a, b) => (all[b].t || 0) - (all[a].t || 0)).slice(STORE_MAX).forEach((k) => delete all[k]);
@@ -185,7 +206,7 @@
       st.open = !!x.open;
       for (const o of x.tabs.slice(0, 12)) {
         if (o.url) addTab({ kind: 'web', url: o.url, title: '', auto: !!o.auto }, st);
-        else if (o.path) addTab({ kind: 'file', path: o.path, ext: (o.path.split('.').pop() || '').toLowerCase(), mode: null, auto: !!o.auto }, st);
+        else if (o.path) addTab({ kind: 'file', path: o.path, rs: o.rs || '', ext: (o.path.split('.').pop() || '').toLowerCase(), mode: null, auto: !!o.auto }, st);
       }
       for (const t of st.tabs) if (t.kind === 'file') t.mode = PREVIEW_EXT.has(t.ext) ? 'preview' : 'code';
       st.cur = st.tabs[x.cur] || st.tabs[st.tabs.length - 1] || null;
@@ -248,9 +269,9 @@
       updateNav(t);
       return;
     }
-    const s = S();
-    const base = (s.active && s.active.cwd) || '';
+    const base = baseOf(t);
     const rel = shortPath(t.path, base);
+    if (t.rs) bar.append(h('span', { class: 'vw-rs', text: '🏢 ' + rsNameOf(t.rs), title: `Tệp ở máy ${rsNameOf(t.rs)} — lấy qua Truy cập từ xa, chỉ xem` }));
     bar.append(h('span', { class: 'vw-crumb ellipsis', title: t.path }, ...rel.split(/[\\/]/).flatMap((p, i, a) => [h('span', { class: i === a.length - 1 ? 'last' : '', text: p }), i < a.length - 1 ? h('span', { class: 'sep', text: '›' }) : null])));
     bar.append(h('span', { class: 'spacer' }));
     if (t.info && t.info.kind === 'text') bar.append(h('span', { class: 'vw-meta', text: `${t.lines} dòng${t.info.truncated ? ' (đã cắt bớt)' : ''}` }));
@@ -261,7 +282,7 @@
       bar.append(seg);
     }
     if (t.mode === 'preview' && /^(html?|svg)$/.test(t.ext)) { t.pickBtn = btn('target', 'Chọn phần tử trên trang để đính vào chat (Ctrl+Shift+S)', () => pickElement(t)); bar.append(t.pickBtn); }
-    const editable = t.info && t.info.kind === 'text' && !t.info.truncated;
+    const editable = t.info && t.info.kind === 'text' && !t.info.truncated && !t.rs;
     if (editable) {
       if (t.editing) {
         t.savedEl = h('span', { class: 'vw-saved' + (t.dirty ? '' : ' ok'), text: t.dirty ? (autoSave() ? 'Đang sửa…' : 'Chưa lưu') : '✓ Đã lưu' });
@@ -276,6 +297,10 @@
   }
   // Menu tệp (nút ⋯ hoặc chuột phải tab): đính vào chat, mở bằng trình sửa khác, hiện trong thư mục, sao chép đường dẫn
   async function fileMenu(t, anchor) {
+    if (t.rs) return menu(anchor, [
+      { label: 'Đính vào chat (làm ngữ cảnh)', icon: 'paperclip', onClick: () => attachToChat(t) },
+      { label: 'Sao chép đường dẫn (ở máy ' + rsNameOf(t.rs) + ')', icon: 'copy', onClick: () => { navigator.clipboard.writeText(t.path); toast('Đã sao chép đường dẫn'); } },
+    ]);
     const eds = await api.listEditors().catch(() => []);
     menu(anchor, [
       { label: 'Đính vào chat (làm ngữ cảnh)', icon: 'paperclip', onClick: () => attachToChat(t) },
@@ -286,8 +311,7 @@
     ]);
   }
   function attachToChat(t) {
-    const s = S(), c = s.active;
-    const base = (c && c.cwd) || '';
+    const base = baseOf(t);
     const r = base && t.path.toLowerCase().startsWith(base.replace(/[\\/]+$/, '').toLowerCase() + '\\') ? t.path.slice(base.replace(/[\\/]+$/, '').length + 1) : t.path;
     if (CG.app) CG.app.insertText('@' + (/\s/.test(r) ? `"${r}"` : r) + ' ');
     toast('Đã đính tệp vào ô nhập');
@@ -298,6 +322,11 @@
     if (t.kind === 'panel') return toast('Tab này không tách ra cửa sổ riêng được.', true);
     const title = tabLabel(t) + ' · Claude GUI';
     if (t.kind === 'web') return api.popout({ url: t.url, title });
+    if (t.rs) {
+      if (t.fileKind !== 'pdf' && !/^(html?|svg)$/.test(t.ext)) return toast('Tệp ở máy khác chỉ tách ra được với HTML / SVG / PDF.', true);
+      const u = await FS(t.rs).preview(t.path, baseOf(t));
+      return u ? api.popout({ url: u, title }) : toast('Không lấy được tệp từ máy kia.', true);
+    }
     if (t.fileKind === 'pdf') return api.popout({ url: fileUrl(t.path), title });
     if (/^(html?|svg)$/.test(t.ext)) { const s = S(); const u = await api.previewUrl(t.path, (s.active && s.active.cwd) || ''); return api.popout({ url: u || fileUrl(t.path), title }); }
     api.popout({ path: t.path, theme: document.documentElement.dataset.theme || '' });
@@ -307,6 +336,7 @@
   const LAUNCH_HELP = 'Hãy tạo tệp .claude/launch.json ở thư mục gốc dự án này để Claude GUI bật được dev server. Đọc package.json / cấu hình dự án để biết lệnh chạy, rồi ghi theo định dạng:\n{\n  "configurations": [\n    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173, "autoPort": true },\n    { "name": "docs", "url": "http://localhost:8000" }\n  ]\n}\nCác trường: name, runtimeExecutable, runtimeArgs, cwd (tương đối), env, port, autoPort, url. Chỉ ghi các server thật sự có trong dự án.';
   function serversMenu(anchor) {
     const c = S().active;
+    if (c && c.rs) return toast(`Dev server của phiên này chạy ở máy ${c.rs.name} — chưa xem được từ máy này.`, true);
     const root = c && c.cwd;
     if (!root) return toast('Chưa chọn thư mục dự án.', true);
     popover(anchor, (el, close) => {
@@ -451,9 +481,10 @@
   async function openFile(p, line, opts = {}) {
     const st = opts.set || CUR;
     if (st === CUR) setOpen(true); else st.open = true;
-    let t = st.tabs.find((x) => x.kind === 'file' && samePath(x.path, p));
+    const rs = opts.rs || '';
+    let t = st.tabs.find((x) => x.kind === 'file' && samePath(x.path, p) && (x.rs || '') === rs);
     if (!t) {
-      t = addTab({ kind: 'file', path: p, ext: (p.split('.').pop() || '').toLowerCase(), mode: null }, st);
+      t = addTab({ kind: 'file', path: p, rs, ext: (p.split('.').pop() || '').toLowerCase(), mode: null }, st);
       t.mode = PREVIEW_EXT.has(t.ext) ? 'preview' : 'code';
       if (st === CUR) { t.loaded = true; await loadFile(t); }
     }
@@ -462,17 +493,19 @@
     return t;
   }
   // Đường dẫn bất kỳ trong tin nhắn (tương đối theo thư mục phiên)
-  async function openPath(base, p, quiet, el) {
-    const r = await api.resolveFile(base, p, hintsFor(el));
-    if (!r || !r.ok) { if (!quiet) toast('Không tìm thấy tệp: ' + p, true); return false; }
-    if (r.isDir) { api.openPath(r.path); return true; }
-    await openFile(r.path, r.line);
+  // o.rs: phiên ở máy khác (không truyền → đoán theo phần tử được bấm)
+  async function openPath(base, p, quiet, el, o = {}) {
+    const rs = o.rs != null ? o.rs || '' : rsOfEl(el);
+    const r = await FS(rs).resolve(base, p, hintsFor(el));
+    if (!r || !r.ok) { if (!quiet) toast(rs && r && r.error ? r.error : 'Không tìm thấy tệp: ' + p, true); return false; }
+    if (r.isDir) { if (rs) toast('Đây là thư mục ở máy ' + rsNameOf(rs) + '.', true); else api.openPath(r.path); return true; }
+    await openFile(r.path, r.line, { rs });
     return true;
   }
   async function loadFile(t, keepScroll) {
     const sc = t.scroller;
     const pos = keepScroll && sc ? [sc.scrollTop, sc.scrollLeft] : null;
-    const info = await api.readFile(t.path).catch((e) => ({ ok: false, error: e.message }));
+    const info = await FS(t.rs).read(t.path).catch((e) => ({ ok: false, error: e.message }));
     t.info = info;
     t.fileKind = info.kind;
     t.lines = info.kind === 'text' ? info.text.split('\n').length : 0;
@@ -496,23 +529,23 @@
       return;
     }
     if (info.kind === 'pdf') {
-      const wv = makeWebview(fileUrl(t.path));
-      b.append(wv);
-      t.previewWv = wv;
+      const put = (u) => { if (t.info !== info) return; const wv = makeWebview(u); b.append(wv); t.previewWv = wv; };
+      if (t.rs) FS(t.rs).preview(t.path, '').then((u) => (u ? put(u) : b.append(h('div', { class: 'vw-msg', text: 'Không lấy được tệp từ máy kia.' }))));
+      else put(fileUrl(t.path));
       return;
     }
     if (info.kind === 'binary' || info.kind === 'toolarge') {
       b.append(h('div', { class: 'vw-msg' }, info.kind === 'binary' ? 'Tệp nhị phân — không hiển thị được.' : 'Tệp quá lớn để xem.', h('br'),
-        h('button', { class: 'btn sm', text: 'Mở bằng ứng dụng mặc định', onclick: () => api.openPath(t.path) })));
+        t.rs ? null : h('button', { class: 'btn sm', text: 'Mở bằng ứng dụng mặc định', onclick: () => api.openPath(t.path) })));
       return;
     }
     t.editor = null;
     if (t.editing && info.kind === 'text') { b.append(editView(t, info.text)); return; }
     if (t.mode === 'preview' && (t.ext === 'html' || t.ext === 'htm' || t.ext === 'svg')) {
-      // Qua máy chủ cục bộ (http://127.0.0.1) để module JS / fetch() chạy được như trên web thật
-      const s = S();
-      api.previewUrl(t.path, (s.active && s.active.cwd) || '').then((url) => {
+      // Qua máy chủ cục bộ (http://127.0.0.1) để module JS / fetch() chạy được như trên web thật (tệp từ xa: máy chủ đó lấy từ máy gốc)
+      FS(t.rs).preview(t.path, baseOf(t)).then((url) => {
         if (t.info !== info || t.mode !== 'preview') return;
+        if (!url && t.rs) { b.append(h('div', { class: 'vw-msg', text: 'Không lấy được tệp từ máy kia.' })); return; }
         const wv = makeWebview(url || fileUrl(t.path));
         b.append(wv);
         t.previewWv = wv;
@@ -522,6 +555,7 @@
     if (t.mode === 'preview' && PREVIEW_EXT.has(t.ext)) {
       const md = h('div', { class: 'md vw-md' });
       md.dataset.base = dirname(t.path);
+      if (t.rs) md.dataset.rs = t.rs;
       renderMd(md, info.text);
       const box = h('div', { class: 'vw-scroll' }, md);
       b.append(box);
@@ -656,6 +690,7 @@
     const s = S();
     const cwd = s.active && s.active.cwd;
     if (!cwd) return toast('Chưa chọn thư mục dự án.', true);
+    if (s.active.rs) return toast(`Mở nhanh chưa dùng được với phiên ở máy ${s.active.rs.name} — bấm vào tên tệp trong chat để xem.`, true);
     setOpen(true);
     let files = [];
     popover(anchor || $('#vw-open'), (el, close) => {
@@ -699,6 +734,8 @@
   function handleLink(a, e) {
     const href = a.getAttribute('href') || '';
     if (/^https?:\/\//i.test(href)) {
+      const rl = isLocalHost(href) && rsOfEl(a);
+      if (rl && /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(href)) { toast(`Địa chỉ này chạy ở máy ${rsNameOf(rl)} — chưa xem được từ máy này.`, true); return true; }
       if (isLocalHost(href) && !e.ctrlKey) { openUrl(href, { newTab: true }); return true; }
       return false;
     }
@@ -828,9 +865,10 @@
       const src = img.getAttribute('src') || '';
       if (!src || /^(https?|data|blob):/i.test(src)) return;
       img.dataset.localTried = '1';
-      const r = await api.resolveFile(cwdFor(img), src).catch(() => null);
+      const F = FS(rsOfEl(img));
+      const r = await F.resolve(cwdFor(img), src).catch(() => null);
       if (!r || !r.ok || r.isDir) return;
-      const f = await api.readFile(r.path).catch(() => null);
+      const f = await F.read(r.path).catch(() => null);
       if (f && f.kind === 'image') img.src = f.dataUrl;
     }, true);
     document.addEventListener('keydown', (e) => {
@@ -852,7 +890,8 @@
     const st = o.key == null || o.key === CUR.key ? CUR : setFor(o.key);
     const bg = st !== CUR;
     const org = o.url ? originOf(o.url) : '';
-    const same = o.file ? st.tabs.find((x) => x.kind === 'file' && samePath(x.path, o.file)) : st.tabs.find((x) => x.kind === 'web' && org && originOf(x.url) === org);
+    const rs = rsLinkOf(st.key);
+    const same = o.file ? st.tabs.find((x) => x.kind === 'file' && samePath(x.path, o.file) && (x.rs || '') === rs) : st.tabs.find((x) => x.kind === 'web' && org && originOf(x.url) === org);
     if (same) {
       if (bg) { st.open = true; st.fresh = true; if (o.url) same.url = o.url; unload(same); select(same); CG.renderSidebar && CG.renderSidebar(); return same; }
       setOpen(true);
@@ -863,7 +902,7 @@
       return same;
     }
     const old = st.tabs.filter((x) => x.auto);
-    const t = o.file ? await openFile(o.file, 0, { set: st }) : openUrl(o.url, { newTab: true, set: st });
+    const t = o.file ? await openFile(o.file, 0, { set: st, rs }) : openUrl(o.url, { newTab: true, set: st });
     if (!t) return null;
     t.auto = true;
     for (const x of old) if (x !== t) closeTab(x);
@@ -892,6 +931,21 @@
   }
   // Tab tệp đang mở trong phiên (để app.js biết sửa tệp đã mở thì chỉ cần tự tải lại)
   const hasFile = (key, f) => { const st = key == null || key === CUR.key ? CUR : SETS.get(key); return !!(st && st.tabs.some((t) => t.kind === 'file' && samePath(t.path, f))); };
-  CG.viewer = { panel, autoShow, toggle, setOpen, openFile, openPath, openUrl, quickOpen, handleLink, lightbox, isLocalHost, useSession, fresh, hasFile, get state() { return V; } };
+  // Phiên ở máy khác vừa ghi / sửa tệp f (không theo dõi được tệp bên đó) → tải lại tab đúng tệp đó, và trang HTML/SVG
+  // đang xem trước mà f nằm trong thư mục của nó (vd sửa style.css của demo)
+  function rsTouched(key, f) {
+    const st = key == null || key === CUR.key ? CUR : SETS.get(key);
+    if (!st || !f) return;
+    const k = String(f).replace(/\//g, '\\').toLowerCase();
+    for (const t of st.tabs) {
+      if (t.kind !== 'file' || !t.rs || !t.loaded) continue;
+      const same = samePath(t.path, f);
+      const d = dirname(t.path).replace(/\//g, '\\').toLowerCase().replace(/\\+$/, '') + '\\';
+      if (!same && !(t.previewWv && k.startsWith(d))) continue;
+      clearTimeout(t.rsT);
+      t.rsT = setTimeout(() => { if (t.previewWv && !same) { try { t.previewWv.reloadIgnoringCache(); } catch {} } else loadFile(t, true); }, 250);
+    }
+  }
+  CG.viewer = { panel, autoShow, rsTouched, toggle, setOpen, openFile, openPath, openUrl, quickOpen, handleLink, lightbox, isLocalHost, useSession, fresh, hasFile, get state() { return V; } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })();

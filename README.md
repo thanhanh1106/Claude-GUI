@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.23.1-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.23.2-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -70,6 +70,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - **Thanh bên chia tab (1.23.1)**: khi có máy khác, đầu danh sách phiên có tab **Máy này** và **một tab cho mỗi máy khác** (chấm xanh = đang kết nối, chấm chạy = có phiên đang chạy) — phiên máy khác không chen lên đầu danh sách của máy này nữa. Trong tab máy khác: đánh dấu ★ phiên (ghim lên đầu, lưu ở máy này), phiên con thu gọn sau nút `› N`.
 - **Model / effort của phiên từ xa** lấy đúng theo phiên đang chạy ở máy gốc (tự cập nhật khi máy gốc đổi); đổi model / effort ở máy xem là đổi luôn cho phiên bên máy gốc (không đổi mặc định chung của máy đó).
 - Ở máy này, phiên do Lịch & hàng đợi chạy cũng gom vào nhóm **Lịch & hàng đợi** trên thanh bên, chia theo kế hoạch (chuột phải tên kế hoạch → mở trong Lịch & hàng đợi), không lẫn vào nhóm thư mục; khi tìm kiếm thì vẫn hiện như thường.
+- **Xem trước tệp của phiên từ xa (1.23.2)**: Claude ở máy gốc tạo / sửa tệp (HTML, Markdown, ảnh, PDF, code) → khung xem ở máy xem mở đúng tệp của máy gốc (tab có nhãn 🏢, chỉ xem, không sửa); HTML kèm CSS / JS / ảnh đi kèm vẫn chạy, máy gốc sửa tệp là tab tự tải lại; bấm tên tệp trong chat cũng mở tệp bên máy gốc. Máy gốc chỉ cho đọc trong thư mục của phiên, thư mục có tệp phiên đã ghi và đúng các tệp phiên đã đọc. Địa chỉ `localhost` của máy gốc chưa xem được từ máy khác (không tự mở nhầm `localhost` của máy này nữa).
 - Máy chạy phiên phải đang bật (không ngủ) và mở Claude GUI.
 
 **Hỏi người thật qua Lark** (Cài đặt → Lark) — Claude soạn câu hỏi cho game designer / người khác, bạn duyệt rồi bot gửi, câu trả lời quay về đúng phiên:

@@ -679,11 +679,51 @@ const MIME = {
 };
 let previewSrv = null;
 const previewRoots = new Map(); // token -> dir
-async function previewUrl(file, base) {
-  file = path.resolve(file);
-  // Gốc là thư mục dự án nếu tệp nằm trong đó (demo hay dùng ../assets), không thì thư mục chứa tệp
+// Gốc là thư mục dự án nếu tệp nằm trong đó (demo hay dùng ../assets), không thì thư mục chứa tệp
+function previewDir(file, base) {
   let dir = path.dirname(file);
   if (base) { const b = path.resolve(base); const r = path.relative(b, file); if (r && !r.startsWith('..') && !path.isAbsolute(r) && b !== path.parse(b).root) dir = b; }
+  return dir;
+}
+async function previewUrl(file, base) {
+  file = path.resolve(file);
+  const dir = previewDir(file, base);
+  const port = await previewStart();
+  let token = [...previewRoots].find(([, d]) => d === dir);
+  token = token ? token[0] : crypto.randomBytes(8).toString('hex');
+  previewRoots.set(token, dir);
+  return `http://127.0.0.1:${port}/${token}/` + path.relative(dir, file).split(path.sep).map(encodeURIComponent).join('/');
+}
+// Tệp của phiên ở máy khác (Truy cập từ xa): cùng máy chủ xem trước ở máy này, gốc "r…" → lấy từng tệp từ máy gốc
+async function rsPreviewUrl(o) {
+  const file = path.resolve(String(o.p || ''));
+  const dir = previewDir(file, o.base ? String(o.base) : '');
+  const port = await previewStart();
+  let token = [...previewRoots].find(([, d]) => d && d.rs === o.link && d.root === dir);
+  token = token ? token[0] : 'r' + crypto.randomBytes(8).toString('hex');
+  previewRoots.set(token, { rs: String(o.link || ''), root: dir });
+  return `http://127.0.0.1:${port}/${token}/` + path.relative(dir, file).split(path.sep).map(encodeURIComponent).join('/');
+}
+function rsFsProxy(R, rel, req, res) {
+  const fail = (code, msg) => { try { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(msg); } catch {} };
+  const C = rsCred(R.rs);
+  if (!C) return fail(410, 'Không còn kết nối tới máy kia');
+  const p = path.resolve(R.root, rel);
+  if (p !== R.root && !p.startsWith(R.root.endsWith(path.sep) ? R.root : R.root + path.sep)) return fail(403, '403');
+  let url;
+  try { url = new URL(rsUrl(C.addr) + '/rs/fs?p=' + encodeURIComponent(p)); } catch (e) { return fail(400, e.message); }
+  const q = require('http').request(url, { method: req.method, headers: { ...C.auth, 'x-cg-client': rsClientId, 'x-cg-name': os.hostname() }, timeout: 30000 }, (r) => {
+    const hd = { 'Content-Type': r.headers['content-type'] || 'application/octet-stream', 'Cache-Control': 'no-store' };
+    if (r.headers['content-length']) hd['Content-Length'] = r.headers['content-length'];
+    res.writeHead(r.statusCode || 502, hd);
+    r.pipe(res);
+  });
+  q.on('timeout', () => q.destroy(new Error('máy kia không trả lời')));
+  q.on('error', (e) => fail(502, 'Không lấy được tệp từ máy kia: ' + e.message));
+  req.on('close', () => { if (!res.writableEnded) q.destroy(); });
+  q.end();
+}
+function previewStart() {
   if (!previewSrv) {
     previewSrv = new Promise((resolve, reject) => {
       const srv = require('http').createServer((req, res) => {
@@ -694,6 +734,7 @@ async function previewUrl(file, base) {
         if (!root || (req.method !== 'GET' && req.method !== 'HEAD')) { res.writeHead(404); return res.end(); }
         let rel;
         try { rel = decodeURIComponent(parts.slice(2).join('/')); } catch { res.writeHead(400); return res.end(); }
+        if (typeof root === 'object') return rsFsProxy(root, rel, req, res);
         let p = path.resolve(root, rel);
         if (p !== root && !p.startsWith(root.endsWith(path.sep) ? root : root + path.sep)) { res.writeHead(403); return res.end(); }
         fs.stat(p, (err, st) => {
@@ -710,11 +751,7 @@ async function previewUrl(file, base) {
       srv.listen(0, '127.0.0.1', () => resolve(srv.address().port));
     });
   }
-  const port = await previewSrv;
-  let token = [...previewRoots].find(([, d]) => d === dir);
-  token = token ? token[0] : crypto.randomBytes(8).toString('hex');
-  previewRoots.set(token, dir);
-  return `http://127.0.0.1:${port}/${token}/` + path.relative(dir, file).split(path.sep).map(encodeURIComponent).join('/');
+  return previewSrv;
 }
 // Tự tải lại khi tệp đang xem bị sửa (Claude sửa xong là thấy ngay)
 const fileWatchers = new Map();
@@ -3093,6 +3130,69 @@ async function rsTailscale() {
 }
 async function rsInfo() { return { on: !!rsSrv, want: !!settings.rsOn, port: rsPort(), error: rsErr, allowPerm: settings.rsAllowPerm !== false, host: os.hostname(), addrs: lanAddrs(), tailscale: await rsTailscale() }; }
 function rsFileOf(sid) { let f = findSessionFile(sid); if (!f) { listAllSessions(); f = findSessionFile(sid); } return f; }
+// Máy xem đọc tệp của phiên cho khung xem trước — CHỈ ĐỌC, chỉ trong: thư mục của phiên, thư mục có tệp phiên (và tác tử phụ) đã
+// ghi / sửa, và đúng các tệp phiên đã đọc. Thư mục quá rộng (gốc ổ đĩa, thư mục người dùng và cha của nó) không tính là thư mục cho xem.
+const wkey = (p) => (process.platform === 'win32' ? String(p).toLowerCase() : String(p));
+const underDir = (k, d) => k === d || k.startsWith(d.endsWith(path.sep) ? d : d + path.sep);
+function rsBroad(d) { const r = wkey(path.resolve(d)); const hm = wkey(os.homedir()); return r === wkey(path.parse(path.resolve(d)).root) || underDir(hm, r); }
+const rsTouchCache = new Map(); // tệp jsonl -> { size, rem, dirs, files }
+function rsScanTouched(file, acc) {
+  let st; try { st = fs.statSync(file); } catch { return; }
+  let c = rsTouchCache.get(file);
+  if (!c || st.size < c.size) { c = { size: 0, rem: '', dirs: new Set(), files: new Set() }; rsTouchCache.set(file, c); }
+  if (st.size > c.size) {
+    let fd;
+    try {
+      fd = fs.openSync(file, 'r');
+      const n = st.size - c.size, buf = Buffer.alloc(n);
+      fs.readSync(fd, buf, 0, n, c.size);
+      c.size = st.size;
+      const lines = (c.rem + buf.toString('utf8')).split('\n');
+      c.rem = lines.pop();
+      for (const l of lines) {
+        if (!l.includes('"tool_use"')) continue;
+        let m; try { m = JSON.parse(l); } catch { continue; }
+        const cont = m && m.message && Array.isArray(m.message.content) ? m.message.content : [];
+        for (const b of cont) {
+          if (!b || b.type !== 'tool_use' || !b.input) continue;
+          const f = b.input.file_path || b.input.notebook_path;
+          if (typeof f !== 'string' || !path.isAbsolute(f)) continue;
+          const p = path.resolve(f);
+          c.files.add(wkey(p));
+          if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(b.name) && !rsBroad(path.dirname(p))) c.dirs.add(wkey(path.dirname(p)));
+        }
+      }
+    } catch {} finally { if (fd != null) try { fs.closeSync(fd); } catch {} }
+  }
+  for (const d of c.dirs) acc.dirs.add(d);
+  for (const f of c.files) acc.files.add(f);
+}
+const rsScopeCache = new Map(); // sid -> { t, acc }
+function rsFsScope(sid) {
+  const hit = rsScopeCache.get(sid);
+  if (hit && Date.now() - hit.t < 1500) return hit.acc;
+  const acc = { dirs: new Set(), files: new Set() };
+  const file = rsFileOf(sid);
+  if (file) {
+    let cwd = '';
+    try { cwd = (sessionMeta(file, fs.statSync(file)) || {}).cwd || ''; } catch {}
+    if (cwd && !rsBroad(cwd)) acc.dirs.add(wkey(path.resolve(cwd)));
+    rsScanTouched(file, acc);
+    const sd = path.join(path.dirname(file), sid, 'subagents');
+    try { for (const n of fs.readdirSync(sd)) if (n.endsWith('.jsonl')) rsScanTouched(path.join(sd, n), acc); } catch {}
+  }
+  rsScopeCache.set(sid, { t: Date.now(), acc });
+  return acc;
+}
+function rsFsOk(sid, p) {
+  const k = wkey(path.resolve(p));
+  const sc = rsFsScope(sid);
+  if (sc.files.has(k)) return true;
+  for (const d of sc.dirs) if (underDir(k, d)) return true;
+  return false;
+}
+const RS_IMG_MAX = 20 * 1024 * 1024;
+const RS_FS_MAX = 200 * 1024 * 1024;
 async function rsHandle(req, res) {
   const json = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(o)); };
   const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
@@ -3193,6 +3293,38 @@ async function rsHandle(req, res) {
       rsLive();
       const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 20000);
       req.on('close', () => { clearInterval(ping); const s = rsSubs.get(sid); if (s) s.delete(sub); rsLive(); });
+      return;
+    }
+    // khung xem trước của máy xem: đọc / dò đường dẫn tệp của phiên (chỉ đọc, trong phạm vi rsFsOk)
+    if (req.method === 'POST' && u.pathname === '/rs/file') {
+      const b = JSON.parse(await lanBody(req, 4e6) || '{}');
+      const no = (p) => json(403, { ok: false, error: 'Tệp nằm ngoài thư mục của phiên — máy gốc không cho xem: ' + p });
+      if (b.op === 'resolve') {
+        const r = await resolveFile(String(b.base || ''), String(b.p || ''), Array.isArray(b.hints) ? b.hints.slice(0, 3000).map(String) : []);
+        if (!r || !r.ok) return json(200, { ok: false, path: r && r.path, error: 'Máy gốc không có tệp: ' + (b.p || '') });
+        return rsFsOk(sid, r.path) ? json(200, r) : no(r.path);
+      }
+      if (b.op === 'read') {
+        const p = path.resolve(String(b.p || ''));
+        if (!rsFsOk(sid, p)) return no(p);
+        let info = readViewerFile(p);
+        if (info.kind === 'image' && info.size > RS_IMG_MAX) info = { ...info, kind: 'toolarge', dataUrl: undefined };
+        return json(200, info);
+      }
+      return json(400, { ok: false, error: 'Không rõ yêu cầu' });
+    }
+    if ((req.method === 'GET' || req.method === 'HEAD') && u.pathname === '/rs/fs') {
+      const txt = (code, msg) => { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(msg); };
+      let p = path.resolve(String(u.searchParams.get('p') || ''));
+      if (!u.searchParams.get('p') || !rsFsOk(sid, p)) return txt(403, '403 — tệp nằm ngoài thư mục của phiên, máy gốc không cho xem');
+      let st;
+      try { st = fs.statSync(p); if (st.isDirectory()) { p = path.join(p, 'index.html'); st = fs.statSync(p); } } catch { return txt(404, '404 — máy gốc không có tệp ' + p); }
+      if (st.size > RS_FS_MAX) return txt(413, 'Tệp quá lớn');
+      const ext = path.extname(p).slice(1).toLowerCase();
+      const type = MIME[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': /^(text|application\/(json|javascript|xml))/.test(type) ? type + '; charset=utf-8' : type, 'Content-Length': st.size, 'Cache-Control': 'no-store' });
+      if (req.method === 'HEAD') return res.end();
+      fs.createReadStream(p).on('error', () => { try { res.end(); } catch {} }).pipe(res);
       return;
     }
     if (req.method === 'POST' && ['/rs/send', '/rs/perm', '/rs/stop', '/rs/pref'].includes(u.pathname)) {
@@ -3420,6 +3552,8 @@ function registerIpc() {
   ipcMain.handle('rs:addLink', (_e, o) => rsAddLink(o || {}));
   ipcMain.handle('rs:removeLink', (_e, id) => rsRemoveLink(id));
   ipcMain.handle('rs:call', (_e, o) => rsCall(o || {}));
+  ipcMain.handle('rs:file', (_e, o = {}) => rsCall({ link: o.link, path: '/rs/file', method: 'POST', body: { op: o.op, p: o.p, base: o.base, hints: Array.isArray(o.hints) ? o.hints.slice(0, 3000) : [] }, ms: 45000 }));
+  ipcMain.handle('rs:previewUrl', (_e, o = {}) => rsPreviewUrl(o).catch(() => null));
   ipcMain.handle('rs:connect', (_e, id) => rsConnect(id));
   ipcMain.handle('rs:disconnect', (_e, id) => rsDisconnect(id));
   ipcMain.handle('rs:client', () => ({ id: rsClientId, host: os.hostname() }));

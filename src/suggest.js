@@ -30,7 +30,7 @@
       const lines = String(e.code || '').replace(/\s+$/, '').split('\n').slice(0, 12);
       const hl = +e.highlight_line || 0;
       const f = h('div', { class: 'sg-ev-f', text: `${e.file}${hl || start ? ':' + (hl || start) : ''}`, title: 'Mở trong khung xem' });
-      f.onclick = () => CG.viewer && CG.viewer.openPath(c.cwd, `${e.file}:${hl || start}`);
+      f.onclick = () => CG.viewer && CG.viewer.openPath(c.cwd, `${e.file}:${hl || start}`, false, null, { rs: c.rs ? c.rs.link : '' });
       return h('div', { class: 'sg-ev' }, f, h('pre', {}, lines.map((l, i) => h('span', { class: start + i === hl ? 'hl' : '' }, h('i', { text: String(start + i) }), l))));
     });
   }

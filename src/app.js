@@ -693,6 +693,8 @@
       const done = () => { if (bg) return; if (keepFocus) els.input.focus(); requestAnimationFrame(() => { if (S.settings.showDetails && $('#chat-col').offsetWidth < 380) toggleDetails(false); }); };
       if (card.name === 'Write' || card.name === 'Edit' || card.name === 'MultiEdit' || card.name === 'NotebookEdit') {
         const f = inp.file_path || inp.notebook_path;
+        // phiên ở máy khác: không theo dõi được tệp bên đó → báo khung xem tự tải lại tab liên quan
+        if (this.rs && f && CG.viewer.rsTouched) CG.viewer.rsTouched(key, f);
         const ext = f ? (f.split('.').pop() || '').toLowerCase() : '';
         if (!AUTO_PREVIEW_EXT.has(ext)) return;
         const open = CG.viewer.hasFile(key, f);
@@ -702,6 +704,7 @@
       }
       const url = serverUrl(card, content);
       if (!url) return;
+      if (this.rs) return; // localhost của máy gốc — mở ở máy này là sai máy
       this.previewed = this.previewed || new WeakSet();
       // cùng một lệnh in địa chỉ nhiều lần thì chỉ xử lý một lần; lần chạy sau (Claude sửa rồi chạy lại) → tải lại tab
       if (this.previewed.has(card)) return;
@@ -890,7 +893,7 @@
       if (fp && typeof fp === 'string') {
         sum.classList.add('file-link');
         sum.title = 'Xem tệp: ' + fp;
-        sum.onclick = (e) => { e.stopPropagation(); CG.viewer.openPath(this.cwd, fp); };
+        sum.onclick = (e) => { e.stopPropagation(); CG.viewer.openPath(this.cwd, fp, false, null, { rs: this.rs ? this.rs.link : '' }); };
       }
       const head = h('div', { class: 'tool-head' }, icon(meta.icon, 15, 't-icon'), h('span', { class: 't-name', text: meta.label }), sum, stat, icon('chevronRight', 14, 't-chev'));
       const inputBox = h('div');

@@ -137,6 +137,8 @@ contextBridge.exposeInMainWorld('api', {
   rsAddLink: inv('rs:addLink'),
   rsRemoveLink: inv('rs:removeLink'),
   rsCall: inv('rs:call'),
+  rsFile: inv('rs:file'),
+  rsPreviewUrl: inv('rs:previewUrl'),
   rsConnect: inv('rs:connect'),
   rsDisconnect: inv('rs:disconnect'),
   rsClient: inv('rs:client'),
