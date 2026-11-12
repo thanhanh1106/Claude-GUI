@@ -262,7 +262,7 @@
     look(el) {
       const s = S().settings;
       const D = CG.decor;
-      const c = D.cfg();
+      const c = D.cfg(true);
       const sv = (patch) => D.save(patch).then(() => render());
       const b = c.bg ? { ...D.BG_DEFAULT, ...c.bg } : null;
       // --- Ảnh nền
@@ -401,6 +401,7 @@
             btn('Thử', () => { if (c.doneFx === 'bloom') D.preview.bloom(); else D.preview.confetti(); }))),
           row('Bong bóng tin nhắn gradient', 'Tin nhắn của bạn có nền chuyển màu theo màu nhấn.', toggle(c.gradBubble, (v) => sv({ gradBubble: v }))),
           row('Vệt sáng theo con trỏ', null, toggle(c.cursorTrail, (v) => sv({ cursorTrail: v }))),
+          row('Chế độ nhẹ', 'Cho máy đang được remote desktop (Moonlight, Parsec, RDP…) hoặc máy yếu: tạm tắt ảnh nền, làm mờ, mọi hiệu ứng và robot (giữ nguyên lựa chọn bên dưới, tắt chế độ nhẹ là về như cũ); chữ Claude gõ vẽ lại ~4 lần/giây.', toggle(!!s.liteMode, (v) => D.setLite(v).then(() => render()))),
           row('Giảm hiệu ứng', 'Tắt mọi chuyển động (ảnh động chỉ hiện khung đầu, video dừng). Hiệu ứng luôn tự dừng khi cửa sổ bị ẩn.' + (D.osReduced() ? ' Lưu ý: Windows trên máy này đang tắt hiệu ứng hoạt ảnh — app vẫn chạy hiệu ứng theo lựa chọn ở đây.' : ''), toggle(c.reduceMotion, (v) => sv({ reduceMotion: v })))),
         group('Linh vật robot', 'Robot mắt LED biểu cảm theo việc Claude đang làm ở phiên đang xem: suy nghĩ, đọc tệp, sửa code, chờ bạn, xong việc, sắp hết giới hạn… Kéo robot để đổi chỗ, chuột phải để chọn nhanh, rê chuột để xem nó đang báo gì.',
           row('Hiện linh vật', null, toggle(c.mascot !== 'off', (v) => sv({ mascot: v ? 'robot' : 'off' }))),

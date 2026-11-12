@@ -187,7 +187,7 @@
     for (const L of list) {
       const cur = links.get(L.id);
       links.set(L.id, { ...(cur || { state: 'connecting', info: null }), ...L });
-      if (!cur) { api.rsConnect(L.id); refreshInfo(L.id); }
+      if (!cur) refreshInfo(L.id);
     }
     A() && A().renderSidebar();
   }
@@ -207,7 +207,7 @@
   function dropPub(hid, keepSids) {
     for (const [id, L] of [...links.entries()]) {
       if (!L.pub || L.hostId !== hid || keepSids.has(L.sid)) continue;
-      api.rsDisconnect(id); links.delete(id);
+      disconnect(id); links.delete(id);
       const c = rsConv(L, L.sid);
       if (c) { c.addNote(`Máy ${L.name} đã thôi công khai phiên này.`); c.setBusy(false); }
     }
@@ -217,7 +217,12 @@
     if (!H) return;
     const r = await api.rsHostList(hid).catch((e) => ({ ok: false, error: e.message }));
     if (!hosts.has(hid)) return;
-    if (!r.ok) { H.state = r.status === 401 ? 'revoked' : 'offline'; H.error = r.error; if (r.status === 401) dropPub(hid, new Set()); A().renderSidebar(); return; }
+    if (!r.ok) {
+      H.state = r.status === 401 ? 'revoked' : 'offline'; H.error = r.error;
+      if (r.status === 401) dropPub(hid, new Set());
+      else for (const L of links.values()) if (L.pub && L.hostId === hid && !streaming.has(L.id)) L.state = 'offline';
+      A().renderSidebar(); return;
+    }
     H.state = 'online'; H.name = r.name || H.name; H.sched = !!r.sched;
     if (RQ.hid === hid && r.sched === false) { closeSched(); toast(`Máy ${H.name} đã tắt xem Lịch & hàng đợi từ xa.`, true); }
     const sids = new Set();
@@ -226,15 +231,23 @@
       sids.add(s.sid);
       const id = `h:${hid}:${s.sid}`;
       const cur = links.get(id);
-      links.set(id, { ...(cur || { state: 'connecting', info: null }), id, pub: true, hostId: hid, addr: H.addr, name: H.name, host: H.host, sid: s.sid, title: s.title || (cur && cur.title) || '', cwd: s.cwd || (cur && cur.cwd) || '', busy: s.busy, plan: s.plan || '', pid: s.pid || '', label: s.label || '', k: s.k || 0 });
-      if (!cur) api.rsConnect(id);
+      // trạng thái lấy theo danh sách; chỉ phiên đang mở xem mới giữ luồng trực tiếp (streaming) và tự báo trạng thái
+      links.set(id, { ...(cur || { info: null }), state: cur && streaming.has(id) ? cur.state : 'online', id, pub: true, hostId: hid, addr: H.addr, name: H.name, host: H.host, sid: s.sid, title: s.title || (cur && cur.title) || '', cwd: s.cwd || (cur && cur.cwd) || '', busy: s.busy, plan: s.plan || '', pid: s.pid || '', label: s.label || '', k: s.k || 0 });
     }
     dropPub(hid, sids);
     H.n = sids.size;
     A().renderSidebar();
   }
   setTimeout(loadHosts, 1800);
-  setInterval(() => { for (const id of hosts.keys()) refreshHost(id); }, 15000);
+  // cửa sổ thu nhỏ / bị che → thôi hỏi định kỳ; hiện lại thì hỏi ngay
+  setInterval(() => { if (!document.hidden) for (const id of hosts.keys()) refreshHost(id); }, 15000);
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    hiddenAt = document.hidden ? Date.now() : 0;
+    if (document.hidden) return;
+    for (const id of hosts.keys()) refreshHost(id);
+    const c = S().active; if (c && c.rs && c.rsStale) revive(c);
+  });
   if (api.onRsHosts) api.onRsHosts(() => loadHosts());
   async function forgetHost(H) {
     if (!(await CG.confirmDialog('Quên máy này?', `Máy này sẽ không tự thấy các phiên công khai của ${H.name} nữa (muốn kết nối lại phải dùng token). Liên kết bằng token đã thêm vẫn giữ.`, 'Quên', true))) return;
@@ -263,7 +276,45 @@
     A().renderSidebar();
     const c = S().active; if (c) titleChip(c);
   }
-  setInterval(() => { for (const id of links.keys()) refreshInfo(id); }, 30000);
+  // hỏi thông tin định kỳ: chỉ liên kết token (phiên công khai đã có danh sách của máy) và khi cửa sổ đang hiện
+  setInterval(() => { if (!document.hidden) for (const [id, L] of links) if (!L.pub) refreshInfo(id); }, 30000);
+  // ---- luồng trực tiếp: chỉ mở cho phiên đang mở xem; phiên mở mà bỏ đó > 3 phút (không xem) thì đóng luồng,
+  // quay lại xem thì tải lại lịch sử + nối lại (rsStale) ----
+  const streaming = new Set();
+  function connect(id) { if (streaming.has(id)) return; streaming.add(id); api.rsConnect(id); }
+  function disconnect(id) { streaming.delete(id); api.rsDisconnect(id); }
+  const IDLE_MS = 3 * 60000;
+  setInterval(() => {
+    const now = Date.now(), s = S();
+    const want = new Set();
+    const away = document.hidden && hiddenAt && now - hiddenAt > 60000; // cửa sổ ẩn / bị che hơn 1 phút
+    for (const c of s.convs.values()) {
+      if (!c.rs || c.child) continue;
+      if ((c === s.active || c === s.side) && !document.hidden) c.rsSeen = now;
+      if (!c.rsStale && (away || now - (c.rsSeen || now) >= IDLE_MS)) c.rsStale = true;
+      if (!c.rsStale) want.add(c.rs.link);
+    }
+    for (const id of [...streaming]) if (!want.has(id)) disconnect(id);
+  }, 20000);
+  async function syncInfo(L, conv) {
+    const info = await api.rsCall({ link: L.id, path: '/rs/info', ms: 10000 });
+    if (!info.ok) return null;
+    L.info = info;
+    applyRemotePref(conv, info);
+    if (!!info.busy !== !!conv.busy) conv.setBusy(!!info.busy);
+    for (const p of info.perms || []) if (p && p.request_id && !conv.perms.has(p.request_id)) conv.permRequest(p.request_id, p.request);
+    return info;
+  }
+  // phiên đã đóng luồng vì bỏ lâu → mở lại: nối luồng, tải lại phần cuối lịch sử, lấy trạng thái
+  async function revive(conv) {
+    if (!conv || !conv.rs || !conv.rsStale || conv.rsReviving) return;
+    const L = links.get(conv.rs.link);
+    if (!L) return;
+    conv.rsReviving = true; conv.rsStale = false; conv.rsSeen = Date.now();
+    connect(L.id);
+    try { await A().reloadChild(conv); await syncInfo(L, conv); } finally { conv.rsReviving = false; }
+  }
+  function touched(conv) { if (conv && conv.rs && !conv.child) { conv.rsSeen = Date.now(); if (conv.rsStale) revive(conv); } }
   const convKey = (L, sid) => `rs:${L.id}:${sid}`;
   const rsConv = (L, sid) => S().convs.get(convKey(L, sid));
   if (api.onRsState) api.onRsState(({ link, state }) => {
@@ -320,6 +371,8 @@
     if (conv) { A().activate(conv); titleChip(conv); return conv; }
     conv = A().rawConv({ key, sid: it.id, cwd: it.cwd || L.cwd || '', persisted: true, title: it.title || L.title });
     conv.rs = { link: L.id, name: L.name || L.host };
+    conv.rsSeen = Date.now();
+    if (!it.child) connect(L.id);
     if (it.child) Object.assign(conv, { child: true, parentId: it.parentId, agentId: it.agentId, agentType: it.agentType });
     A().activate(conv);
     const r = await api.rsCall({ link: L.id, path: '/rs/hist', method: 'POST', body: { fn: 'loadSessionTail', args: [it.id] }, ms: 30000 });
@@ -332,12 +385,8 @@
     conv.addNote(it.child ? `🏢 Tác tử phụ của phiên trên máy ${L.name} — chỉ xem.` : `🏢 Phiên đang chạy trên máy ${L.name}${L.cwd ? ' · ' + L.cwd : ''} — lệnh và tệp đều ở máy đó. Tin bạn gửi, duyệt quyền, Dừng đều tác động thẳng vào phiên bên đó.`);
     conv.rsReady = true;
     if (!it.child) {
-      const info = await api.rsCall({ link: L.id, path: '/rs/info', ms: 10000 });
-      if (info.ok) {
-        L.info = info;
-        applyRemotePref(conv, info);
-        if (info.busy) conv.setBusy(true);
-        for (const p of info.perms || []) if (p && p.request_id && !conv.perms.has(p.request_id)) conv.permRequest(p.request_id, p.request);
+      const info = await syncInfo(L, conv);
+      if (info) {
         conv.rsChildren = info.children || [];
         for (const ch of conv.rsChildren) { const card = ch.toolUseId && conv.tools.get(ch.toolUseId); if (card && card.linkChild) card.linkChild({ ...ch, parentId: it.id, child: true }); }
       }
@@ -347,11 +396,28 @@
     titleChip(conv);
     return conv;
   }
+  // tác tử phụ ở máy kia: hỏi kích thước tệp (vài chục byte) mỗi 3 giây, chỉ tải lại khi tệp đổi
   function watchChild(L, conv) {
-    const t = setInterval(() => {
+    let last = null, n = 0;
+    const t = setInterval(async () => {
       if (S().convs.get(conv.key) !== conv) return clearInterval(t);
-      if (S().active === conv || S().side === conv) A().reloadChild(conv);
+      if (document.hidden || !(S().active === conv || S().side === conv) || conv._fz) return;
+      conv._fz = true;
+      const r = await api.rsCall({ link: L.id, path: '/rs/fsize', method: 'POST', body: { id: conv.sid }, ms: 8000 }).catch(() => null);
+      conv._fz = false;
+      if (!r) return;
+      if (!r.ok) { if (r.status === 404 && /Không có/.test(r.error || '') && ++n % 3 === 0) A().reloadChild(conv); return; } // máy kia bản cũ
+      const k = r.size + ':' + r.mtime;
+      if (last !== null && k !== last) A().reloadChild(conv);
+      last = k;
     }, 3000);
+  }
+  // "Tải đầy đủ" kết quả công cụ đã bị lược bớt khi gửi sang
+  async function fullResult(conv, tid) {
+    if (!conv || !conv.rs) return null;
+    const r = await api.rsCall({ link: conv.rs.link, path: '/rs/toolres', method: 'POST', body: { id: conv.sid, tid }, ms: 60000 });
+    if (!r.ok) { toast('Không tải được: ' + (r.status === 404 && /Không có/.test(r.error || '') ? 'máy kia cần cập nhật Claude GUI' : r.error), true); return null; }
+    return r;
   }
   function openChild(parent, ch) {
     const L = links.get(parent.rs.link);
@@ -549,6 +615,26 @@
   // =====================================================================
   // CÀI ĐẶT › Truy cập từ xa (kèm hướng dẫn Tailscale)
   // =====================================================================
+  // Lưu lượng thật (byte trên dây, sau nén) — tự cập nhật 2 giây / lần khi trang đang mở
+  const fmtB = (n) => (n < 1024 ? Math.round(n) + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : n < 1073741824 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1073741824).toFixed(2) + ' GB');
+  function trafficGroup(u) {
+    const now = h('span', { class: 'rs-tr', text: '…' });
+    const tot = h('span', { class: 'pk-muted', text: '' });
+    const tick = async () => {
+      if (!now.isConnected) return clearInterval(t);
+      const x = api.rsTraffic ? await api.rsTraffic().catch(() => null) : null;
+      if (!x) return;
+      now.textContent = `↑ ${fmtB(x.r10.up)}/s · ↓ ${fmtB(x.r10.down)}/s`;
+      tot.textContent = `trung bình 1 phút: ↑ ${fmtB(x.r60.up)}/s · ↓ ${fmtB(x.r60.down)}/s · từ lúc mở app: ↑ ${fmtB(x.up)} · ↓ ${fmtB(x.down)} · ${x.viewers} máy đang xem phiên của máy này · ${x.streams} luồng đang nhận`;
+    };
+    const t = setInterval(tick, 2000);
+    setTimeout(tick, 50);
+    const s = S().settings;
+    return u.group('Lưu lượng & chế độ nhẹ', 'Đo thật trên dây (đã nén). Máy xem chỉ nhận trực tiếp phiên đang mở xem; phiên mở mà bỏ đó hơn 3 phút hoặc cửa sổ bị ẩn hơn 1 phút thì tự ngắt, quay lại xem là tự nối lại.',
+      u.row('Lưu lượng Truy cập từ xa (10 giây gần nhất)', tot, now),
+      u.row('Chế độ nhẹ', 'Bật ở máy đang được remote desktop (Moonlight, Parsec, RDP…) hoặc máy yếu: tắt ảnh nền, làm mờ, hiệu ứng, robot; chữ Claude gõ vẽ lại ~4 lần/giây thay vì mỗi khung hình → màn hình ít thay đổi, luồng video remote nhẹ hơn.',
+        u.toggle(!!s.liteMode, async (v) => { await CG.decor.setLite(v); u.render(); })));
+  }
   async function settingsPage(el, u) {
     const info = await api.rsInfo();
     const s = S().settings;
@@ -575,6 +661,7 @@
           step(5, links.size > 0 || hosts.size > 0, 'Máy ở nhà: kết nối bằng token (chỉ lần đầu)', h('div', {}, 'Mở Claude GUI → nút lọc ở thanh bên → “Thêm phiên từ máy khác…” → địa chỉ là tên máy công ty trong Tailscale', myAddr ? [' (máy này: ', h('code', { text: myAddr }), ')'] : '', ' + token → Kết nối. Hai máy nhớ nhau từ đây.'),
             h('button', { class: 'btn sm', style: 'margin-top:6px', text: 'Thêm phiên từ máy khác…', onclick: () => addDialog() })),
           step(6, shares.some((x) => x.pub), 'Từ đó trở đi: máy công ty chuột phải phiên → “Công khai cho máy đã kết nối”', h('div', {}, 'Máy ở nhà tự thấy phiên ở nhóm 🏢 trên thanh bên (cập nhật mỗi 15 giây), xem và điều khiển được, không cần token. Thôi công khai thì máy kia mất phiên đó ngay.')))),
+      trafficGroup(u),
       u.group('Máy này cho máy khác kết nối', 'Bật ở máy chạy phiên (máy công ty). Chỉ phiên bạn công khai (cho máy đã kết nối) hoặc chia sẻ bằng token (máy kia cần token của đúng phiên đó) mới mở được từ xa.',
         u.row('Cho máy khác kết nối', st + ' · chỉ nhận kết nối trong Tailscale / mạng nội bộ', u.toggle(!!s.rsOn, async (v) => { await u.set({ rsOn: v }); await api.rsApply(); setTimeout(u.render, 400); })),
         u.row('Máy đã kết nối xem & điều khiển Lịch & hàng đợi', 'Máy đã kết nối mở được trang Lịch & hàng đợi của máy này (chạy, dừng, bật / tắt, duyệt bản sửa…) và thấy luôn các phiên do lịch chạy ở nhóm 🏢. Sửa nội dung kế hoạch vẫn chỉ làm ở máy này.', u.toggle(s.rsSchedRemote !== false, (v) => u.set({ rsSchedRemote: v }))),
@@ -655,7 +742,7 @@
     if (!H || !sid) return;
     const id = `h:${H.id}:${sid}`;
     let L = links.get(id) || tokLinkFor(H.host, sid);
-    if (!L) { L = { id, pub: true, hostId: H.id, addr: H.addr, name: H.name, host: H.host, sid, title: title || '', cwd: '', state: 'connecting', info: null }; links.set(id, L); api.rsConnect(id); }
+    if (!L) { L = { id, pub: true, hostId: H.id, addr: H.addr, name: H.name, host: H.host, sid, title: title || '', cwd: '', state: 'online', info: null }; links.set(id, L); }
     closeSched();
     openRemote(L, { id: sid, title: L.title || title, cwd: L.cwd });
   }
@@ -787,7 +874,7 @@
   document.addEventListener('click', (e) => { if (RQ.hid && (e.target.closest('#nav-sched, #nav-skills, #btn-new') || (e.target.closest('#session-list') && !e.target.closest('.rs-qrow')))) closeSched(); }, true);
 
   CG.remote = {
-    openSched, closeSched, schedSwitch, setPref, prefChanged, machines,
+    openSched, closeSched, schedSwitch, setPref, prefChanged, machines, fullResult, touched, revive, _streaming: streaming,
     emit, userSent, permDone, busyChanged, isShared, watching, menuItems, titleChip, setShare, setPublic, showToken, _hosts: hosts, reloadHosts: loadHosts,
     renderGroup, openRemote, openChild, send, respond, stop, api: rsApi, addDialog, settingsPage, _links: links, _shared: () => shared, reload: loadLinks,
   };

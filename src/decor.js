@@ -25,10 +25,19 @@
     reduceMotion: false,
   };
   const BG_DEFAULT = { strength: 40, blur: 0, fit: 'crop', area: 'chat', glass: true, calm: true };
-  const cfg = () => {
+  // raw: đúng như đã lưu (trang Cài đặt). Không raw: chế độ nhẹ (settings.liteMode) đè lên — tắt ảnh nền, hiệu ứng, robot
+  const lite = () => !!(S().settings && S().settings.liteMode);
+  const cfg = (raw) => {
     const d = (S().settings && S().settings.decor) || {};
-    return { ...DEFAULTS, ...d, sound: { ...DEFAULTS.sound, ...(d.sound || {}) }, autoTheme: { ...DEFAULTS.autoTheme, ...(d.autoTheme || {}) } };
+    const c = { ...DEFAULTS, ...d, sound: { ...DEFAULTS.sound, ...(d.sound || {}) }, autoTheme: { ...DEFAULTS.autoTheme, ...(d.autoTheme || {}) } };
+    if (!raw && lite()) Object.assign(c, { bg: null, reduceMotion: true, cursorTrail: false, busyBorder: false, gradBubble: false, doneFx: 'off', logoFx: 'off', mascot: 'off' });
+    return c;
   };
+  async function setLite(v) {
+    await CG.saveSettings({ liteMode: !!v });
+    apply();
+    if (CG.mascot && CG.mascot.apply) CG.mascot.apply();
+  }
   async function save(patch) {
     const cur = (S().settings && S().settings.decor) || {};
     S().settings = await api.setSettings({ decor: { ...cur, ...patch } });
@@ -729,6 +738,7 @@
     const rm = reduced();
     const bc = document.body.classList;
     bc.toggle('fx-reduce', rm);
+    bc.toggle('cg-lite', lite());
     bc.toggle('fx-border', !!c.busyBorder);
     bc.toggle('fx-bubble', !!c.gradBubble);
     bc.toggle('logo-rainbow', c.logoFx === 'rainbow' && !rm);
@@ -757,7 +767,7 @@
     else if (c.doneFx === 'bloom') bloom();
   }
 
-  CG.decor = { cfg, save, apply, sync, onSend, onDone, onPermission, resolveTheme, analyzeFocal, layoutBg, openCropper, suggestCrop, osReduced,
+  CG.decor = { cfg, save, setLite, apply, sync, onSend, onDone, onPermission, resolveTheme, analyzeFocal, layoutBg, openCropper, suggestCrop, osReduced,
     rot: { cfg: rotCfg, pick: rotPick, show: rotShow, tick: rotTick, slotPick, DEF: ROT_DEF }, preview: { confetti, bloom, tone: (k) => { const sd = cfg().sound; if (!sd.on) return; tone(SOUNDS[k]); } }, DEFAULTS, BG_DEFAULT };
   // Cài đặt đã có (init của app.js chạy bất đồng bộ) → áp dụng khi sẵn sàng
   const boot = setInterval(() => { if (S() && S().settings) { clearInterval(boot); apply(); setTimeout(() => rotTick(true), 1500); } }, 50);

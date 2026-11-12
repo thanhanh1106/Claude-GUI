@@ -526,7 +526,7 @@
           let L = null;
           if (b.type === 'text') {
             L = { kind: 'text', el: h('div', { class: 'md streaming' }), text: '' };
-            if (S.settings.smoothStream !== false) L.smooth = new SmoothText(L.el, () => afterRender(this));
+            if (S.settings.smoothStream !== false && !S.settings.liteMode) L.smooth = new SmoothText(L.el, () => afterRender(this));
             this.addToTurn(L.el);
             this.activity = '';
             this.phase = 'talk';
@@ -554,7 +554,8 @@
             L.text += d.text;
             this.turnText = true;
             if (L.smooth) L.smooth.set(L.text);
-            else if (!L.raf) L.raf = requestAnimationFrame(() => { L.raf = 0; if (L.el.classList.contains('streaming')) { renderMd(L.el, L.text, true); afterRender(this); } });
+            // chế độ nhẹ: vẽ lại ~4 lần/giây thay vì mỗi khung hình (đỡ tải cho remote desktop / máy yếu)
+            else if (!L.raf) { const draw = () => { L.raf = 0; if (L.el.classList.contains('streaming')) { renderMd(L.el, L.text, true); afterRender(this); } }; L.raf = S.settings.liteMode ? setTimeout(draw, 250) : requestAnimationFrame(draw); }
           } else if (d.type === 'thinking_delta' && L.kind === 'thinking') {
             L.text += d.thinking;
             if (!L.el.isConnected && L.text.trim()) this.addToTurn(L.el);
@@ -591,7 +592,7 @@
         if (b.type === 'text') {
           const L = this.replaying ? null : this.takeLive('text');
           if (!b.text || !b.text.trim()) { if (L) { if (L.smooth) L.smooth.cancel(); L.el.remove(); } continue; }
-          if (L && L.raf) cancelAnimationFrame(L.raf);
+          if (L && L.raf) (cancelAnimationFrame(L.raf), clearTimeout(L.raf));
           const el = L ? L.el : h('div', { class: 'md' });
           el.dataset.raw = b.text;
           const text = b.text;
@@ -733,7 +734,7 @@
     }
     cleanupLive() {
       for (const L of this.live) {
-        if (L.raf) cancelAnimationFrame(L.raf);
+        if (L.raf) (cancelAnimationFrame(L.raf), clearTimeout(L.raf));
         if (L.smooth) L.smooth.cancel();
         if (L.kind === 'text' && L.text) { L.el.classList.remove('streaming'); L.el.dataset.raw = L.text; renderMd(L.el, L.text); }
         else if (L.el.isConnected && !(L.kind === 'thinking' && L.text)) L.el.remove();
@@ -883,6 +884,7 @@
 
     // --- tool cards
     toolCard(b) {
+      const isCut = (c) => { const t = typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => (x && x.type === 'text' ? x.text : '')).join('\n') : ''; return /… \((lịch sử: )?đã lược bớt [\d.,]+ ký tự\)|\[Hình ảnh lớn —/.test(t); };
       const name = b.name, inp = b.input || {};
       const meta = toolMeta(name);
       const stat = h('span', { class: 't-stat' }, h('span', { class: 'spinner' }));
@@ -918,6 +920,17 @@
         if (!result) return;
         const v = resultView(name, result.content, result.isError);
         if (v) resBox.append(h('div', { class: 'lbl', text: result.isError ? 'Lỗi' : 'Kết quả' }), v);
+        // phiên ở máy khác: kết quả lớn chỉ gửi phần đầu → nút lấy bản đầy đủ từ máy gốc
+        if (this.rs && b.id && isCut(result.content)) {
+          const btn = h('button', { class: 'btn xs rs-full', text: '⤓ Tải đầy đủ từ máy ' + this.rs.name });
+          btn.onclick = async (e) => {
+            e.stopPropagation();
+            btn.disabled = true; btn.textContent = 'Đang tải…';
+            const r = await CG.remote.fullResult(this, b.id);
+            if (r) { result = { content: r.content, isError: !!r.is_error }; renderResult(); } else { btn.disabled = false; btn.textContent = '⤓ Thử tải lại'; }
+          };
+          resBox.append(btn);
+        }
       };
       const build = () => { if (built) return; built = true; renderInput(); renderResult(); };
       el._build = build;
@@ -2769,6 +2782,7 @@
   // ---------- Conversations ----------
   function activate(conv) {
     const prev = S.active;
+    if (conv && conv.rs && CG.remote && CG.remote.touched) CG.remote.touched(conv);
     const mcap = prev && prev !== conv && CG.motion ? CG.motion.before() : null;
     // Mỗi phiên giữ hộp chat riêng (chữ đang gõ dở, tệp đính kèm, vị trí con trỏ)
     if (prev !== conv) {
