@@ -131,6 +131,7 @@
     renderTabs();
     renderBar();
     saveTabs(CUR);
+    requestAnimationFrame(() => repaint(t));
   }
   function closeTab(t) {
     const st = t.set;
@@ -234,6 +235,7 @@
     renderTabs();
     renderBar();
     trimLive();
+    if (CUR.open) requestAnimationFrame(() => repaint(CUR.cur));
     if (CUR.fresh) { CUR.fresh = false; if (CG.renderSidebar) CG.renderSidebar(); }
   }
   // Phiên chạy nền có thứ xem trước mới chưa xem → chấm báo ở thanh bên
@@ -619,8 +621,39 @@
     wv.setAttribute('plugins', '');
     wv.setAttribute('src', url);
     wv.className = 'vw-web';
+    // trang bên trong sập (hết bộ nhớ, GPU, lỗi Chromium…) → khung xám đứng im: ghi log + tự tải lại (tối đa 3 lần / phút)
+    wv.addEventListener('render-process-gone', (e) => {
+      const d = e.details || e;
+      const u = (() => { try { return wv.getURL(); } catch { return url; } })();
+      if (api.viewerLog) api.viewerLog(`webview gone reason=${d.reason} exit=${d.exitCode} url=${u}`);
+      const now = Date.now();
+      wv._crash = (wv._crash || []).filter((t) => now - t < 60000);
+      wv._crash.push(now);
+      if (wv._crash.length <= 3) { setTimeout(() => { try { wv.reload(); } catch {} }, 400); return; }
+      const box = wv.parentElement;
+      if (box && !box.querySelector('.vw-crash')) box.append(h('div', { class: 'vw-msg vw-crash' }, `Trang xem trước bị sập liên tục (${d.reason || 'không rõ'}).`, h('br'),
+        h('button', { class: 'btn sm', text: 'Tải lại', onclick: (ev) => { ev.currentTarget.parentElement.remove(); wv._crash = []; try { wv.reload(); } catch {} } })));
+    });
+    wv.addEventListener('dom-ready', () => { const c = wv.parentElement && wv.parentElement.querySelector('.vw-crash'); if (c && !(wv._crash || []).length) c.remove(); });
     return wv;
   }
+  // ép webview của tab đang xem vẽ lại (sau khi đổi tab / cửa sổ hiện lại / GPU khởi động lại)
+  function repaint(t) {
+    const wv = t && (t.wv || t.previewWv);
+    if (!wv || !api.wvInvalidate) return;
+    try { const id = wv.getWebContentsId(); if (id) api.wvInvalidate(id); } catch {}
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && CUR.open) setTimeout(() => repaint(CUR.cur), 120); });
+  window.addEventListener('focus', () => { if (CUR.open) repaint(CUR.cur); });
+  if (api.onGpuGone) api.onGpuGone(() => {
+    // GPU vừa sập và khởi động lại: khung trang web có thể giữ màu xám → vẽ lại; xem trước tệp (rẻ) thì tải lại hẳn
+    setTimeout(() => {
+      for (const st of new Set([...SETS.values(), CUR])) for (const t of st.tabs) {
+        if (!t.loaded) continue;
+        if (t.previewWv) { try { t.previewWv.reload(); } catch {} } else repaint(t);
+      }
+    }, 1500);
+  });
   function openUrl(url, opts = {}) {
     url = normUrl(url);
     if (!url) return null;

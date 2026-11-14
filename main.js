@@ -1,7 +1,7 @@
 // Claude GUI — main process.
 // Mọi thao tác với Claude đều đi qua Claude Code CLI (claude.exe) bằng giao thức stream-json,
 // nên đăng nhập, chính sách của team, settings, hooks, MCP... đều do CLI xử lý như bình thường.
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, nativeTheme, net, Tray, nativeImage, screen, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Notification, nativeTheme, net, Tray, nativeImage, screen, safeStorage, webContents } = require('electron');
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -3613,6 +3613,20 @@ function rsConnect(id) {
 }
 function rsDisconnect(id) { const st = rsStreams.get(id); if (!st) return; st.stop = true; st.manual = true; clearTimeout(st.timer); try { st.req && st.req.destroy(); } catch {} rsStreams.delete(id); }
 
+// ---------- khung xem: webview sập / GPU mất → ghi log (userData/viewer.log) để biết nguyên nhân, renderer tự tải lại ----------
+function viewerLog(line) {
+  try {
+    const f = path.join(app.getPath('userData'), 'viewer.log');
+    try { if (fs.statSync(f).size > 512 * 1024) fs.renameSync(f, f + '.old'); } catch {}
+    fs.appendFileSync(f, new Date().toISOString() + ' ' + String(line).slice(0, 2000) + '\n');
+  } catch {}
+}
+app.on('child-process-gone', (_e, d) => {
+  viewerLog(`child-process-gone type=${d.type} reason=${d.reason} exit=${d.exitCode}${d.name ? ' name=' + d.name : ''}`);
+  if (d.type === 'GPU') send('viewer:gpuGone', { reason: d.reason });
+});
+app.on('render-process-gone', (_e, wc, d) => { viewerLog(`render-process-gone url=${(() => { try { return wc.getURL(); } catch { return '?'; } })()} reason=${d.reason} exit=${d.exitCode}`); });
+
 // ---------- IPC ----------
 const busyKeys = new Set();
 function registerIpc() {
@@ -3683,6 +3697,9 @@ function registerIpc() {
   ipcMain.handle('rs:removeLink', (_e, id) => rsRemoveLink(id));
   ipcMain.handle('rs:call', (_e, o) => rsCall(o || {}));
   ipcMain.handle('rs:traffic', () => rsTrafficInfo());
+  // webview đứng hình / xám: ép vẽ lại khung
+  ipcMain.on('wv:invalidate', (_e, id) => { try { const wc = webContents.fromId(+id); if (wc && !wc.isDestroyed()) wc.invalidate(); } catch {} });
+  ipcMain.on('viewer:log', (_e, line) => viewerLog(line));
   ipcMain.handle('rs:file', (_e, o = {}) => rsCall({ link: o.link, path: '/rs/file', method: 'POST', body: { op: o.op, p: o.p, base: o.base, hints: Array.isArray(o.hints) ? o.hints.slice(0, 3000) : [] }, ms: 45000 }));
   ipcMain.handle('rs:previewUrl', (_e, o = {}) => rsPreviewUrl(o).catch(() => null));
   ipcMain.handle('rs:connect', (_e, id) => rsConnect(id));

@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.23.3-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.23.4-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -73,6 +73,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - **Xem trước tệp của phiên từ xa (1.23.2)**: Claude ở máy gốc tạo / sửa tệp (HTML, Markdown, ảnh, PDF, code) → khung xem ở máy xem mở đúng tệp của máy gốc (tab có nhãn 🏢, chỉ xem, không sửa); HTML kèm CSS / JS / ảnh đi kèm vẫn chạy, máy gốc sửa tệp là tab tự tải lại; bấm tên tệp trong chat cũng mở tệp bên máy gốc. Máy gốc chỉ cho đọc trong thư mục của phiên, thư mục có tệp phiên đã ghi và đúng các tệp phiên đã đọc. Địa chỉ `localhost` của máy gốc chưa xem được từ máy khác (không tự mở nhầm `localhost` của máy này nữa).
 - **Remote nhẹ băng thông (1.23.3)**: máy xem chỉ nhận trực tiếp phiên đang mở xem (phiên bỏ đó > 3 phút / cửa sổ ẩn > 1 phút tự ngắt, quay lại tự nối và tải lại); chữ Claude gõ gộp ~4 gói/giây và nén gzip; kết quả công cụ lớn chỉ gửi phần đầu (nút "Tải đầy đủ từ máy …"); tác tử phụ từ xa chỉ tải lại khi tệp đổi; thôi hỏi định kỳ khi cửa sổ ẩn. Cài đặt → Truy cập từ xa có dòng **đo lưu lượng thật** (KB/s gửi / nhận).
 - **Chế độ nhẹ** (Cài đặt → Giao diện, hoặc Truy cập từ xa): cho máy đang được remote desktop (Moonlight, Parsec, RDP…) / máy yếu — tạm tắt ảnh nền, làm mờ, hiệu ứng, robot; chữ đang gõ vẽ lại ~4 lần/giây.
+- **Khung xem tự phục hồi (1.23.4)**: trang xem trước / trang web trong khung xem bị sập (khung xám đứng im) thì tự tải lại; GPU khởi động lại thì tự vẽ lại; đổi tab / cửa sổ hiện lại cũng ép vẽ lại. Sự cố ghi vào `%APPDATA%\Claude GUIiewer.log`.
 - Máy chạy phiên phải đang bật (không ngủ) và mở Claude GUI.
 
 **Hỏi người thật qua Lark** (Cài đặt → Lark) — Claude soạn câu hỏi cho game designer / người khác, bạn duyệt rồi bot gửi, câu trả lời quay về đúng phiên:
