@@ -3625,7 +3625,40 @@ app.on('child-process-gone', (_e, d) => {
   viewerLog(`child-process-gone type=${d.type} reason=${d.reason} exit=${d.exitCode}${d.name ? ' name=' + d.name : ''}`);
   if (d.type === 'GPU') send('viewer:gpuGone', { reason: d.reason });
 });
-app.on('render-process-gone', (_e, wc, d) => { viewerLog(`render-process-gone url=${(() => { try { return wc.getURL(); } catch { return '?'; } })()} reason=${d.reason} exit=${d.exitCode}`); });
+app.on('render-process-gone', (_e, wc, d) => { viewerLog(`render-process-gone url=${(() => { try { return wc.getURL(); } catch { return '?'; } })()} reason=${d.reason} exit=${d.exitCode}`); checkAppFiles(); });
+// Bản portable chạy từ thư mục giải nén trong %TEMP%. Bản cũ dùng một thư mục cố định cho mọi lần mở: mở thêm Claude GUI khi
+// app đang chạy → bản sau thấy đã có app nên thoát và XOÁ thư mục đó → mất icudtl.dat / *.pak (tệp không bị khoá) → mọi
+// tiến trình mới (trang xem trước, cửa sổ phụ) sập ngay khi khởi động. Phát hiện được thì báo + nút khởi động lại.
+const CORE_FILES = ['icudtl.dat', 'chrome_100_percent.pak', 'resources.pak', 'v8_context_snapshot.bin'];
+let appDamaged = null;
+function checkAppFiles() {
+  const dir = process.env.CLAUDE_GUI_TEST_EXEDIR || (app.isPackaged ? path.dirname(process.execPath) : '');
+  if (!dir || appDamaged) return appDamaged;
+  const miss = CORE_FILES.filter((f) => !fs.existsSync(path.join(dir, f)));
+  if (miss.length) {
+    appDamaged = { dir, miss, portable: !!process.env.PORTABLE_EXECUTABLE_FILE };
+    viewerLog(`app files missing: ${miss.join(', ')} in ${dir}`);
+    send('app:damaged', appDamaged);
+  }
+  return appDamaged;
+}
+// khởi động lại bản portable: chờ app này thoát hẳn (theo PID) rồi mới mở lại exe (cùng cách với cập nhật — không nháy cửa sổ)
+function relaunchApp() {
+  const exe = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (!exe) { app.relaunch(); app.__forceQuit = true; app.exit(0); return; }
+  const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+  const script = path.join(os.tmpdir(), 'ClaudeGUI-relaunch.ps1');
+  fs.writeFileSync(script, '\ufeff' + [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    `for ($i = 0; $i -lt 240; $i++) { if (-not (Get-Process -Id ${process.pid} -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 500 }`,
+    `Start-Sleep -Milliseconds 800; Start-Process -FilePath ${q(exe)}`,
+    'Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force',
+  ].join('\r\n'));
+  const launch = `Start-Process -FilePath powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',${q('"' + script + '"')}`;
+  const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', launch], { stdio: 'ignore', windowsHide: true });
+  const done = () => { app.__forceQuit = true; app.exit(0); };
+  p.on('exit', done); p.on('error', done); setTimeout(done, 10000);
+}
 
 // ---------- IPC ----------
 const busyKeys = new Set();
@@ -3700,6 +3733,8 @@ function registerIpc() {
   // webview đứng hình / xám: ép vẽ lại khung
   ipcMain.on('wv:invalidate', (_e, id) => { try { const wc = webContents.fromId(+id); if (wc && !wc.isDestroyed()) wc.invalidate(); } catch {} });
   ipcMain.on('viewer:log', (_e, line) => viewerLog(line));
+  ipcMain.handle('app:damaged', () => checkAppFiles());
+  ipcMain.handle('app:relaunch', () => { relaunchApp(); return true; });
   ipcMain.handle('rs:file', (_e, o = {}) => rsCall({ link: o.link, path: '/rs/file', method: 'POST', body: { op: o.op, p: o.p, base: o.base, hints: Array.isArray(o.hints) ? o.hints.slice(0, 3000) : [] }, ms: 45000 }));
   ipcMain.handle('rs:previewUrl', (_e, o = {}) => rsPreviewUrl(o).catch(() => null));
   ipcMain.handle('rs:connect', (_e, id) => rsConnect(id));
@@ -4176,6 +4211,8 @@ if (!gotLock) {
     app.setAppUserModelId(APP_ID);
     registerIpc();
     createWindow();
+    setInterval(checkAppFiles, 60000);
+    setTimeout(checkAppFiles, 8000);
     setTimeout(larkStart, 1500);
     setTimeout(lanApply, 2500);
     setTimeout(rsApply, 2600);

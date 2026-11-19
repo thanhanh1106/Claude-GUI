@@ -629,14 +629,34 @@
       const now = Date.now();
       wv._crash = (wv._crash || []).filter((t) => now - t < 60000);
       wv._crash.push(now);
-      if (wv._crash.length <= 3) { setTimeout(() => { try { wv.reload(); } catch {} }, 400); return; }
       const box = wv.parentElement;
-      if (box && !box.querySelector('.vw-crash')) box.append(h('div', { class: 'vw-msg vw-crash' }, `Trang xem trước bị sập liên tục (${d.reason || 'không rõ'}).`, h('br'),
-        h('button', { class: 'btn sm', text: 'Tải lại', onclick: (ev) => { ev.currentTarget.parentElement.remove(); wv._crash = []; try { wv.reload(); } catch {} } })));
+      // thư mục chạy của app bị xoá mất tệp → tải lại vô ích, chỉ khởi động lại app mới hết
+      const dmg = api.appDamaged ? api.appDamaged().catch(() => null) : Promise.resolve(null);
+      dmg.then((bad) => {
+        if (bad) { if (box && !box.querySelector('.vw-crash')) box.append(damagedMsg(bad)); wv.classList.add('vw-dead'); return; }
+        if (wv._crash.length <= 3) { setTimeout(() => { try { wv.reload(); } catch {} }, 400); return; }
+        if (box && !box.querySelector('.vw-crash')) box.append(h('div', { class: 'vw-msg vw-crash' }, `Trang xem trước bị sập liên tục (${d.reason || 'không rõ'}).`, h('br'),
+          h('button', { class: 'btn sm', text: 'Tải lại', onclick: (ev) => { ev.currentTarget.parentElement.remove(); wv._crash = []; try { wv.reload(); } catch {} } })));
+      });
     });
     wv.addEventListener('dom-ready', () => { const c = wv.parentElement && wv.parentElement.querySelector('.vw-crash'); if (c && !(wv._crash || []).length) c.remove(); });
     return wv;
   }
+  function damagedMsg(bad) {
+    return h('div', { class: 'vw-msg vw-crash vw-damaged' },
+      h('b', { text: 'Claude GUI cần khởi động lại' }), h('br'),
+      `Thư mục chạy của app bị xoá mất tệp (${bad.miss.join(', ')}) — thường do mở thêm một lần Claude GUI trong lúc app đang chạy. Trang xem trước và cửa sổ mới sẽ lỗi tới khi khởi động lại.`, h('br'),
+      h('button', { class: 'btn sm primary', text: 'Khởi động lại Claude GUI', onclick: () => relaunch() }));
+  }
+  async function relaunch() {
+    const busy = [...(S().convs || new Map()).values()].filter((c) => c.busy && !c.rs).length;
+    if (busy && !(await CG.confirmDialog('Khởi động lại Claude GUI?', `${busy} phiên đang chạy sẽ bị dừng (lịch sử vẫn còn, mở lại phiên là làm tiếp được).`, 'Khởi động lại', true))) return;
+    api.appRelaunch();
+  }
+  if (api.onAppDamaged) api.onAppDamaged((bad) => {
+    toast('Thư mục chạy của Claude GUI bị xoá mất tệp — trang xem trước sẽ lỗi. Mở khung xem để khởi động lại app.', true);
+    for (const st of new Set([...SETS.values(), CUR])) for (const t of st.tabs) { const wv = t.wv || t.previewWv; if (wv && wv.parentElement && !wv.parentElement.querySelector('.vw-crash')) wv.parentElement.append(damagedMsg(bad)); }
+  });
   // ép webview của tab đang xem vẽ lại (sau khi đổi tab / cửa sổ hiện lại / GPU khởi động lại)
   function repaint(t) {
     const wv = t && (t.wv || t.previewWv);
