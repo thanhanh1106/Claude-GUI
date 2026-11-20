@@ -1508,6 +1508,7 @@
       : (S.settings.sendKey === 'ctrlEnter' ? 'Nhắn tiếp cho Claude…  (Ctrl+Enter để gửi)' : 'Nhắn tiếp cho Claude…  (Shift+Enter xuống dòng)');
     $('#composer').classList.toggle('has-sugg', !!sugg);
     renderUsageRing();
+    if (CG.btw && CG.btw.syncBtn) CG.btw.syncBtn(c);
   }
 
   // Mẫu số = ngưỡng mà CLI dùng (đã tính auto-compact window trong settings), giống /context
@@ -1843,6 +1844,8 @@
         if (c.ctxAsked || old) box.append(h('div', { class: 'u-note', text: (c.ctxAt ? `Chi tiết lúc ${new Date(c.ctxAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : '') + (c.ctxAsked ? ' · đang tính lại…' : '') }));
       } else if (c.ctxAsked) {
         box.append(h('div', { class: 'u-note', text: 'Đang phân tích ngữ cảnh từng phần… (CLI có thể mất tới 1–2 phút khi có nhiều công cụ MCP; cứ để đó, xong sẽ tự hiện)' }));
+      } else if (c.started && !c.rs) {
+        box.append(h('div', { class: 'u-note', text: 'Chi tiết từng phần (system prompt, MCP, skill, hội thoại…) sẽ có sau lượt tới — phiên này chưa chạy kể từ khi mở app.' }));
       }
     }
     const d = S.usage && S.usage.data;
