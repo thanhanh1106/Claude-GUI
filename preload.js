@@ -117,6 +117,7 @@ contextBridge.exposeInMainWorld('api', {
   onLanReq: (cb) => { const f = (_e, x) => cb(x); ipcRenderer.on('lan:req', f); return () => ipcRenderer.removeListener('lan:req', f); },
   onLanState: (cb) => { const f = (_e, x) => cb(x); ipcRenderer.on('lan:state', f); return () => ipcRenderer.removeListener('lan:state', f); },
   statsGet: inv('stats:get'),
+  statsSessions: inv('stats:sessions'),
   statsHabit: inv('stats:habit'),
   claudeAddAllow: inv('claude:addAllow'),
   claudeSaveCommand: inv('claude:saveCommand'),

@@ -771,7 +771,7 @@
     for (const p of d.plans) {
       const tog = h('span', { class: 'sc-tog' + (p.on ? ' on' : ''), title: p.on ? 'Đang bật — bấm để tắt' : 'Đang tắt — bấm để bật' });
       const card = h('div', { class: 'sc-plan' + (p.id === RQ.sel ? ' on' : '') + (p.state === 'running' ? ' running' : '') },
-        h('div', { class: 'nm' }, h('span', { class: 'ellipsis', text: p.name }), tog),
+        h('div', { class: 'nm' }, h('span', { class: 'ellipsis', text: p.name }), Array.isArray(p.badge) ? h('span', { class: 'sc-badge ' + p.badge[0], text: p.badge[1], title: p.badge[2] || '' }) : null, tog),
         h('div', { class: 'tr', text: p.trig }),
         h('div', { class: 'meta' }, h('span', { text: p.kind === 'project' ? `🤖 ${p.proj.tasks.length} task` : `${p.steps.length} bước` }), h('span', { class: 'ellipsis', text: p.status })));
       card.onclick = (e) => { if (e.target === tog) { act(p, 'toggle', null, p.on ? 'Đã tắt kế hoạch' : 'Đã bật kế hoạch'); return; } RQ.sel = p.id; renderSched(); };

@@ -4,7 +4,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 
 ## Dùng
 
-- Chạy `dist\ClaudeGUI-1.23.5-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
+- Chạy `dist\ClaudeGUI-1.24.0-portable.exe` (không cần cài). Máy chỉ cần có `claude` CLI đã đăng nhập.
 - Nếu `claude` không nằm trong PATH: Cài đặt (`Ctrl ,`) → Claude Code → "Đường dẫn Claude CLI".
 
 ## Tính năng
@@ -75,6 +75,7 @@ Giao diện desktop cho Claude Code, bố cục theo bản Claude Code desktop m
 - **Chế độ nhẹ** (Cài đặt → Giao diện, hoặc Truy cập từ xa): cho máy đang được remote desktop (Moonlight, Parsec, RDP…) / máy yếu — tạm tắt ảnh nền, làm mờ, hiệu ứng, robot; chữ đang gõ vẽ lại ~4 lần/giây.
 - **Khung xem tự phục hồi (1.23.4)**: trang xem trước / trang web trong khung xem bị sập (khung xám đứng im) thì tự tải lại; GPU khởi động lại thì tự vẽ lại; đổi tab / cửa sổ hiện lại cũng ép vẽ lại. Sự cố ghi vào `%APPDATA%\Claude GUI\viewer.log`.
 - **Sửa trang xem trước sập liên tục (1.23.5)**: bản portable trước đây giải nén vào một thư mục tạm cố định; mở thêm Claude GUI khi app đang chạy thì bản sau xoá mất tệp của bản đang chạy (icudtl.dat, *.pak) → mọi trang xem trước sập. Giờ mỗi lần mở giải nén vào thư mục riêng; nếu vẫn phát hiện thiếu tệp thì khung xem hiện nút **Khởi động lại Claude GUI**.
+- **Theo kịp bản desktop (1.24.0)**: (1) **Thẻ Ngữ cảnh** — bấm vòng % ngữ cảnh: thanh màu từng phần (system prompt, công cụ, MCP, skill, CLAUDE.md, hội thoại), bấm từng dòng xem chi tiết (tệp memory, MCP theo server, skill theo plugin, công cụ tốn nhiều nhất) và gợi ý cắt bớt có nút làm luôn (tắt MCP chưa dùng, /compact, quản lý skill). (2) **Hộp kết thúc lượt** — lượt có sửa tệp / chạy lệnh: tệp +/−, số lệnh, kết quả test, thời gian và 2–3 **bước tiếp theo** bấm là gửi (Alt+1…3); Claude tự đề xuất bước tiếp trong một dòng ẩn, không tốn thêm lượt gọi. (3) **Chi phí ước tính** cạnh chọn model (bấm xem theo model, số lượt, cache) và ở thanh bên — bật ở Cài đặt → Cuối lượt & chi phí. (4) **Sơ đồ Mermaid** trong câu trả lời / tệp .md: vẽ thành hình, chuyển Sơ đồ / Mã, xem to, chép SVG. (5) **Thu nhỏ khung xem / terminal** thành ô nhỏ ở góc (nút —), vẫn chạy trực tiếp; kéo đổi góc, bấm để mở lại; terminal báo lỗi thì ô viền đỏ. (6) **Nhãn trạng thái Lịch** — "✗ Lần cuối lỗi", "● Cần trả lời", "● Chờ duyệt", "▶ 2/5", "✓ 14:30"; kế hoạch cần bạn nổi lên đầu, có cả ở thanh bên và máy xem từ xa. (7) **Claude tự mở phiên phụ** (công cụ start_session) để chạy song song việc độc lập — hỏi bạn trước (hoặc bật tự cho phép), phiên phụ nằm dưới phiên cha, mỗi phiên chọn model / effort riêng, xong tự gửi báo cáo về phiên cha; giới hạn 5 chạy cùng lúc, 10 mỗi tin (đổi được). (8) **Tải nội dung web** — trang HTML ngoài thư mục phiên có script / kết nối ra ngoài / form thì hiện tĩnh (chặn script, mạng, form), kèm danh sách script / máy chủ và nút "Tải nội dung web" / "Luôn tin thư mục này" (Cài đặt → Khung xem).
 - Máy chạy phiên phải đang bật (không ngủ) và mở Claude GUI.
 
 **Hỏi người thật qua Lark** (Cài đặt → Lark) — Claude soạn câu hỏi cho game designer / người khác, bạn duyệt rồi bot gửi, câu trả lời quay về đúng phiên:

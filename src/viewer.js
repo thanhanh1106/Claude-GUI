@@ -132,6 +132,7 @@
     renderBar();
     saveTabs(CUR);
     requestAnimationFrame(() => repaint(t));
+    if (CG.minipane) CG.minipane.sync();
   }
   function closeTab(t) {
     const st = t.set;
@@ -236,6 +237,7 @@
     renderBar();
     trimLive();
     if (CUR.open) requestAnimationFrame(() => repaint(CUR.cur));
+    if (CG.minipane) CG.minipane.sync();
     if (CUR.fresh) { CUR.fresh = false; if (CG.renderSidebar) CG.renderSidebar(); }
   }
   // Phiên chạy nền có thứ xem trước mới chưa xem → chấm báo ở thanh bên
@@ -544,11 +546,16 @@
     t.editor = null;
     if (t.editing && info.kind === 'text') { b.append(editView(t, info.text)); return; }
     if (t.mode === 'preview' && (t.ext === 'html' || t.ext === 'htm' || t.ext === 'svg')) {
+      // Trang có script / kết nối ra ngoài / form mà nằm ngoài thư mục tin cậy → hiện tĩnh trước, bấm "Tải nội dung web" mới chạy
+      const scan = webScan(info.text || '');
+      const ok = !scan.any || webTrusted(t);
       // Qua máy chủ cục bộ (http://127.0.0.1) để module JS / fetch() chạy được như trên web thật (tệp từ xa: máy chủ đó lấy từ máy gốc)
       FS(t.rs).preview(t.path, baseOf(t)).then((url) => {
         if (t.info !== info || t.mode !== 'preview') return;
         if (!url && t.rs) { b.append(h('div', { class: 'vw-msg', text: 'Không lấy được tệp từ máy kia.' })); return; }
-        const wv = makeWebview(url || fileUrl(t.path));
+        if (!url && !ok) { b.append(h('div', { class: 'vw-msg', text: 'Không mở được chế độ xem tĩnh cho trang này.' })); return; }
+        if (!ok) b.append(webGateBar(t, scan));
+        const wv = makeWebview(url ? (ok ? url : url + (url.includes('?') ? '&' : '?') + 'cg-static=1') : fileUrl(t.path));
         b.append(wv);
         t.previewWv = wv;
       });
@@ -614,6 +621,63 @@
   });
 
   // ---------- Trang web ----------
+  // ---------- "Tải nội dung web" (giống bản desktop): chỉ chạy script của trang trong thư mục phiên / thư mục đã tin ----------
+  const normP = (p) => String(p || '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+  const under = (p, d) => { const a = normP(p), b = normP(d); return !!b && (a === b || a.startsWith(b + '\\')); };
+  function webTrusted(t) {
+    const st = S().settings || {};
+    const pol = st.previewWebPolicy || 'local';
+    if (pol === 'always' || t.webOk) return true;
+    if ((st.trustedPreviewDirs || []).some((d) => under(t.path, d))) return true;
+    // thư mục phiên là cả thư mục người dùng / ổ đĩa → không coi là "trong thư mục phiên"
+    const base = baseOf(t);
+    if (!base || /^[a-z]:\?$/i.test(base) || (!t.rs && normP(base) === normP(S().home))) return false;
+    return pol === 'local' && under(t.path, base);
+  }
+  function webScan(src) {
+    const r = { scripts: [], inline: 0, handlers: 0, hosts: new Set(), forms: 0, frames: 0, any: false };
+    if (!/<script|\son[a-z]+\s*=|javascript:|<form|<iframe|<object|<embed|\/\/[a-z0-9.-]+\.[a-z]{2,}/i.test(src)) return r;
+    let d;
+    try { d = new DOMParser().parseFromString(src, 'text/html'); } catch { r.any = true; return r; }
+    const host = (v) => { const m = /^\s*(?:(?:https?|wss?):)?\/\/([^/?#\s'"]+)/i.exec(String(v || '')); if (m) r.hosts.add(m[1].toLowerCase()); };
+    for (const s of d.querySelectorAll('script')) {
+      if (s.getAttribute('src')) { r.scripts.push(s.getAttribute('src')); host(s.getAttribute('src')); }
+      else if (s.textContent.trim()) { r.inline++; for (const m of s.textContent.matchAll(/["'`]((?:https?|wss?):\/\/[^"'`\s]+)/gi)) host(m[1]); }
+    }
+    for (const el of d.querySelectorAll('*')) for (const a of el.attributes) {
+      if (/^on/i.test(a.name)) r.handlers++;
+      else if (/^(href|src|action|formaction|data)$/i.test(a.name) && /^\s*javascript:/i.test(a.value)) r.handlers++;
+    }
+    for (const el of d.querySelectorAll('link[href],img[src],iframe[src],source[src],video[src],audio[src],embed[src],object[data],form[action],image[href]')) host(el.getAttribute('src') || el.getAttribute('href') || el.getAttribute('data') || el.getAttribute('action'));
+    for (const m of src.matchAll(/@import\s+(?:url\()?["']?((?:https?:)?\/\/[^"')\s]+)/gi)) host(m[1]);
+    r.forms = d.querySelectorAll('form').length;
+    r.frames = d.querySelectorAll('iframe,object,embed').length;
+    r.any = !!(r.scripts.length || r.inline || r.handlers || r.forms || r.frames || r.hosts.size);
+    return r;
+  }
+  function webGateBar(t, sc) {
+    const n = sc.scripts.length + sc.inline;
+    const bits = [n ? `${n} script` : '', sc.handlers ? `${sc.handlers} trình xử lý sự kiện` : '', sc.hosts.size ? `kết nối ${sc.hosts.size} máy chủ` : '', sc.forms ? `${sc.forms} form` : '', sc.frames ? `${sc.frames} khung nhúng` : ''].filter(Boolean);
+    const det = h('div', { class: 'vw-gate-det hidden' },
+      sc.scripts.length ? h('div', {}, h('b', { text: 'Script ngoài: ' }), sc.scripts.slice(0, 12).join(' · ')) : null,
+      sc.inline ? h('div', {}, h('b', { text: 'Script viết trong trang: ' }), String(sc.inline)) : null,
+      sc.hosts.size ? h('div', {}, h('b', { text: 'Máy chủ sẽ kết nối: ' }), [...sc.hosts].slice(0, 20).join(', ')) : null,
+      sc.forms ? h('div', {}, h('b', { text: 'Form gửi dữ liệu: ' }), String(sc.forms)) : null);
+    const dir = dirname(t.path);
+    const go = () => { t.webOk = true; renderFile(t); };
+    const bar = h('div', { class: 'vw-gate' },
+      h('div', { class: 'vw-gate-t' }, icon('shield', 14), h('span', {}, h('b', { text: 'Đang xem tĩnh' }), ` · ${bits.join(', ')} — tạm chặn vì trang nằm ngoài thư mục của phiên.`)),
+      h('a', { class: 'sg-link', text: 'Chi tiết', onclick: () => det.classList.toggle('hidden') }),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn xs primary', text: 'Tải nội dung web', title: 'Chạy trang này đầy đủ (chỉ tab này, lần này)', onclick: go }),
+      h('button', { class: 'btn xs', text: 'Luôn tin thư mục này', title: dir, onclick: async () => {
+        const L = ((S().settings || {}).trustedPreviewDirs || []).filter((d) => !under(dir, d));
+        await CG.saveSettings({ trustedPreviewDirs: [...L, dir].slice(-50) });
+        toast('Đã tin thư mục ' + dir + ' — bỏ ở Cài đặt → Khung xem.');
+        go();
+      } }));
+    return h('div', { class: 'vw-gate-box' }, bar, det);
+  }
   function makeWebview(url) {
     const wv = document.createElement('webview');
     wv.setAttribute('partition', 'persist:preview');

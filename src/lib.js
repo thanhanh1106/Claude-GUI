@@ -43,6 +43,7 @@
     copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
     x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    minus: '<path d="M5 12h14"/>',
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
     hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
     zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
@@ -152,12 +153,25 @@
   const MD_PURIFY = { ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|file):|[a-z]:(?:[\\/]|%5c)|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i };
   // marked không nhận link có khoảng trắng: [x](C:\My Folder\a.md) → bọc <…> để thành link hợp lệ
   const fixLinks = (t) => t.replace(/\]\(((?:[a-zA-Z]:[\\/]|file:\/\/\/?|\.{0,2}[\\/])[^()<>\n]*?\s[^()<>\n]*?)\)/g, (m, u) => `](<${u}>)`);
+  // dòng ẩn "bước tiếp theo" Claude ghi cuối lượt (xem NEXT_RULE ở main.js) — không bao giờ hiện / sao chép
+  const NEXT_RE = /\n?[ \t]*<!--\s*cg-next:([\s\S]*?)(?:-->|$)/g;
+  const stripNext = (t) => String(t || '').replace(NEXT_RE, '').replace(/\s+$/, (m) => (m.includes('\n') ? '' : m));
+  function parseNext(t) {
+    let m, last = null;
+    NEXT_RE.lastIndex = 0;
+    while ((m = NEXT_RE.exec(String(t || '')))) last = m[1];
+    if (!last) return [];
+    return last.split('|').map((x) => x.trim()).filter((x) => x && x.length < 160).slice(0, 4);
+  }
   function renderMd(target, text, streaming) {
+    text = stripNext(text);
     target.innerHTML = DOMPurify.sanitize(marked.parse(fixLinks(text || '')), MD_PURIFY);
     if (!streaming) for (const c of target.querySelectorAll('code')) if (c.parentElement.tagName !== 'PRE' && c.textContent.length < 260 && PATH_LIKE.test(c.textContent)) c.classList.add('pathlike');
     for (const pre of $$('pre', target)) {
       const code = pre.querySelector('code');
       const lang = ((code && code.className.match(/language-([\w+#-]+)/)) || [])[1] || '';
+      // ```mermaid → vẽ sơ đồ (khi khối đã viết xong; lúc đang gõ vẫn hiện mã)
+      if (lang === 'mermaid' && code && !streaming) { pre.replaceWith(mermaidBlock(code.textContent)); continue; }
       if (code && !streaming) {
         try {
           if (lang && hljs.getLanguage(lang)) code.innerHTML = hljs.highlight(code.textContent, { language: lang }).value;
@@ -169,6 +183,46 @@
       pre.replaceWith(wrap);
       wrap.append(pre);
     }
+  }
+  // ---------- Mermaid: thư viện đóng gói trong app, chỉ nạp khi gặp khối mermaid đầu tiên ----------
+  let mmLoad = null, mmSeq = 0, mmTheme = '';
+  const isDarkUi = () => { const m = /(\d+)\D+(\d+)\D+(\d+)/.exec(getComputedStyle(document.body).backgroundColor) || [0, 0, 0, 0]; return (+m[1] * 0.299 + +m[2] * 0.587 + +m[3] * 0.114) < 128; };
+  function loadMermaid() {
+    if (!mmLoad) mmLoad = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = '../node_modules/mermaid/dist/mermaid.min.js';
+      s.onload = () => res(window.mermaid); s.onerror = () => { mmLoad = null; rej(new Error('Không nạp được thư viện mermaid')); };
+      document.head.append(s);
+    });
+    return mmLoad.then((m) => {
+      const th = isDarkUi() ? 'dark' : 'default';
+      if (th !== mmTheme) { mmTheme = th; m.initialize({ startOnLoad: false, securityLevel: 'strict', theme: th, fontFamily: 'Segoe UI, system-ui, sans-serif' }); }
+      return m;
+    });
+  }
+  function mermaidBlock(src) {
+    const view = h('div', { class: 'mm-view' }, h('div', { class: 'mm-wait', text: 'Đang vẽ sơ đồ…' }));
+    const codeEl = h('pre', { class: 'mm-code hidden' }, h('code', { text: src }));
+    let svgText = '';
+    const seg = h('div', { class: 'seg sm mm-seg' });
+    const tab = (lbl, on) => { const b = h('button', { class: on ? 'on' : '', text: lbl }); b.onclick = (e) => { e.stopPropagation(); for (const x of seg.children) x.classList.toggle('on', x === b); view.classList.toggle('hidden', lbl !== 'Sơ đồ'); codeEl.classList.toggle('hidden', lbl === 'Sơ đồ'); }; return b; };
+    seg.append(tab('Sơ đồ', true), tab('Mã', false));
+    const big = h('button', { class: 'icon-btn sm', title: 'Xem to', html: svg('maximize', 14) });
+    big.onclick = (e) => { e.stopPropagation(); if (!svgText) return; const body = h('div', { class: 'mm-big' }); body.innerHTML = svgText; const m = modal('Sơ đồ', body, [h('button', { class: 'btn', text: 'Đóng', onclick: () => m.close() })], { cls: 'mm-modal' }); };
+    const cp = copyBtn(() => svgText || src, 'Sao chép SVG (chưa vẽ được thì sao chép mã)');
+    const box = h('div', { class: 'codeblock mm-box' }, h('div', { class: 'code-bar' }, h('span', { text: 'mermaid' }), h('span', { class: 'spacer' }), seg, big, cp), view, codeEl);
+    loadMermaid().then((m) => m.render('cgmm' + (++mmSeq), src)).then((r) => {
+      svgText = r.svg;
+      view.innerHTML = r.svg;
+    }).catch((e) => {
+      const msg = String((e && (e.message || e.str)) || e || 'lỗi').split('\n').slice(0, 3).join(' · ');
+      view.innerHTML = '';
+      view.append(h('div', { class: 'mm-err', text: 'Không vẽ được sơ đồ: ' + msg }));
+      codeEl.classList.remove('hidden');
+      // mermaid để lại phần tử lỗi trong body
+      for (const x of document.querySelectorAll('body > [id^="dcgmm"], body > #d' + 'cgmm' + mmSeq)) x.remove();
+    });
+    return box;
   }
   function copyBtn(getText, title = 'Sao chép') {
     const b = h('button', { class: 'icon-btn sm', title, html: svg('copy', 14) });
@@ -185,7 +239,7 @@
     };
     return b;
   }
-  function mdEl(text) { const d = h('div', { class: 'md' }); renderMd(d, text); d.dataset.raw = text; return d; }
+  function mdEl(text) { const d = h('div', { class: 'md' }); renderMd(d, text); d.dataset.raw = stripNext(text); const nx = parseNext(text); if (nx.length) d.dataset.next = JSON.stringify(nx); return d; }
 
   // ---------- Hằng số ----------
   const MODES = [
@@ -540,7 +594,7 @@
   Object.assign(CG, {
     $, $$, h, svg, icon, P, logo, logoSvg, hydrate,
     basename, dirname, samePath, shortPath, fmtTok, stripAnsi, stripReminders, relTime, firstLine, rid,
-    renderMd, copyBtn, mdEl, MODES, EFFORTS, effortLabel, toolMeta, toolSummary,
+    renderMd, copyBtn, mdEl, stripNext, parseNext, MODES, EFFORTS, effortLabel, toolMeta, toolSummary,
     lineDiff, rowsView, diffView, patchRows, patchCounts, unifiedRows, hunksFromStrings,
     todoView, preBlock, toolInputView, resultText, resultView, permTitle, suggestionLabel,
     popover, closePopover, menu, pointAnchor, toast, modal, confirmDialog, promptDialog,

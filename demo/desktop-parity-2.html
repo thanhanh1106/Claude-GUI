@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Demo · Bắt kịp bản desktop gốc (tháng 11)</title>
+<style>
+  :root { --bg:#1e1f22; --surface:#26282c; --surface2:#2d3035; --border:#3a3d43; --text:#e6e6e6; --text2:#b8bcc4; --muted:#8a8f98; --accent:#d97757; --blue:#5aa9ff; --green:#5cc98a; --red:#ef6b6b; --warn:#e5b45a; --purple:#b48cff; --teal:#4fc1c9; --ease:cubic-bezier(.2,.8,.2,1); }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.55 "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  button { font:inherit; cursor:pointer; color:inherit; }
+  input, select { font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:4px 8px; }
+  code, .mono { font-family:"Cascadia Code", Consolas, monospace; font-size:12.5px; }
+  code { background:var(--surface2); padding:1px 5px; border-radius:5px; }
+  .top { display:flex; gap:8px; align-items:center; padding:8px 14px; border-bottom:1px solid var(--border); background:#18191c; font-size:13px; flex-wrap:wrap; }
+  .top b { font-size:14px; margin-right:6px; }
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; }
+  .tabs button { background:none; border:1px solid var(--border); border-radius:8px; padding:3px 10px; font-size:12.5px; color:var(--text2); }
+  .tabs button.on { background:var(--surface2); color:var(--text); border-color:#555a62; font-weight:600; }
+  .tabs button i { font-style:normal; color:var(--accent); margin-right:4px; }
+  .sp { flex:1; }
+  .scene { flex:1; display:none; min-height:0; }
+  .scene.on { display:flex; }
+  .btn { background:var(--surface2); border:1px solid var(--border); border-radius:7px; padding:4px 11px; font-size:12.5px; display:inline-flex; align-items:center; gap:5px; }
+  .btn:hover { border-color:#555a62; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.ghost { background:none; }
+  .btn.xs { padding:2px 8px; font-size:12px; }
+  .muted { color:var(--muted); }
+  .why { width:330px; flex:none; border-left:1px solid var(--border); background:#1a1b1e; padding:16px 18px; overflow:auto; font-size:13px; color:var(--text2); }
+  .why h3 { margin:0 0 8px; color:var(--text); font-size:15px; }
+  .why h4 { margin:14px 0 4px; color:var(--text); font-size:13px; }
+  .why ul { margin:4px 0; padding-left:18px; } .why li { margin:3px 0; }
+  .why .src { margin-top:12px; font-size:12px; color:var(--muted); border-top:1px dashed var(--border); padding-top:8px; }
+
+  /* khung app giả */
+  .app { flex:1; display:flex; min-width:0; }
+  .side { width:250px; flex:none; background:#1a1b1e; border-right:1px solid var(--border); padding:10px 8px; overflow:auto; font-size:13px; }
+  .side .gh { color:var(--muted); font-size:12px; padding:8px 8px 4px; display:flex; gap:6px; align-items:center; }
+  .sess { display:flex; align-items:center; gap:7px; padding:5px 8px; border-radius:7px; color:var(--text2); }
+  .sess:hover { background:var(--surface); }
+  .sess.active { background:var(--surface2); color:var(--text); }
+  .sess .tt { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sess .tm { font-size:11.5px; color:var(--muted); }
+  .sess.kid { padding-left:24px; font-size:12.5px; }
+  .dot { width:7px; height:7px; border-radius:50%; flex:none; background:#555; }
+  .dot.run { background:var(--blue); animation:pulse 1.2s infinite; }
+  .dot.ok { background:var(--green); } .dot.err { background:var(--red); } .dot.wait { background:var(--warn); }
+  @keyframes pulse { 50% { opacity:.35; } }
+  .chat { flex:1; display:flex; flex-direction:column; min-width:0; position:relative; }
+  .msgs { flex:1; overflow:auto; padding:18px 30px; }
+  .m-user { background:var(--surface2); border-radius:12px; padding:8px 13px; max-width:70%; margin:0 0 14px auto; width:fit-content; }
+  .m-ai { color:var(--text2); margin-bottom:12px; }
+  .m-ai p { margin:6px 0; }
+  .tool { font-size:12.5px; color:var(--muted); display:flex; gap:6px; align-items:center; margin:4px 0; }
+  .tool .ok { color:var(--green); }
+  .composer { margin:0 30px 16px; border:1px solid var(--border); border-radius:14px; background:var(--surface); padding:10px 12px 8px; position:relative; }
+  .composer .ph { color:var(--muted); padding:2px 2px 10px; }
+  .cbar { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text2); }
+  .chip { border:1px solid var(--border); border-radius:7px; padding:2px 8px; background:none; font-size:12px; color:var(--text2); display:inline-flex; gap:5px; align-items:center; }
+  .chip:hover { border-color:#555a62; color:var(--text); }
+  .ring { width:22px; height:22px; border-radius:50%; background:conic-gradient(var(--warn) 0 62%, #3a3d43 62% 100%); display:grid; place-items:center; cursor:pointer; border:0; padding:0; }
+  .ring::after { content:''; width:14px; height:14px; border-radius:50%; background:var(--surface); }
+  .send { width:28px; height:28px; border-radius:8px; background:var(--accent); border:0; color:#fff; }
+
+  /* 1. thẻ ngữ cảnh */
+  .pop { position:absolute; bottom:56px; right:12px; width:420px; background:#202226; border:1px solid var(--border); border-radius:12px; box-shadow:0 14px 40px #0009; padding:14px; z-index:5; animation:pop .25s var(--ease); }
+  @keyframes pop { from { opacity:0; transform:translateY(8px); } }
+  .pop h4 { margin:0 0 2px; font-size:14px; display:flex; justify-content:space-between; }
+  .stack { display:flex; height:12px; border-radius:6px; overflow:hidden; margin:10px 0 8px; background:#33363b; }
+  .stack span { display:block; height:100%; }
+  .leg { display:grid; grid-template-columns:12px 1fr auto auto; gap:4px 8px; align-items:center; font-size:12.5px; }
+  .leg i { width:10px; height:10px; border-radius:3px; display:block; }
+  .leg .n { color:var(--muted); text-align:right; font-variant-numeric:tabular-nums; }
+  .leg .row-x { cursor:pointer; } .leg .row-x:hover { color:var(--text); }
+  .sub { margin:4px 0 6px 20px; font-size:12px; color:var(--muted); display:none; }
+  .sub.on { display:block; }
+  .sub div { display:flex; justify-content:space-between; gap:8px; }
+  .tips { border-top:1px solid var(--border); margin-top:10px; padding-top:9px; font-size:12.5px; }
+  .tip { display:flex; gap:8px; align-items:center; margin:5px 0; }
+  .tip span { flex:1; color:var(--text2); }
+
+  /* 2. hộp kết thúc lượt */
+  .endbox { border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:12px 14px; margin:14px 0 6px; animation:pop .4s var(--ease); }
+  .endbox .hd { display:flex; align-items:center; gap:8px; font-weight:600; }
+  .endbox .hd .ok { color:var(--green); }
+  .endbox ul { margin:8px 0 10px; padding-left:20px; color:var(--text2); font-size:13px; }
+  .endbox .facts { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .fact { font-size:12px; border-radius:6px; padding:1px 8px; background:var(--surface2); color:var(--text2); }
+  .fact .a { color:var(--green); } .fact .d { color:var(--red); }
+  .next { display:flex; gap:6px; flex-wrap:wrap; }
+  .next .btn { border-color:#4b4f57; }
+  .next .btn b { color:var(--accent); font-weight:600; }
+
+  /* 3. chi phí */
+  .cost { position:relative; }
+  .cost-pop { position:absolute; bottom:30px; left:0; width:300px; background:#202226; border:1px solid var(--border); border-radius:10px; padding:10px 12px; font-size:12.5px; box-shadow:0 10px 30px #0009; display:none; z-index:5; }
+  .cost:hover .cost-pop { display:block; }
+  .cost-pop div { display:flex; justify-content:space-between; margin:3px 0; }
+  .side .cst { font-size:11px; color:var(--muted); }
+
+  /* 4. mermaid */
+  .mm { border:1px solid var(--border); border-radius:10px; background:#1b1c1f; margin:8px 0; overflow:hidden; }
+  .mm .bar { display:flex; gap:4px; padding:5px 8px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); align-items:center; }
+  .mm .bar .seg2 button { background:none; border:1px solid transparent; border-radius:6px; padding:1px 8px; font-size:12px; color:var(--text2); }
+  .mm .bar .seg2 button.on { border-color:var(--border); background:var(--surface2); color:var(--text); }
+  .mm pre { margin:0; padding:10px 14px; font-size:12.5px; color:#c9d1d9; }
+  .mm svg { display:block; margin:10px auto; }
+
+  /* 5. thu nhỏ khung */
+  .viewer { width:44%; flex:none; border-left:1px solid var(--border); display:flex; flex-direction:column; background:#18191c; transition:width .35s var(--ease); }
+  .viewer.min { width:0; overflow:hidden; border-left:0; }
+  .vtabs { display:flex; align-items:center; gap:4px; padding:6px 8px; border-bottom:1px solid var(--border); font-size:12.5px; }
+  .vtab { padding:3px 10px; border-radius:7px; background:var(--surface2); }
+  .icon-b { background:none; border:0; color:var(--muted); width:24px; height:24px; border-radius:6px; }
+  .icon-b:hover { background:var(--surface2); color:var(--text); }
+  .page { flex:1; margin:10px; border-radius:8px; background:linear-gradient(160deg,#fdf6ec,#f3e6d4); color:#3a2a1a; padding:18px; position:relative; overflow:hidden; }
+  .page h2 { margin:0 0 6px; color:#7a3412; font-size:18px; }
+  .orb { position:absolute; width:46px; height:46px; border-radius:50%; background:radial-gradient(circle at 35% 35%,#ffd27a,#e0661a); box-shadow:0 0 24px #f2a43a; animation:orb 3s linear infinite; }
+  @keyframes orb { 0% { left:10%; top:60%; } 25% { left:70%; top:40%; } 50% { left:55%; top:75%; } 75% { left:25%; top:35%; } 100% { left:10%; top:60%; } }
+  .term { height:150px; border-top:1px solid var(--border); background:#111214; font:12px/1.5 "Cascadia Code", Consolas, monospace; color:#9fd39f; padding:6px 10px; overflow:hidden; position:relative; transition:height .35s var(--ease); }
+  .term.min { height:0; padding:0; border:0; }
+  .term .th { position:absolute; top:2px; right:6px; }
+  .mini-dock { position:absolute; right:14px; bottom:86px; display:flex; flex-direction:column; gap:8px; z-index:4; }
+  .mini { width:200px; height:118px; border:1px solid #555a62; border-radius:10px; overflow:hidden; background:#18191c; box-shadow:0 8px 24px #000a; cursor:pointer; position:relative; animation:pop .3s var(--ease); }
+  .mini .lbl { position:absolute; left:0; right:0; top:0; font-size:11.5px; padding:3px 8px; background:#000a; color:#ddd; display:flex; justify-content:space-between; z-index:2; }
+  .mini .page { margin:0; border-radius:0; height:100%; transform:scale(.5); transform-origin:0 0; width:200%; height:200%; }
+  .mini .tm2 { font:10.5px/1.4 Consolas, monospace; color:#9fd39f; padding:22px 8px 0; }
+  .mini:hover { border-color:var(--accent); }
+
+  /* 6. lịch */
+  .plan { border:1px solid var(--border); border-radius:10px; background:var(--surface); padding:10px 12px; margin:0 0 10px; display:flex; gap:12px; align-items:center; }
+  .plan .nm { font-weight:600; }
+  .plan .meta { font-size:12px; color:var(--muted); }
+  .badge { font-size:11.5px; border-radius:6px; padding:1px 8px; font-weight:600; white-space:nowrap; }
+  .badge.err { background:#4a2626; color:var(--red); }
+  .badge.wait { background:#4a3c22; color:var(--warn); }
+  .badge.ok { background:#23392c; color:var(--green); }
+  .badge.run { background:#1f3550; color:var(--blue); }
+  .badge.off { background:#2d3035; color:var(--muted); }
+  .sbadge { font-size:10.5px; border-radius:5px; padding:0 5px; font-weight:600; }
+
+  /* 7. phiên phụ */
+  .spawn { border:1px solid var(--border); border-left:3px solid var(--purple); border-radius:9px; background:var(--surface); padding:8px 11px; margin:6px 0; font-size:13px; animation:pop .4s var(--ease); }
+  .spawn .h { display:flex; gap:8px; align-items:center; }
+  .spawn .h b { flex:1; font-weight:600; }
+  .spawn .st { font-size:12px; color:var(--muted); margin-top:3px; }
+  .spawn.done { border-left-color:var(--green); }
+  .limit { font-size:12px; color:var(--text2); background:#2b2540; border:1px solid #4a3f6b; border-radius:8px; padding:4px 10px; display:inline-flex; gap:6px; align-items:center; margin:4px 0 8px; }
+  .report { border:1px dashed #4a3f6b; border-radius:9px; padding:8px 11px; margin:8px 0; font-size:13px; color:var(--text2); animation:pop .4s var(--ease); }
+
+  /* 8. tải nội dung web */
+  .gate { position:absolute; inset:0; background:#18191ce8; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; text-align:center; padding:20px; z-index:2; }
+  .gate .t { font-weight:600; color:var(--text); }
+  .gate ul { text-align:left; font-size:12.5px; color:var(--text2); margin:4px 0; }
+  .setrow { display:flex; gap:10px; align-items:center; margin:8px 0; font-size:13px; }
+  .setrow label { display:flex; gap:6px; align-items:center; cursor:pointer; }
+  .settings { border:1px solid var(--border); border-radius:10px; background:var(--surface); padding:12px 14px; margin-top:12px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <b>Demo · bắt kịp bản desktop gốc</b>
+  <div class="tabs" id="tabs"></div>
+  <span class="sp"></span>
+  <span class="muted">Bấm thử trong từng cảnh · cột phải là giải thích</span>
+</div>
+
+<!-- 1. Thẻ ngữ cảnh -->
+<section class="scene on" data-t="1" data-n="Thẻ Ngữ cảnh">
+  <div class="app">
+    <div class="chat">
+      <div class="msgs">
+        <div class="m-user">Rà lại module chiến trường, sửa lỗi tính điểm</div>
+        <div class="m-ai"><div class="tool"><span class="ok">✓</span> Đọc 14 tệp · Grep 6 lần</div><p>Đã tìm ra nguyên nhân: điểm cộng hai lần khi người chơi đổi bang giữa trận…</p></div>
+        <div class="m-ai muted" style="font-size:12.5px">↓ Bấm <b>vòng tròn</b> cạnh ô nhập (đang 62%) để mở thẻ Ngữ cảnh</div>
+      </div>
+      <div class="composer">
+        <div class="ph">Nhắn tiếp cho Claude…</div>
+        <div class="cbar"><span class="chip">📁 vo-lam-genz-server</span><span class="chip">Opus 5.5 · Cao</span><span class="sp"></span>
+          <button class="ring" id="ring1" title="Ngữ cảnh 62%"></button><button class="send">↑</button></div>
+        <div class="pop" id="ctxPop" style="display:none">
+          <h4><span>Ngữ cảnh phiên này</span><span class="muted" style="font-weight:400">124k / 200k · 62%</span></h4>
+          <div class="stack" id="stack"></div>
+          <div class="leg" id="leg"></div>
+          <div class="tips">
+            <div class="muted" style="margin-bottom:4px">Gợi ý cho gọn</div>
+            <div class="tip"><span>MCP <b>figma</b> nạp 41 công cụ (≈ 18k) mà phiên này chưa dùng lần nào</span><button class="btn xs">Tắt cho phiên này</button></div>
+            <div class="tip"><span>Kết quả công cụ cũ chiếm 38k — tóm tắt lại sẽ còn khoảng 9k</span><button class="btn xs">/compact</button></div>
+            <div class="tip"><span>Skill <b>unity:*</b> (31 skill) luôn nạp mô tả, ≈ 6k</span><button class="btn xs">Quản lý Skill</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="why"><h3>1 · Thẻ Ngữ cảnh chi tiết</h3>
+    <p>Hiện vòng tròn chỉ báo % ngữ cảnh. Bấm vào thì mở thẻ chia token theo nguồn (giống thẻ Context của bản gốc).</p>
+    <h4>Có gì</h4><ul><li>Thanh màu theo nguồn: hệ thống, CLAUDE.md / memory, skill, MCP, hội thoại, kết quả công cụ.</li><li>Bấm một dòng → xổ chi tiết (từng MCP server, từng tệp memory…).</li><li>Gợi ý cắt bớt kèm nút làm luôn: tắt MCP chưa dùng, <code>/compact</code>, mở trang Skill.</li></ul>
+    <h4>Lấy số từ đâu</h4><ul><li>Lệnh <code>/context</code> của CLI (chạy ngầm khi mở thẻ, không tốn lượt Claude).</li><li>"Chưa dùng lần nào" đếm từ các thẻ công cụ trong phiên.</li></ul>
+    <div class="src">Bản gốc: Context card trong session rail (v2.42304.0, 15/10).</div></div>
+</section>
+
+<!-- 2. Hộp kết thúc lượt -->
+<section class="scene" data-t="2" data-n="Hộp kết thúc lượt">
+  <div class="app">
+    <div class="chat">
+      <div class="msgs" id="msgs2">
+        <div class="m-user">Sửa lỗi điểm cộng hai lần khi đổi bang giữa trận</div>
+        <div class="m-ai"><div class="tool"><span class="ok">✓</span> Sửa <code>BattleScore.cs</code> +12 −5</div><div class="tool"><span class="ok">✓</span> Sửa <code>GuildSwitch.cs</code> +4 −1</div><div class="tool"><span class="ok">✓</span> Chạy <code>dotnet test</code> · 48 đạt</div>
+          <p>Đã sửa: khi đổi bang, điểm của trận đang diễn ra được chốt cho bang cũ trước rồi mới chuyển người chơi.</p></div>
+        <div class="endbox" id="endbox">
+          <div class="hd"><span class="ok">✓</span> Xong lượt này <span class="muted" style="font-weight:400;font-size:12.5px">· 2 phút 14 giây · 3 tệp</span></div>
+          <div class="facts"><span class="fact">BattleScore.cs <span class="a">+12</span> <span class="d">−5</span></span><span class="fact">GuildSwitch.cs <span class="a">+4</span> <span class="d">−1</span></span><span class="fact">Test: 48/48 đạt</span></div>
+          <ul><li>Chốt điểm cho bang cũ trước khi đổi bang</li><li>Thêm test cho trường hợp đổi bang giữa trận</li><li>Chưa đụng phần hiển thị bảng xếp hạng</li></ul>
+          <div class="muted" style="font-size:12.5px;margin-bottom:6px">Bước tiếp theo</div>
+          <div class="next">
+            <button class="btn" data-say="Xem lại diff trước khi commit"><b>1</b> Xem diff</button>
+            <button class="btn" data-say="Commit với mô tả ngắn gọn"><b>2</b> Commit</button>
+            <button class="btn" data-say="Cập nhật bảng xếp hạng để hiện đúng điểm sau khi đổi bang"><b>3</b> Sửa luôn bảng xếp hạng</button>
+            <button class="btn ghost" data-say="">✎ Khác…</button>
+          </div>
+        </div>
+      </div>
+      <div class="composer"><div class="ph" id="ph2">Nhắn tiếp cho Claude… (Alt+1…3 chọn nhanh bước tiếp theo)</div><div class="cbar"><span class="sp"></span><button class="send">↑</button></div></div>
+    </div>
+  </div>
+  <div class="why"><h3>2 · Hộp kết thúc lượt</h3>
+    <p>Cuối mỗi lượt có việc (sửa tệp / chạy lệnh), hiện một hộp tóm tắt + nút bước tiếp theo.</p>
+    <h4>Có gì</h4><ul><li>Số liệu thật: thời gian, tệp đã sửa (+/−), kết quả test nếu có.</li><li>2–4 gạch đầu dòng tóm tắt, ghi cả việc <i>chưa</i> làm.</li><li>Nút bước tiếp theo: bấm là dán vào ô nhập (Enter để gửi), phím Alt+1…3.</li></ul>
+    <h4>Làm thế nào</h4><ul><li>Số liệu lấy từ các thẻ công cụ trong lượt — không tốn token.</li><li>Tóm tắt + bước tiếp theo: một lần gọi Haiku ngắn qua CLI sau lượt (như gợi ý câu nhắn tiếp đang có). Tắt được trong Cài đặt.</li><li>Lượt chỉ trả lời câu hỏi (không sửa gì) thì không hiện hộp.</li></ul>
+    <div class="src">Bản gốc: plan box cuối lượt với recap + next-step (v2.42304.0 / v3.1623.0).</div></div>
+</section>
+
+<!-- 3. Chi phí -->
+<section class="scene" data-t="3" data-n="Chi phí ước tính">
+  <div class="app">
+    <div class="side">
+      <div class="gh">📁 vo-lam-genz-server</div>
+      <div class="sess active"><span class="dot ok"></span><span class="tt">Sửa điểm chiến trường</span><span class="cst">$1.84</span></div>
+      <div class="sess"><span class="dot"></span><span class="tt">Rà soát đấu giá lãnh địa</span><span class="cst">$0.62</span></div>
+      <div class="sess"><span class="dot run"></span><span class="tt">Dọn rác ổ C và D</span><span class="cst">$0.09</span></div>
+      <div class="gh" style="margin-top:8px">Hiện chi phí ở thanh bên: tuỳ chọn</div>
+    </div>
+    <div class="chat">
+      <div class="msgs"><div class="m-user">Sửa lỗi điểm cộng hai lần khi đổi bang</div><div class="m-ai"><p>…</p></div>
+        <div class="m-ai muted" style="font-size:12.5px">↓ Rê chuột vào <b>≈ $1.84</b> dưới ô nhập để xem chi tiết</div></div>
+      <div class="composer"><div class="ph">Nhắn tiếp cho Claude…</div>
+        <div class="cbar"><span class="chip">Opus 5.5 · Cao</span>
+          <span class="cost"><span class="chip">≈ $1.84 phiên này</span>
+            <div class="cost-pop"><b>Ước tính theo giá API</b><div><span>Opus 5.5 · 6 lượt</span><span>$1.71</span></div><div><span>Haiku (gợi ý, tóm tắt)</span><span>$0.04</span></div><div><span>Tác tử phụ · 2</span><span>$0.09</span></div><div class="muted"><span>Đọc từ cache</span><span>812k token</span></div><div class="muted" style="display:block;margin-top:6px;border-top:1px solid var(--border);padding-top:6px">Gói Claude Ultra không tính tiền theo token — số này để so mức nặng nhẹ giữa các phiên. Tắt ở Cài đặt → Chung.</div></div></span>
+          <span class="sp"></span><button class="ring" style="background:conic-gradient(var(--green) 0 31%,#3a3d43 31% 100%)"></button><button class="send">↑</button></div></div>
+    </div>
+  </div>
+  <div class="why"><h3>3 · Chi phí ước tính từng phiên</h3>
+    <p>Một chip nhỏ dưới ô nhập: "≈ $1.84 phiên này". Rê chuột → chia theo model, tác tử phụ, cache.</p>
+    <h4>Có gì</h4><ul><li>Số lấy từ <code>total_cost_usd</code> / <code>modelUsage</code> CLI trả về sau mỗi lượt (GUI đang đọc sẵn, chỉ chưa hiện).</li><li>Tuỳ chọn hiện thêm ở thanh bên cạnh từng phiên.</li><li>Ghi rõ: gói thuê bao không tính theo token, số này để so phiên nặng / nhẹ.</li><li>Mặc định <b>tắt</b>, bật ở Cài đặt → Chung (như bản gốc).</li></ul>
+    <div class="src">Bản gốc: optional per-session estimated cost above the message box (v4.16336.0, 3/11).</div></div>
+</section>
+
+<!-- 4. Mermaid -->
+<section class="scene" data-t="4" data-n="Mermaid">
+  <div class="app">
+    <div class="chat">
+      <div class="msgs">
+        <div class="m-user">Vẽ luồng xử lý khi người chơi đổi bang giữa trận</div>
+        <div class="m-ai"><p>Luồng mới sau khi sửa:</p>
+          <div class="mm">
+            <div class="bar">mermaid · flowchart <span class="sp"></span><span class="seg2"><button class="on" data-v="d">Sơ đồ</button><button data-v="c">Mã</button></span><button class="icon-b" title="Mở ở khung xem">⤢</button><button class="icon-b" title="Sao chép SVG">⧉</button></div>
+            <div class="mmv" data-v="d">
+              <svg width="560" height="250" viewBox="0 0 560 250" font-family="Segoe UI" font-size="12.5">
+                <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8a8f98"/></marker></defs>
+                <g stroke="#8a8f98" stroke-width="1.4" fill="none" marker-end="url(#ar)">
+                  <path d="M110,40 L190,40"/><path d="M300,40 L350,40"/><path d="M420,62 L420,105"/><path d="M380,128 L300,128"/><path d="M420,150 L420,190"/><path d="M190,128 L130,128 L130,190"/>
+                </g>
+                <g>
+                  <rect x="10" y="20" width="100" height="40" rx="8" fill="#2d3035" stroke="#5aa9ff"/><text x="60" y="44" fill="#e6e6e6" text-anchor="middle">Đổi bang</text>
+                  <rect x="190" y="20" width="110" height="40" rx="8" fill="#2d3035" stroke="#3a3d43"/><text x="245" y="44" fill="#e6e6e6" text-anchor="middle">Kiểm tra trận</text>
+                  <path d="M420,18 L470,40 L420,62 L370,40 Z" fill="#2d3035" stroke="#e5b45a"/><text x="420" y="44" fill="#e6e6e6" text-anchor="middle">Đang đánh?</text>
+                  <rect x="300" y="108" width="80" height="40" rx="8" fill="#2d3035" stroke="#3a3d43"/><text x="340" y="132" fill="#e6e6e6" text-anchor="middle">Có</text>
+                  <rect x="190" y="108" width="110" height="40" rx="8" fill="#23392c" stroke="#5cc98a"/><text x="245" y="132" fill="#e6e6e6" text-anchor="middle">Chốt điểm bang cũ</text>
+                  <rect x="370" y="190" width="100" height="40" rx="8" fill="#2d3035" stroke="#3a3d43"/><text x="420" y="214" fill="#e6e6e6" text-anchor="middle">Không: đổi ngay</text>
+                  <rect x="70" y="190" width="120" height="40" rx="8" fill="#2d3035" stroke="#5aa9ff"/><text x="130" y="214" fill="#e6e6e6" text-anchor="middle">Chuyển người chơi</text>
+                </g>
+              </svg>
+            </div>
+            <pre class="mmv" data-v="c" style="display:none">flowchart LR
+  A[Đổi bang] --> B[Kiểm tra trận]
+  B --> C{Đang đánh?}
+  C -- Có --> D[Chốt điểm bang cũ]
+  D --> E[Chuyển người chơi]
+  C -- Không --> F[Đổi ngay]</pre>
+          </div>
+        </div>
+      </div>
+      <div class="composer"><div class="ph">Nhắn tiếp cho Claude…</div><div class="cbar"><span class="sp"></span><button class="send">↑</button></div></div>
+    </div>
+  </div>
+  <div class="why"><h3>4 · Mermaid trong chat và xem trước Markdown</h3>
+    <p>Khối <code>```mermaid</code> Claude viết ra được vẽ thành sơ đồ — trong chat và trong khung xem tệp <code>.md</code>.</p>
+    <h4>Có gì</h4><ul><li>Nút chuyển <b>Sơ đồ / Mã</b>.</li><li>⤢ mở sơ đồ to ở khung xem (phóng to, kéo), ⧉ sao chép SVG.</li><li>Theo theme sáng / tối của app.</li><li>Vẽ khi khối mã đã viết xong (không vẽ dở lúc đang gõ). Lỗi cú pháp thì hiện mã + dòng lỗi.</li></ul>
+    <h4>Kỹ thuật</h4><ul><li>Đóng gói thư viện mermaid trong app (không cần mạng), chỉ nạp khi gặp khối mermaid đầu tiên.</li></ul>
+    <div class="src">Bản gốc: Mermaid rendering in Markdown previews (~10/11).</div></div>
+</section>
+
+<!-- 5. Thu nhỏ khung -->
+<section class="scene" data-t="5" data-n="Thu nhỏ khung">
+  <div class="app">
+    <div class="chat">
+      <div class="msgs"><div class="m-user">Chạy server dev rồi làm hiệu ứng quả cầu lửa</div><div class="m-ai"><div class="tool"><span class="ok">✓</span> <code>npm run dev</code> → localhost:5173</div><p>Đã thêm quả cầu lửa bay vòng. Xem ở khung bên phải.</p></div>
+        <div class="m-ai muted" style="font-size:12.5px">Bấm <b>▁</b> trên khung xem hoặc terminal → thu thành ô nhỏ vẫn chạy ở góc. Bấm ô nhỏ để mở lại.</div></div>
+      <div class="mini-dock" id="dock"></div>
+      <div class="composer"><div class="ph">Nhắn tiếp cho Claude…</div><div class="cbar"><span class="sp"></span><button class="send">↑</button></div></div>
+    </div>
+    <div class="viewer" id="vw5">
+      <div class="vtabs"><span class="vtab">🌐 localhost:5173</span><span class="sp"></span><button class="icon-b" id="minV" title="Thu nhỏ (vẫn chạy)">▁</button><button class="icon-b">✕</button></div>
+      <div class="page" id="page5"><h2>Hiệu ứng quả cầu lửa</h2><div style="font-size:13px">Trang dev đang chạy, đang tự cập nhật…</div><div class="orb"></div></div>
+      <div class="term" id="term5"><button class="icon-b th" id="minT" title="Thu nhỏ">▁</button><div id="tlog"></div></div>
+    </div>
+  </div>
+  <div class="why"><h3>5 · Thu nhỏ khung thành ô nhỏ vẫn chạy</h3>
+    <p>Khung xem (trang web / xem trước) và terminal có nút <b>▁</b>: thu thành ô nhỏ ở góc khung chat, vẫn hiện trực tiếp (trang vẫn chạy, log vẫn chạy).</p>
+    <h4>Có gì</h4><ul><li>Chat được rộng hết cỡ mà vẫn liếc thấy trang / log.</li><li>Bấm ô nhỏ → mở lại đúng kích thước cũ. Kéo ô nhỏ đổi góc.</li><li>Terminal có lỗi mới → ô nhỏ viền đỏ.</li><li>Nhớ trạng thái thu nhỏ theo từng phiên.</li></ul>
+    <div class="src">Bản gốc: minimize button on Terminal, Browser and iOS Simulator panes (v4.23118.0, 5/11).</div></div>
+</section>
+
+<!-- 6. Lịch -->
+<section class="scene" data-t="6" data-n="Trạng thái lịch">
+  <div class="app">
+    <div class="side">
+      <div class="gh">📅 Lịch & hàng đợi</div>
+      <div class="sess"><span class="dot err"></span><span class="tt">Báo cáo sáng</span><span class="sbadge badge err">lỗi</span></div>
+      <div class="sess"><span class="dot wait"></span><span class="tt">Transport v2</span><span class="sbadge badge wait">chờ bạn</span></div>
+      <div class="sess"><span class="dot run"></span><span class="tt">Dọn log server</span><span class="sbadge badge run">3/7</span></div>
+      <div class="sess"><span class="dot ok"></span><span class="tt">Sao lưu DB</span><span class="tm">✓ 02:00</span></div>
+    </div>
+    <div class="chat"><div class="msgs">
+      <h3 style="margin:0 0 12px">Lịch & hàng đợi</h3>
+      <div class="plan"><span class="badge err">✗ Lần cuối lỗi</span><div style="flex:1"><div class="nm">Báo cáo sáng</div><div class="meta">Chạy lúc 08:00 hôm nay · lỗi ở bước 2: "git log: not a git repository" · lần tới 08:00 mai</div></div><button class="btn xs">Xem phiên lỗi</button><button class="btn xs">Chạy lại</button></div>
+      <div class="plan"><span class="badge wait">● Cần trả lời</span><div style="flex:1"><div class="nm">Transport v2 — nối dây 3 tầng</div><div class="meta">Task #4 hỏi: "Giữ giao thức cũ song song không?" · chờ 12 phút</div></div><button class="btn xs primary">Trả lời</button></div>
+      <div class="plan"><span class="badge run">▶ Đang chạy 3/7</span><div style="flex:1"><div class="nm">Dọn log server</div><div class="meta">Bước 3: nén log tháng 10 · đã chạy 4 phút</div></div><button class="btn xs">Dừng</button></div>
+      <div class="plan"><span class="badge ok">✓ Xong 02:00</span><div style="flex:1"><div class="nm">Sao lưu DB</div><div class="meta">6 phút · lần tới 02:00 mai</div></div></div>
+      <div class="plan"><span class="badge off">⏸ Tắt</span><div style="flex:1"><div class="nm">Tổng hợp tuần</div><div class="meta">Lần cuối: thứ Hai · xong</div></div></div>
+    </div></div>
+  </div>
+  <div class="why"><h3>6 · Trạng thái lần chạy cuối</h3>
+    <p>Mỗi kế hoạch có nhãn trạng thái rõ ràng, ở cả thanh bên và trang Lịch & hàng đợi.</p>
+    <h4>Nhãn</h4><ul><li><b>Lần cuối lỗi</b> — kèm bước lỗi + câu lỗi, nút xem phiên / chạy lại.</li><li><b>Cần trả lời</b> — task đang hỏi bạn (AskUserQuestion / xin quyền), nút trả lời ngay.</li><li><b>Đang chạy n/m</b>, <b>Xong hh:mm</b>, <b>Tắt</b>.</li></ul>
+    <h4>Thêm</h4><ul><li>Nhóm "Lịch & hàng đợi" trên thanh bên đẩy kế hoạch lỗi / chờ trả lời lên đầu.</li><li>Máy xem từ xa thấy cùng nhãn.</li></ul>
+    <div class="src">Bản gốc: scheduled tasks show run status — "Last run failed", "Needs input" (v5.1231.0, 10/11).</div></div>
+</section>
+
+<!-- 7. Phiên phụ -->
+<section class="scene" data-t="7" data-n="Phiên tự mở phiên phụ">
+  <div class="app">
+    <div class="side">
+      <div class="gh">📁 vo-lam-genz</div>
+      <div class="sess active"><span class="dot run"></span><span class="tt">Làm hệ thống Đấu giá lãnh địa</span></div>
+      <div id="kids7"></div>
+      <div class="sess"><span class="dot"></span><span class="tt">Sửa UI túi đồ</span></div>
+    </div>
+    <div class="chat"><div class="msgs" id="msgs7">
+      <div class="m-user">Làm hệ thống Đấu giá lãnh địa theo GDD, chia ra làm song song cho nhanh</div>
+      <div class="m-ai"><p>Việc này có 3 phần độc lập. Mình mở 3 phiên phụ làm song song, phiên này điều phối và ráp lại.</p></div>
+      <div class="limit">⚙ Phiên phụ: <b id="cnt7">0</b>/5 đang chạy · tối đa 10 mỗi tin · <a href="#" style="color:var(--purple)">đổi giới hạn</a></div>
+      <div id="sp7"></div>
+    </div>
+      <div class="composer"><div class="ph">Nhắn tiếp cho Claude…</div><div class="cbar"><button class="btn xs" id="play7">▶ Chạy lại cảnh</button><span class="sp"></span><button class="send">↑</button></div></div>
+    </div>
+  </div>
+  <div class="why"><h3>7 · Phiên tự mở phiên phụ</h3>
+    <p>Claude được tự mở phiên mới (đầy đủ như phiên thường, không phải tác tử phụ) cho phần việc tách được, rồi nhận báo cáo về.</p>
+    <h4>Có gì</h4><ul><li>Công cụ MCP mới <code>start_session</code> (cạnh list / read / send đang có).</li><li>Phiên phụ nằm dưới phiên cha trên thanh bên, xong thì tự gửi báo cáo về phiên cha.</li><li>Giới hạn: 5 chạy cùng lúc, 10 mỗi tin (đổi được). Hỏi bạn trước khi mở, trừ khi bật "tự cho phép".</li><li>Mỗi phiên phụ chọn model / effort riêng (việc nhỏ dùng Sonnet / Haiku).</li></ul>
+    <h4>Khác với dự án tự động</h4><ul><li>Dự án tự động: kế hoạch duyệt trước, chạy tuần tự có kiểm tra.</li><li>Phiên phụ: Claude tự quyết ngay trong cuộc trò chuyện, nhanh, cho việc vừa.</li></ul>
+    <div class="src">Bản gốc: a session can start more sessions for its task (limit 10 per message, 5 at once) (v5.11492.0, 12/11).</div></div>
+</section>
+
+<!-- 8. Tải nội dung web -->
+<section class="scene" data-t="8" data-n="Tải nội dung web">
+  <div class="app">
+    <div class="chat"><div class="msgs">
+      <div class="m-user">Mở demo HTML tải từ link khách gửi</div>
+      <div class="m-ai"><div class="tool"><span class="ok">✓</span> Tải <code>Downloads\campaign\index.html</code></div><p>Đã mở ở khung xem.</p></div>
+      <div class="settings"><b>Cài đặt → Khung xem → Trang HTML trong khung xem trước</b>
+        <div class="setrow"><label><input type="radio" name="pol" value="local" checked> Chạy luôn nếu tệp nằm trong thư mục dự án; <b>hỏi</b> với tệp ngoài dự án <span class="muted">(mặc định đề xuất)</span></label></div>
+        <div class="setrow"><label><input type="radio" name="pol" value="always"> Luôn chạy <span class="muted">(như hiện nay)</span></label></div>
+        <div class="setrow"><label><input type="radio" name="pol" value="ask"> Luôn hỏi <span class="muted">(như bản gốc)</span></label></div>
+        <div class="muted" style="font-size:12.5px">Thư mục đã tin: <code>C:\WSP\GitProject</code> <a href="#" style="color:var(--blue)">sửa</a></div>
+      </div>
+    </div>
+      <div class="composer"><div class="ph">Nhắn tiếp cho Claude…</div><div class="cbar"><span class="sp"></span><button class="send">↑</button></div></div>
+    </div>
+    <div class="viewer">
+      <div class="vtabs"><span class="vtab">‹› index.html</span><span class="sp"></span><span class="muted" style="font-size:12px">Downloads\campaign</span></div>
+      <div class="page" style="position:relative" id="page8"><h2>Chiến dịch Tết</h2><div style="font-size:13px">Banner, đồng hồ đếm ngược, form đăng ký…</div>
+        <div class="gate" id="gate8"><div style="font-size:26px">🛡</div><div class="t">Trang này chưa được chạy</div>
+          <div class="muted" style="font-size:12.5px">Tệp nằm ngoài thư mục dự án. Đang hiện bản tĩnh (không script, không tải gì từ mạng).</div>
+          <ul><li>3 script nội tuyến</li><li>Tải từ mạng: <code>cdn.jsdelivr.net</code>, <code>fonts.googleapis.com</code></li><li>1 form gửi tới <code>forms.example.com</code></li></ul>
+          <div style="display:flex;gap:6px"><button class="btn primary" id="load8">Tải nội dung web</button><button class="btn" id="trust8">Luôn tin thư mục này</button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="why"><h3>8 · "Tải nội dung web" cho HTML xem trước</h3>
+    <p>Bản gốc giờ không chạy script của HTML xem trước cho tới khi bấm "Load web content". Bạn hay xem demo HTML Claude tự làm, nên đề xuất <b>chỉ hỏi với tệp ngoài thư mục dự án</b>.</p>
+    <h4>Có gì</h4><ul><li>Tệp trong dự án / thư mục đã tin → chạy ngay như bây giờ.</li><li>Tệp ngoài (Downloads, tệp khách gửi…) → hiện bản tĩnh + liệt kê script, tài nguyên mạng, form trước khi cho chạy.</li><li>"Luôn tin thư mục này" để lần sau khỏi hỏi.</li><li>Ảnh / PDF / video: không bao giờ chạy code (như bản gốc).</li></ul>
+    <div class="src">Bản gốc: local file previews no longer run code; HTML/SVG web content loads only after "Load web content" (v6.28899.2, 19/11).</div></div>
+</section>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+// tab
+const scenes = $$('.scene');
+$('#tabs').append(...scenes.map((s) => { const b = document.createElement('button'); b.innerHTML = `<i>${s.dataset.t}</i>${s.dataset.n}`; b.onclick = () => show(s.dataset.t); b.dataset.t = s.dataset.t; return b; }));
+function show(t) { scenes.forEach((s) => s.classList.toggle('on', s.dataset.t === t)); $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); if (t === '7') play7(); location.hash = t; }
+show(location.hash.slice(1) || '1');
+
+// 1. ngữ cảnh
+const CTX = [
+  ['Hệ thống + công cụ có sẵn', 14.2, '#8a8f98', [['System prompt', '3.1k'], ['22 công cụ có sẵn', '11.1k']]],
+  ['CLAUDE.md / memory', 6.8, '#b48cff', [['CLAUDE.md (dự án)', '4.2k'], ['MEMORY.md', '1.1k'], ['~/.claude/CLAUDE.md', '1.5k']]],
+  ['Skill (mô tả)', 9.4, '#4fc1c9', [['unity:* · 31 skill', '6.0k'], ['claude-gui:* · 3 skill', '1.2k'], ['khác · 9 skill', '2.2k']]],
+  ['MCP', 27.6, '#e5b45a', [['figma · 41 công cụ (chưa dùng)', '18.3k'], ['gdd · 9 công cụ', '4.1k'], ['claude-gui · 5 công cụ', '2.4k'], ['coplay · 12 công cụ (chưa dùng)', '2.8k']]],
+  ['Hội thoại', 27.9, '#5aa9ff', [['14 lượt của bạn + Claude', '27.9k']]],
+  ['Kết quả công cụ', 38.1, '#d97757', [['Read · 14 tệp', '29.4k'], ['Grep · 6 lần', '5.2k'], ['Bash', '3.5k']]],
+];
+const tot = 200;
+$('#stack').innerHTML = CTX.map(([, v, c]) => `<span style="width:${v / tot * 100}%;background:${c}"></span>`).join('');
+$('#leg').innerHTML = CTX.map(([n, v, c, sub], i) => `<i style="background:${c}"></i><span class="row-x" data-i="${i}">${n} ▸</span><span class="n">${v}k</span><span class="n">${Math.round(v / tot * 100)}%</span><div class="sub" id="sub${i}" style="grid-column:1/-1">${sub.map(([a, b]) => `<div><span>${a}</span><span>${b}</span></div>`).join('')}</div>`).join('') + `<i style="background:#33363b"></i><span class="muted">Còn trống</span><span class="n">76k</span><span class="n">38%</span>`;
+$$('.row-x').forEach((x) => x.onclick = () => $('#sub' + x.dataset.i).classList.toggle('on'));
+$('#ring1').onclick = () => { const p = $('#ctxPop'); p.style.display = p.style.display === 'none' ? 'block' : 'none'; };
+
+// 2. bước tiếp theo
+$$('#endbox .next .btn').forEach((b) => b.onclick = () => { $('#ph2').textContent = b.dataset.say || '…'; $('#ph2').style.color = 'var(--text)'; });
+
+// 4. mermaid
+$$('.mm .seg2 button').forEach((b) => b.onclick = () => { $$('.mm .seg2 button').forEach((x) => x.classList.toggle('on', x === b)); $$('.mmv').forEach((v) => v.style.display = v.dataset.v === b.dataset.v ? '' : 'none'); });
+
+// 5. thu nhỏ
+let n5 = 0;
+const lines = ['vite v6.2 ready in 412 ms', '➜ Local: http://localhost:5173/', 'hmr update /src/fireball.js', 'hmr update /src/style.css', 'page reload src/main.js'];
+setInterval(() => { n5++; const l = `[${new Date().toLocaleTimeString('vi-VN')}] ${lines[n5 % lines.length]}`; const t = $('#tlog'); t.innerHTML = (t.innerHTML + `<div>${l}</div>`).split('</div>').slice(-7).join('</div>'); const m = $('#miniT .tm2'); if (m) m.innerHTML = t.innerHTML; }, 1100);
+function mini(kind) {
+  const d = document.createElement('div'); d.className = 'mini'; d.id = 'mini' + kind;
+  d.innerHTML = kind === 'V' ? `<div class="lbl"><span>🌐 localhost:5173</span><span>⤢</span></div><div class="page"><h2>Hiệu ứng quả cầu lửa</h2><div class="orb"></div></div>` : `<div class="lbl"><span>▸ Terminal · npm run dev</span><span>⤢</span></div><div class="tm2">${$('#tlog').innerHTML}</div>`;
+  d.onclick = () => { d.remove(); if (kind === 'V') $('#vw5').classList.remove('min'); else $('#term5').classList.remove('min'); };
+  $('#dock').append(d);
+}
+$('#minV').onclick = () => { $('#vw5').classList.add('min'); mini('V'); if (!$('#term5').classList.contains('min')) { $('#term5').classList.add('min'); mini('T'); } };
+$('#minT').onclick = () => { $('#term5').classList.add('min'); mini('T'); };
+
+// 7. phiên phụ
+let t7 = [];
+function play7() {
+  t7.forEach(clearTimeout); t7 = [];
+  $('#sp7').innerHTML = ''; $('#kids7').innerHTML = ''; $('#cnt7').textContent = '0';
+  const kids = [['Server: tính giá, đặt cọc, hoàn tiền', 'Sonnet 5.5 · Trung bình'], ['Client: UI đấu giá + đồng hồ', 'Sonnet 5.5 · Trung bình'], ['DB: bảng auction + migration', 'Haiku 5.5 · Thấp']];
+  kids.forEach(([t, m], i) => {
+    t7.push(setTimeout(() => {
+      const c = document.createElement('div'); c.className = 'spawn'; c.innerHTML = `<div class="h">⑂ <b>Phiên phụ: ${t}</b><span class="badge run">đang chạy</span><button class="btn xs">Mở</button></div><div class="st">${m} · đã giao: phạm vi, tệp được sửa, tiêu chí xong</div>`;
+      $('#sp7').append(c);
+      const k = document.createElement('div'); k.className = 'sess kid'; k.innerHTML = `<span class="dot run"></span><span class="tt">${t}</span>`; $('#kids7').append(k);
+      $('#cnt7').textContent = String(i + 1);
+      t7.push(setTimeout(() => {
+        c.classList.add('done'); c.querySelector('.badge').className = 'badge ok'; c.querySelector('.badge').textContent = 'xong';
+        k.querySelector('.dot').className = 'dot ok'; $('#cnt7').textContent = String(Math.max(0, +$('#cnt7').textContent - 1));
+        if (i === kids.length - 1) t7.push(setTimeout(() => { const r = document.createElement('div'); r.className = 'report'; r.innerHTML = `<b>↩ 3 phiên phụ đã báo cáo</b><br>Server: 6 tệp, 22 test đạt · Client: 4 prefab + script · DB: migration V0142. Mình đang ráp lại và chạy thử cả luồng…`; $('#msgs7').append(r); }, 700));
+      }, 2600 + i * 900));
+    }, 600 + i * 700));
+  });
+}
+$('#play7').onclick = play7;
+
+// 8. tải nội dung web
+$('#load8').onclick = () => { $('#gate8').remove(); $('#page8').insertAdjacentHTML('beforeend', '<div class="orb"></div><div style="margin-top:20px;font-size:28px;font-weight:700;color:#b3261e">Còn 12 ngày 04:31:07</div>'); };
+$('#trust8').onclick = () => { $('#load8').onclick(); };
+</script>
+</body>
+</html>

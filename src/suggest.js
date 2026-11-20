@@ -296,10 +296,22 @@
 
   // phiên con xong lượt → nhớ tóm tắt, báo về phiên cha nếu được yêu cầu
   function onTurnEnd(conv, m, failed) {
+    setTimeout(() => flushReports(conv.sid), 400); // phiên cha vừa rảnh → gửi các báo cáo phiên phụ đang chờ
     const rec = KIDS[conv.sid];
     if (!rec) return;
+    if (rec.auto && rec.end) return; // phiên phụ đã báo cáo rồi, người dùng nói tiếp với nó
     rec.end = Date.now(); rec.ok = !failed;
     rec.summary = String((m && typeof m.result === 'string' && m.result) || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+    if (rec.auto) {
+      // tên phiên phụ ở lịch sử = tiêu đề Claude đặt (không phải dòng đầu prompt)
+      if (!rec.named && api.renameSession) { rec.named = true; api.renameSession(conv.sid, rec.title).then(() => A().renderSidebar()).catch(() => {}); }
+      const full = String((m && typeof m.result === 'string' && m.result) || '').trim();
+      rec.pending = full.length > 8000 ? full.slice(0, 8000) + '\n… (cắt bớt — đọc đủ bằng read_session)' : full || '(phiên phụ không có câu trả lời cuối)';
+      saveK(); paintKey(); paintSpawn();
+      pump();
+      setTimeout(() => flushReports(rec.parent, true), 500);
+      return;
+    }
     saveK(); paintKey();
     if (!rec.report || rec.reported) return;
     rec.reported = true; saveK();
@@ -317,7 +329,7 @@
       if (r.parent !== pid) continue;
       const c = convOf(sid), d = (S().all || []).find((x) => x.id === sid);
       if (!c && !d) continue; // chưa ghi gì / đã xoá
-      out.push({ id: sid, title: (c && c.title) || (d && d.title) || r.title, cwd: (d && d.cwd) || (c && c.cwd), mtime: Math.max((d && d.mtime) || 0, (c && c.lastActive) || 0, r.t || 0), spawned: true, branch: r.branch, running: !!(c && c.working), fresh: Date.now() - (r.t || 0) < 15 * 60e3, parentId: pid });
+      out.push({ id: sid, title: (r.auto && r.title) || (c && c.title) || (d && d.title) || r.title, cwd: (d && d.cwd) || (c && c.cwd), mtime: Math.max((d && d.mtime) || 0, (c && c.lastActive) || 0, r.t || 0), spawned: true, branch: r.branch, running: !!(c && c.working), fresh: Date.now() - (r.t || 0) < 15 * 60e3, parentId: pid });
     }
     return out;
   }
@@ -325,5 +337,155 @@
   // phiên chạy từ hàng đợi (việc gợi ý đã lưu) cũng nằm dưới phiên đã gợi ý
   function linkChild(sid, parent, title, branch) { if (!sid || !parent || KIDS[sid]) return; KIDS[sid] = { parent, title, branch: branch || '', t: Date.now() }; saveK(); }
 
-  CG.suggest = { card, tool, withdraw, onTurnEnd, kidsOf, parentOf, linkChild };
+  // =====================================================================
+  // Claude tự mở phiên phụ (công cụ start_session) — chạy song song, xong tự gửi báo cáo về phiên cha
+  // =====================================================================
+  const cfg = () => S().settings || {};
+  const maxRun = () => Math.max(1, +cfg().spawnMaxRun || 5);
+  const maxTurn = () => Math.max(1, +cfg().spawnMaxTurn || 10);
+  const SPQ = []; // phiên phụ chờ chỗ trống: { sid (đã tạo Conv), go }
+  const spBoxes = new Map(); // khoá phiên cha → [thẻ trong tool card start_session đang chờ dữ liệu]
+  const spCards = new Set();
+  const isAbs = (p) => /^[a-z]:[\\/]|^[\\/]/i.test(String(p || ''));
+  const runningAuto = () => Object.entries(KIDS).filter(([sid, r]) => r.auto && !r.end && !r.queued && convOf(sid)).length;
+  const MODEL_LBL = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' };
+  // thẻ trong tool card (vẽ ngay khi Claude gọi công cụ; xin phép / trạng thái điền vào sau)
+  function spawnCard(c, inp, live) {
+    const box = h('div', { class: 'sp-card' });
+    box._c = c; box._inp = inp || {};
+    if (live) { const L = spBoxes.get(c.key) || []; L.push(box); spBoxes.set(c.key, L); }
+    paintBox(box);
+    spCards.add(box);
+    return box;
+  }
+  function kidsFor(box) {
+    // phiên phụ đã mở từ lần gọi này (theo thứ tự) — lịch sử: khớp theo tiêu đề
+    if (box._sids) return box._sids;
+    const par = box._c.sid, out = [];
+    for (const s of box._inp.sessions || []) {
+      const hit = Object.entries(KIDS).find(([sid, r]) => r.auto && r.parent === par && r.title === s.title && !out.includes(sid));
+      out.push(hit ? hit[0] : null);
+    }
+    return out;
+  }
+  function paintBox(box) {
+    const L = (box._inp.sessions || []).slice(0, 10);
+    box.innerHTML = '';
+    const head = h('div', { class: 'sp-h' }, icon('layers', 13), h('b', { text: L.length > 1 ? `Mở ${L.length} phiên phụ chạy song song` : 'Mở một phiên phụ' }));
+    box.append(head);
+    const sids = box._ask ? [] : kidsFor(box);
+    L.forEach((s, i) => {
+      const sid = sids[i], rec = sid && KIDS[sid], kid = sid && convOf(sid);
+      let st = '';
+      if (box._ask) st = '';
+      else if (!rec) st = box._declined ? 'không mở' : box._live ? '…' : '';
+      else if (rec.queued) st = '⏳ chờ chỗ trống';
+      else if (!rec.end) st = kid && kid.working ? '▶ đang chạy' : '▶ đã mở';
+      else st = rec.ok === false ? '✕ dừng / lỗi' : rec.pending ? '✓ xong · chờ gửi báo cáo' : '✓ xong · đã báo cáo';
+      const m = s.model && s.model !== 'inherit' ? MODEL_LBL[s.model] || s.model : '';
+      const pv = h('div', { class: 'sp-pv hidden', text: s.prompt || '' });
+      const t = h('span', { class: 'sp-t ellipsis', text: s.title, title: 'Bấm để xem prompt' });
+      t.onclick = (e) => { e.stopPropagation(); pv.classList.toggle('hidden'); };
+      box.append(h('div', { class: 'sp-i' }, h('span', { class: 'sp-n', text: String(i + 1) }), t,
+        m || s.effort ? h('span', { class: 'sp-m', text: [m, s.effort].filter(Boolean).join(' · ') }) : null,
+        st ? h('span', { class: 'sp-st', text: st }) : null,
+        sid ? h('a', { class: 'sg-link', text: 'Mở ›', onclick: (e) => { e.stopPropagation(); openKid(sid); } }) : null), pv);
+    });
+    if (box._ask) {
+      const auto = h('input', { type: 'checkbox' });
+      box.append(h('div', { class: 'sp-acts' },
+        h('label', { class: 'sp-auto', title: 'Lần sau Claude mở phiên phụ không cần hỏi (đổi lại ở Cài đặt → Cuối lượt & chi phí)' }, auto, 'Lần sau tự cho phép'),
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn xs', text: 'Không mở', onclick: (e) => { e.stopPropagation(); box._ask(false, auto.checked); } }),
+        h('button', { class: 'btn xs primary', text: L.length > 1 ? `Mở ${L.length} phiên` : 'Mở phiên', onclick: (e) => { e.stopPropagation(); box._ask(true, auto.checked); } })));
+    } else if (box._declined) box.append(h('div', { class: 'sp-note', text: 'Bạn đã không cho mở.' }));
+  }
+  function paintSpawn() { for (const b of spCards) { if (!b.isConnected && !b._ask) { spCards.delete(b); continue; } paintBox(b); } }
+  setInterval(() => { for (const b of spCards) if (b.isConnected && !b._ask && b._sids) paintBox(b); }, 2000);
+  async function boxFor(c) {
+    for (let i = 0; i < 20; i++) {
+      const L = spBoxes.get(c.key);
+      if (L && L.length) return L.shift();
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // không thấy thẻ công cụ (hiếm) → thẻ rời trong chat
+    const box = spawnCard(c, {}, false);
+    c.append(h('div', { class: 'tool rv-tool sp-tool' }, box));
+    return box;
+  }
+  async function spawn(a) {
+    const par = A().convs().find((x) => x.key === a.key);
+    if (!par) return { error: 'Calling session not found.' };
+    if (KIDS[par.sid] && KIDS[par.sid].auto) return { error: 'A session opened by start_session cannot open more sessions. Do the work here, and say in your final report what else should be started.' };
+    if (par._spRef !== par.turnCards) { par._spRef = par.turnCards; par._spN = 0; }
+    const room = maxTurn() - (par._spN || 0);
+    if (room <= 0) return { error: `Limit reached: at most ${maxTurn()} new sessions per user message. Continue here or tell the user.` };
+    const list = (a.sessions || []).slice(0, room);
+    const cut = (a.sessions || []).length - list.length;
+    const box = await boxFor(par);
+    box._inp = { sessions: list };
+    if (!cfg().spawnAuto) {
+      if (par !== S().active) toast(`Phiên “${par.title || 'khác'}” muốn mở ${list.length} phiên phụ — vào phiên đó để duyệt`);
+      if (!document.hasFocus()) api.notify('Claude GUI · xin mở phiên phụ', `${par.title || 'Phiên'} muốn mở ${list.length} phiên phụ`);
+      const ok = await new Promise((res) => { box._ask = (v, auto) => { box._ask = null; if (v && auto) CG.saveSettings({ spawnAuto: true }).catch(() => {}); res(v); }; paintBox(box); });
+      if (!ok) { box._declined = true; paintBox(box); return { error: 'The user declined to open these sessions. Do not call start_session again for them; do the work here or ask the user.' }; }
+    }
+    par._spN = (par._spN || 0) + list.length;
+    box._live = true; box._sids = [];
+    const out = [];
+    for (const s of list) {
+      const sid = await launch(par, s);
+      box._sids.push(sid);
+      const rec = KIDS[sid];
+      out.push(`- "${s.title}" → session ${sid.slice(0, 8)}${rec && rec.queued ? ' (waiting for a free slot)' : ' (running)'}`);
+    }
+    paintBox(box);
+    A().renderSidebar();
+    return { text: `Opened ${list.length} session(s):\n${out.join('\n')}${cut ? `\n${cut} more were NOT opened (limit ${maxTurn()} per user message).` : ''}\nEach one's final report will arrive in this session automatically as a new message when it finishes. Do not wait or poll for them — continue your own work, or end your turn now if there is nothing else to do.` };
+  }
+  async function launch(par, s) {
+    let cwd = par.cwd;
+    if (s.cwd) cwd = isAbs(s.cwd) ? s.cwd : String(par.cwd || '').replace(/[\\/]+$/, '') + '\\' + String(s.cwd).replace(/^\.[\\/]/, '');
+    const model = s.model && s.model !== 'inherit' ? s.model : par.model !== 'default' ? par.model : '';
+    const kid = await A().createConv({ cwd, model, effort: s.effort || par.effort, mode: par.mode, title: s.title });
+    const queued = runningAuto() >= maxRun();
+    KIDS[kid.sid] = { parent: par.sid, title: s.title, auto: true, t: Date.now(), queued: queued || undefined };
+    saveK();
+    const head = `[Phiên phụ do Claude ở phiên "${(par.title || 'phiên chính').slice(0, 80)}" mở để chạy song song — bạn không thấy cuộc trò chuyện đó, chỉ có việc dưới đây. Làm xong thì kết thúc bằng một báo cáo gọn: đã làm gì, kết quả / phát hiện, tệp đã sửa, việc còn dở. Câu trả lời cuối của bạn sẽ tự được gửi về phiên đó.]\n\n`;
+    const go = () => kid.send(head + s.prompt, `🧩 ${s.title}`).catch(() => {});
+    if (queued) SPQ.push({ sid: kid.sid, go }); else go();
+    return kid.sid;
+  }
+  function pump() {
+    while (SPQ.length && runningAuto() < maxRun()) {
+      const q = SPQ.shift();
+      const rec = KIDS[q.sid];
+      if (!rec) continue;
+      delete rec.queued; saveK();
+      q.go();
+    }
+    paintSpawn();
+  }
+  // báo cáo phiên phụ → phiên cha (gộp nhiều báo cáo một tin; phiên cha đang chạy thì chờ nó xong lượt)
+  const flushing = new Set();
+  async function flushReports(parentSid, open) {
+    if (!parentSid || flushing.has(parentSid)) return;
+    const ready = Object.entries(KIDS).filter(([, r]) => r.auto && r.parent === parentSid && r.pending);
+    if (!ready.length) return;
+    let par = convOf(parentSid);
+    if (!par && open) { flushing.add(parentSid); try { par = await A().convFor(parentSid); } catch {} flushing.delete(parentSid); }
+    if (!par || par.busy || par.working) return;
+    const waiting = Object.entries(KIDS).filter(([, r]) => r.auto && r.parent === parentSid && !r.end).length;
+    const parts = ready.map(([sid, r]) => `### ${r.ok === false ? '✕' : '✓'} ${r.title} (session ${sid.slice(0, 8)}${r.ok === false ? ' — dừng / lỗi' : ''})\n${r.pending}`);
+    for (const [, r] of ready) { delete r.pending; r.reported = true; }
+    saveK(); paintSpawn();
+    const text = `[Báo cáo tự động từ ${ready.length} phiên phụ bạn đã mở bằng start_session${waiting ? ` — còn ${waiting} phiên đang chạy, báo cáo sẽ tới sau` : ' — tất cả đã xong'}]\n\n${parts.join('\n\n')}`;
+    par.send(text, `📨 Báo cáo từ ${ready.length} phiên phụ${waiting ? ` · còn ${waiting} đang chạy` : ''}`).catch(() => {});
+  }
+  // khởi động lại app / phiên cha mở lại sau → gửi báo cáo còn treo
+  setInterval(() => { const ps = new Set(Object.values(KIDS).filter((r) => r.auto && r.pending).map((r) => r.parent)); for (const p of ps) flushReports(p); }, 5000);
+  // phiên phụ chờ chỗ mà app khởi động lại → mất hàng chờ: bỏ cờ chờ
+  for (const r of Object.values(KIDS)) if (r.queued) { delete r.queued; r.end = r.end || Date.now(); r.ok = false; }
+
+  CG.suggest = { card, tool, withdraw, onTurnEnd, kidsOf, parentOf, linkChild, spawn, spawnCard };
 })();

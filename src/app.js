@@ -5,7 +5,7 @@
   const CG = window.CG;
   const {
     $, $$, h, svg, icon, logo, hydrate, basename, dirname, samePath, shortPath, fmtTok, stripAnsi, stripReminders, relTime,
-    rid, renderMd, copyBtn, mdEl, MODES, EFFORTS, effortLabel, toolMeta, toolSummary, rowsView, patchRows, patchCounts,
+    rid, renderMd, copyBtn, mdEl, stripNext, parseNext, MODES, EFFORTS, effortLabel, toolMeta, toolSummary, rowsView, patchRows, patchCounts,
     unifiedRows, hunksFromStrings, todoView, toolInputView, resultView, resultText, permTitle, suggestionLabel, popover, closePopover,
     menu, pointAnchor, toast, modal, confirmDialog, promptDialog,
   } = CG;
@@ -396,6 +396,8 @@
         this.outTokens = 0;
         this.turnText = false;
         this.turnTools = 0;
+        this.turnCards = [];
+        this.nextSteps = null;
         this.activity = '';
         this.phase = 'think';
         this.lastEnd = null;
@@ -594,7 +596,8 @@
           if (!b.text || !b.text.trim()) { if (L) { if (L.smooth) L.smooth.cancel(); L.el.remove(); } continue; }
           if (L && L.raf) (cancelAnimationFrame(L.raf), clearTimeout(L.raf));
           const el = L ? L.el : h('div', { class: 'md' });
-          el.dataset.raw = b.text;
+          el.dataset.raw = stripNext(b.text);
+          { const nx = parseNext(b.text); if (nx.length) el.dataset.next = JSON.stringify(nx); }
           const text = b.text;
           const finalize = () => { el.classList.remove('streaming'); renderMd(el, text); afterRender(this); };
           // Chữ đang hiện dần thì để chạy nốt rồi mới dựng bản cuối (tô màu code...)
@@ -682,6 +685,7 @@
       // Phần lịch sử cũ đã được tính trong scanHistory — chỉ vẽ diff lên thẻ
       if (!this.renderingOlder) this.addEdit(r, this.replaying);
       card.showPatch(r.hunks);
+      card.edit = { file: r.file || (card.input && card.input.file_path) || '', ...patchCounts(r.hunks) };
     }
     // Giống bản desktop: Claude tạo tệp xem được (web, md, pdf, ảnh) hoặc chạy web localhost → mở luôn ở khung xem bên cạnh
     autoPreview(card, content) {
@@ -736,7 +740,7 @@
       for (const L of this.live) {
         if (L.raf) (cancelAnimationFrame(L.raf), clearTimeout(L.raf));
         if (L.smooth) L.smooth.cancel();
-        if (L.kind === 'text' && L.text) { L.el.classList.remove('streaming'); L.el.dataset.raw = L.text; renderMd(L.el, L.text); }
+        if (L.kind === 'text' && L.text) { L.el.classList.remove('streaming'); L.el.dataset.raw = stripNext(L.text); const nx = parseNext(L.text); if (nx.length) L.el.dataset.next = JSON.stringify(nx); renderMd(L.el, L.text); }
         else if (L.el.isConnected && !(L.kind === 'thinking' && L.text)) L.el.remove();
       }
       this.live = [];
@@ -771,6 +775,7 @@
       } else if (!this.turnText && typeof m.result === 'string' && m.result.trim()) {
         this.addToTurn(mdEl(m.result));
       }
+      if (!failed && !this.replaying) this.turnBox();
       this.closeTurn();
       // Còn tin gửi giữa lượt chưa xử lý → CLI tự mở lượt kế tiếp: giữ trạng thái đang chạy
       if (!failed && m.queued_turn_count > 0) { this.setBusy(true); return; }
@@ -793,6 +798,57 @@
       maybeRefreshUsage();
       if (!document.hasFocus() && S.settings.notifyDone && !this.nb) api.notify('Claude đã xong', this.title || 'Phiên');
       scheduleSessionsRefresh();
+    }
+    // Hộp kết thúc lượt (giống bản desktop): thời gian, tệp đã sửa (+/−), lệnh / test, nút bước tiếp theo do Claude đề xuất
+    turnBox() {
+      if (S.settings.turnBox === false || this.managed || this.nb || !this.turn) return;
+      const cards = (this.turnCards || []).filter((c) => c && c.el && c.el.isConnected);
+      const edits = new Map();
+      for (const c of cards) if (c.edit && c.edit.file) { const e = edits.get(c.edit.file) || { add: 0, del: 0 }; e.add += c.edit.add || 0; e.del += c.edit.del || 0; edits.set(c.edit.file, e); }
+      const cmds = cards.filter((c) => /^(Bash|PowerShell)$/.test(c.name));
+      if (!edits.size && !cmds.length) return;
+      // bỏ chuỗi trong ngoặc + đường dẫn (thư mục "cg-test" không phải lệnh test)
+      const TEST = /(?<![\w.-])(test|tests|pytest|jest|vitest|mocha|xunit|nunit|phpunit|rspec)(?![\w.-])/i;
+      const words = (cmd) => String(cmd || '').replace(/"[^"]*"|'[^']*'/g, ' ').split(/\s+/).filter((w) => !/[\\/]/.test(w)).join(' ');
+      const tests = cmds.filter((c) => TEST.test(words(c.input && c.input.command)));
+      const lastT = tests[tests.length - 1];
+      let testTxt = '';
+      if (lastT) {
+        const out = resultText(lastT.res || '');
+        const pass = /(\d+)\s+(?:passed|passing|đạt)|Passed:\s*(\d+)|Passed!\s*-\s*Failed:\s*\d+,\s*Passed:\s*(\d+)/i.exec(out);
+        const fail = /(\d+)\s+(?:failed|failing)|Failed:\s*(\d+)/i.exec(out);
+        const nf = fail ? +(fail[1] || fail[2]) : 0, np = pass ? +(pass[1] || pass[2] || pass[3]) : 0;
+        testTxt = lastT.isError || nf ? `Test: ✗ ${nf ? nf + ' lỗi' : 'lỗi'}` : `Test: ✓${np ? ' ' + np + ' đạt' : ''}`;
+      }
+      const ms = Date.now() - (this.turnStart || Date.now());
+      const dur = ms < 60000 ? Math.round(ms / 1000) + ' giây' : `${Math.floor(ms / 60000)} phút ${Math.round((ms % 60000) / 1000)} giây`;
+      const failCmds = cmds.filter((c) => c.isError).length;
+      const facts = [...[...edits].slice(0, 6).map(([f, e]) => h('span', { class: 'tb-fact', title: f }, basename(f) + ' ', h('span', { class: 'add', text: '+' + e.add }), ' ', h('span', { class: 'del', text: '−' + e.del })))];
+      if (edits.size > 6) facts.push(h('span', { class: 'tb-fact', text: `+${edits.size - 6} tệp` }));
+      if (cmds.length) facts.push(h('span', { class: 'tb-fact' + (failCmds ? ' bad' : ''), text: `${cmds.length} lệnh${failCmds ? ` · ${failCmds} lỗi` : ''}` }));
+      if (testTxt) facts.push(h('span', { class: 'tb-fact' + (/✗/.test(testTxt) ? ' bad' : ' good'), text: testTxt }));
+      // bước tiếp theo: dòng ẩn cuối câu trả lời cuối của lượt
+      const mds = $$('.md[data-next]', this.turn);
+      let next = [];
+      try { next = mds.length ? JSON.parse(mds[mds.length - 1].dataset.next) : []; } catch {}
+      if (!next.length && this.suggestion) next = [this.suggestion];
+      const box = h('div', { class: 'turn-box' },
+        h('div', { class: 'tb-head' }, h('span', { class: 'tb-ok', text: '✓' }), h('b', { text: 'Xong lượt này' }), h('span', { class: 'muted', text: ` · ${dur}${edits.size ? ` · ${edits.size} tệp` : ''}` })),
+        h('div', { class: 'tb-facts' }, facts));
+      if (next.length) {
+        box.append(h('div', { class: 'tb-lbl', text: 'Bước tiếp theo' }), h('div', { class: 'tb-next' },
+          next.map((t, i) => h('button', { class: 'btn sm', title: t + (i < 3 ? ` (Alt+${i + 1})` : ''), onclick: () => this.pickNext(t) }, h('b', { text: String(i + 1) }), h('span', { class: 'ellipsis', text: t }))),
+          h('button', { class: 'btn sm ghost', text: '✎ Khác…', onclick: () => { if (this === S.active) els.input.focus(); } })));
+      }
+      this.nextSteps = next;
+      this.addToTurn(box);
+    }
+    pickNext(t) {
+      if (this !== S.active) return;
+      els.input.value = t;
+      els.input.dispatchEvent(new Event('input'));
+      els.input.focus();
+      els.input.setSelectionRange(t.length, t.length);
     }
     // Ghi số liệu lượt vừa xong (token + chi phí quy đổi theo từng model) cho bảng chi phí / ví token / nhật ký cuối ngày.
     // modelUsage và total_cost_usd là số cộng dồn của tiến trình CLI → lấy hiệu so với lần trước.
@@ -817,7 +873,7 @@
         const cost = Object.values(models).reduce((a, x) => a + x.c, 0);
         const rec = { kind: 'turn', sid: this.sid, title: this.title || '', cwd: this.cwd || '', nb: !!this.nb, cost, models, ms: Date.now() - (this.turnStart || Date.now()) };
         this.lastUsage = rec;
-        if (Object.keys(models).length && !this.rs) api.statsAdd(rec).catch(() => {});
+        if (Object.keys(models).length && !this.rs) api.statsAdd(rec).then(() => loadCosts()).catch(() => {});
       } catch {}
     }
     flushRedirect() {
@@ -865,6 +921,7 @@
           this.ctx = x.totalTokens;
           if (x.maxTokens) this.ctxMax = x.maxTokens;
           this.ctxCats = (x.categories || []).filter((k) => k.kind === 'used' && k.tokens > 0);
+          this.ctxFull = x; // đủ chi tiết cho thẻ Ngữ cảnh: memoryFiles, mcpTools, skills, messageBreakdown…
           if (this === S.active) ctxChanged();
         }
         return;
@@ -907,6 +964,7 @@
       if (name === 'ReportFindings' && CG.parity) { el.classList.add('rv-tool'); el.insertBefore(CG.parity.reviewCard(this, inp), sub); }
       // Claude gợi ý việc ngoài phạm vi (MCP nội bộ claude-gui) → thẻ Mở phiên mới / Làm ở đây / Lưu vào hàng đợi
       if (name === 'mcp__claude-gui__suggest_task' && CG.suggest) { el.classList.add('rv-tool', 'sg-tool'); el.insertBefore(CG.suggest.tool(this, inp, !this.replaying && !this.renderingOlder), sub); }
+      if (name === 'mcp__claude-gui__start_session' && CG.suggest) { el.classList.add('rv-tool', 'sp-tool'); el.insertBefore(CG.suggest.spawnCard(this, inp, !this.replaying && !this.renderingOlder), sub); }
       if (name === 'mcp__claude-gui__withdraw_task' && CG.suggest) { el.classList.add('sg-tool-w'); CG.suggest.withdraw(this, inp); }
       // Nội dung thẻ (diff, output) chỉ dựng khi mở ra — phiên dài có hàng nghìn thẻ công cụ
       let built = false, result = null, patch = null;
@@ -944,6 +1002,7 @@
         el, name, input: inp, done: false, task: null,
         setResult: (content, isError) => {
           card.done = true;
+          card.res = content; card.isError = !!isError;
           result = { content, isError };
           if (built) renderResult();
           // Tác tử chạy nền: kết quả này chỉ là "đã khởi chạy" — vẫn quay cho tới khi tác tử xong
@@ -1000,6 +1059,7 @@
       };
       this.tools.set(b.id, card);
       this.turnTools = (this.turnTools || 0) + 1;
+      if (this.turnCards && !this.replaying && !this.renderingOlder) this.turnCards.push(card);
       if (this._created) this._created.push(card);
       return card;
     }
@@ -1451,9 +1511,62 @@
     const auto = +((S.claudeSettings && S.claudeSettings.autoCompactWindow) || 0);
     return auto > 0 ? Math.min(model, auto) : model;
   };
+  // ---------- Chi phí ước tính theo phiên (Cài đặt → Chung; mặc định tắt) ----------
+  S.costs = {};
+  let costT = 0;
+  function loadCosts() {
+    clearTimeout(costT);
+    costT = setTimeout(async () => {
+      if (!S.settings.showCost && !S.settings.showCostSide) return;
+      S.costs = (await api.statsSessions().catch(() => null)) || {};
+      renderCost();
+      if (S.settings.showCostSide) renderSidebar();
+    }, 300);
+  }
+  // Alt+1…3: chọn nhanh bước tiếp theo của hộp kết thúc lượt
+  document.addEventListener('keydown', (e) => {
+    if (!e.altKey || e.ctrlKey || e.shiftKey || !/^[1-4]$/.test(e.key)) return;
+    const c = S.active;
+    if (!c || c.busy || !c.nextSteps || !c.nextSteps[+e.key - 1]) return;
+    e.preventDefault();
+    c.pickNext(c.nextSteps[+e.key - 1]);
+  });
+  const fmtUsd = (v) => '$' + (v < 0.995 ? v.toFixed(2) : v < 100 ? v.toFixed(2) : Math.round(v));
+  const costOf = (c) => { const x = c && c.sid && S.costs[c.sid]; return x ? x.c : c && c.cost ? c.cost : 0; };
+  function renderCost() {
+    if (!S.costsLoaded && S.settings) { S.costsLoaded = true; loadCosts(); }
+    let b = $('#ctl-cost');
+    if (!S.settings.showCost) { if (b) b.remove(); return; }
+    const c = S.active;
+    const v = costOf(c);
+    if (!b) {
+      b = h('button', { id: 'ctl-cost', class: 'ctl cost-chip', 'data-pop-anchor': '' });
+      b.onclick = () => costPopover(b);
+      $('#ctl-model').before(b);
+    }
+    b.classList.toggle('hidden', !c || !v);
+    b.textContent = v ? '≈ ' + fmtUsd(v) : '';
+    b.title = 'Chi phí ước tính của phiên này theo giá API — bấm xem chi tiết';
+  }
+  function costPopover(anchor) {
+    const c = S.active;
+    if (!c) return;
+    popover(anchor, (el) => {
+      el.classList.add('pad', 'cost-pop');
+      const x = (c.sid && S.costs[c.sid]) || { c: c.cost || 0, n: 0, m: {} };
+      const short = (n) => String(n).replace(/^claude-/, '').replace(/-\d{8}$/, '');
+      el.append(h('div', { class: 'pop-title', text: 'Chi phí ước tính · phiên này' }),
+        h('div', { class: 'cost-row big' }, h('span', { text: 'Tổng' }), h('b', { text: fmtUsd(x.c) })),
+        ...Object.entries(x.m || {}).sort((a, b) => b[1].c - a[1].c).map(([n, u]) => h('div', { class: 'cost-row' }, h('span', { text: short(n) }), h('span', { text: fmtUsd(u.c) }))),
+        h('div', { class: 'cost-row muted' }, h('span', { text: 'Số lượt' }), h('span', { text: String(x.n || 0) })),
+        h('div', { class: 'cost-row muted' }, h('span', { text: 'Đọc từ cache' }), h('span', { text: fmtTok(Object.values(x.m || {}).reduce((a, u) => a + (u.cr || 0), 0)) + ' token' })),
+        h('div', { class: 'note', style: 'margin-top:8px', text: 'Quy đổi theo giá API, gồm cả tác tử phụ. Gói thuê bao (Pro / Max…) không tính tiền theo token — số này để so phiên nặng / nhẹ. Tắt ở Cài đặt → Chung.' }));
+    }, { place: 'top', align: 'right' });
+  }
   function renderUsageRing() {
     const c = S.active;
     const b = $('#ctl-usage');
+    renderCost();
     if (!c) return;
     const pct = c.ctx ? Math.min(1, c.ctx / ctxWindowOf(c)) : 0;
     const r = 7, C = 2 * Math.PI * r;
@@ -1467,6 +1580,85 @@
   function ctxChanged() {
     if (ctxRaf) return;
     ctxRaf = requestAnimationFrame(() => { ctxRaf = 0; renderUsageRing(); if (S.usagePop) S.usagePop(); });
+  }
+  // ---------- Thẻ Ngữ cảnh (giống Context card của bản desktop) ----------
+  const CTX_CAT = {
+    system_prompt: ['System prompt', '#8a8f98'], system_tools: ['Công cụ có sẵn', '#6f7680'], memory_files: ['CLAUDE.md / memory', '#b48cff'],
+    skills: ['Skill (mô tả)', '#4fc1c9'], mcp_tools: ['Công cụ MCP', '#e5b45a'], mcp_instructions: ['Hướng dẫn MCP', '#c99a45'],
+    custom_agents: ['Tác tử tuỳ chỉnh', '#7fb069'], messages: ['Hội thoại', '#5aa9ff'],
+  };
+  const ctxOpen = new Set(); // dòng đang xổ (giữ khi thẻ vẽ lại)
+  function ctxDetail(c, win) {
+    const x = c.ctxFull || {};
+    const cats = c.ctxCats.slice().sort((a, b) => b.tokens - a.tokens);
+    const total = Math.max(win, cats.reduce((n, k) => n + k.tokens, 0));
+    const col = (k) => (CTX_CAT[k.id] || [0, '#9aa0a8'])[1];
+    const box = h('div', { class: 'ctx-card' });
+    box.append(h('div', { class: 'ctx-stack' }, cats.map((k) => h('span', { title: `${(CTX_CAT[k.id] || [k.name])[0]} · ${fmtTok(k.tokens)}`, style: { width: (k.tokens / total) * 100 + '%', background: col(k) } }))));
+    // công cụ MCP / skill đã dùng trong phiên (đếm từ thẻ công cụ) → đánh dấu "chưa dùng"
+    const used = new Set([...(c.tools || new Map()).values()].map((t) => t && t.name).filter(Boolean));
+    const usedServer = (srv) => [...used].some((n) => n.startsWith(`mcp__${srv}__`) || n.startsWith(`mcp__${srv.replace(/[^\w-]/g, '_')}__`));
+    const detail = (id) => {
+      const rows = [];
+      if (id === 'memory_files') for (const f of x.memoryFiles || []) rows.push([shortPath(f.path, c.cwd || ''), f.tokens, f.type]);
+      if (id === 'mcp_tools') {
+        const by = new Map();
+        for (const t of x.mcpTools || []) { if (t.isLoaded === false) continue; const g = by.get(t.serverName) || { n: 0, tok: 0 }; g.n++; g.tok += t.tokens; by.set(t.serverName, g); }
+        for (const [srv, g] of [...by].sort((a, b) => b[1].tok - a[1].tok)) rows.push([`${srv} · ${g.n} công cụ${usedServer(srv) ? '' : ' · chưa dùng'}`, g.tok]);
+      }
+      if (id === 'skills' && x.skills) {
+        const by = new Map();
+        for (const s of x.skills.skillFrontmatter || []) { const k = s.pluginName ? s.pluginName + ':*' : s.source || 'khác'; const g = by.get(k) || { n: 0, tok: 0 }; g.n++; g.tok += s.tokens; by.set(k, g); }
+        for (const [k, g] of [...by].sort((a, b) => b[1].tok - a[1].tok)) rows.push([`${k} · ${g.n} skill`, g.tok]);
+      }
+      if (id === 'messages' && x.messageBreakdown) {
+        const m = x.messageBreakdown;
+        rows.push(['Tin nhắn của bạn', m.userMessageTokens], ['Câu trả lời của Claude', m.assistantMessageTokens]);
+        for (const t of (m.toolCallsByType || []).slice().sort((a, b) => (b.callTokens + b.resultTokens) - (a.callTokens + a.resultTokens)).slice(0, 8)) rows.push([`Công cụ ${t.name} (gọi + kết quả)`, t.callTokens + t.resultTokens]);
+        if (m.attachmentTokens) rows.push(['Tệp / ảnh đính kèm', m.attachmentTokens]);
+      }
+      if (id === 'system_tools') for (const t of (x.systemTools || []).slice().sort((a, b) => b.tokens - a.tokens).slice(0, 10)) rows.push([t.name, t.tokens]);
+      if (id === 'custom_agents') for (const a of x.agents || []) rows.push([a.agentType, a.tokens, a.source]);
+      return rows.filter((r) => r[1] > 0);
+    };
+    const leg = h('div', { class: 'ctx-leg' });
+    for (const k of cats) {
+      const rows = detail(k.id).filter((r) => r[1] <= k.tokens * 1.05); // số liệu con lệch (vd tệp đính kèm tính cả phần đã nén) → bỏ
+      const open = ctxOpen.has(k.id);
+      const head = h('div', { class: 'ctx-row' + (rows.length ? ' can' : '') + (open ? ' open' : '') },
+        h('i', { style: { background: col(k) } }), h('span', { class: 'ctx-n', text: (CTX_CAT[k.id] || [k.name])[0] + (rows.length ? (open ? ' ▾' : ' ▸') : '') }),
+        h('span', { class: 'u-val', text: fmtTok(k.tokens) }), h('span', { class: 'ctx-p', text: Math.round((k.tokens / total) * 100) + '%' }));
+      if (rows.length) head.onclick = (e) => { e.stopPropagation(); if (open) ctxOpen.delete(k.id); else ctxOpen.add(k.id); if (S.usagePop) S.usagePop(); };
+      leg.append(head);
+      if (open) leg.append(h('div', { class: 'ctx-sub' }, rows.slice(0, 14).map(([n, t, tag]) => h('div', {}, h('span', { class: 'ellipsis', text: n, title: tag ? `${n} (${tag})` : n }), h('span', { text: fmtTok(t) })))));
+    }
+    const free = total - cats.reduce((n, k) => n + k.tokens, 0);
+    if (free > 0) leg.append(h('div', { class: 'ctx-row' }, h('i', { style: { background: 'var(--border)' } }), h('span', { class: 'ctx-n muted', text: 'Còn trống' }), h('span', { class: 'u-val', text: fmtTok(free) }), h('span', { class: 'ctx-p', text: Math.round((free / total) * 100) + '%' })));
+    box.append(leg);
+    // gợi ý cắt bớt — kèm nút làm luôn
+    const tips = [];
+    if (!c.rs) {
+      const by = new Map();
+      // chỉ công cụ đã nạp thật vào ngữ cảnh (công cụ "deferred" chỉ nạp khi Claude tìm tới → không tốn chỗ)
+      if (cats.some((k) => k.id === 'mcp_tools')) for (const t of x.mcpTools || []) if (t.isLoaded !== false) by.set(t.serverName, (by.get(t.serverName) || 0) + t.tokens);
+      for (const [srv, tok] of [...by].sort((a, b) => b[1] - a[1])) {
+        if (tok < 3000 || usedServer(srv) || srv === 'claude-gui') continue;
+        tips.push([`MCP ${srv} nạp ${fmtTok(tok)} mà phiên này chưa dùng`, 'Tắt MCP này', async () => {
+          await c.control({ subtype: 'mcp_toggle', serverName: srv, enabled: false });
+          toast(`Đã tắt MCP ${srv} — bật lại bằng /mcp.`);
+          setTimeout(() => c.fetchContext(), 600);
+        }]);
+        if (tips.length >= 2) break;
+      }
+      const m = x.messageBreakdown;
+      const res = m ? (m.toolCallsByType || []).reduce((n, t) => n + t.resultTokens, 0) : 0;
+      if (res > win * 0.15 && c.persisted && !c.busy) tips.push([`Kết quả công cụ cũ chiếm ${fmtTok(res)} — nén lại sẽ gọn hơn nhiều`, '/compact', () => c.send('/compact', '/compact')]);
+      const sk = cats.find((k) => k.id === 'skills');
+      if (sk && sk.tokens > 4000 && CG.skills) tips.push([`Mô tả skill luôn nạp sẵn ${fmtTok(sk.tokens)}`, 'Quản lý Skill', () => { if (S.usagePopClose) S.usagePopClose(); CG.skills.open(); }]);
+    }
+    if (tips.length) box.append(h('div', { class: 'ctx-tips' }, h('div', { class: 'u-group', text: 'Gợi ý cho gọn' }),
+      tips.map(([t, lbl, fn]) => h('div', { class: 'ctx-tip' }, h('span', { text: t }), h('button', { class: 'btn xs', text: lbl, onclick: (e) => { e.stopPropagation(); fn(); } })))));
+    return box;
   }
   function bar(pct, cls = '') { return h('div', { class: 'ubar ' + cls }, h('i', { style: { width: Math.max(0, Math.min(100, Math.round(pct * 100))) + '%' } })); }
 
@@ -1614,12 +1806,8 @@
       const pct = c.ctx ? c.ctx / win : 0;
       box.append(h('div', { class: 'u-row' }, h('div', { class: 'u-head' }, h('span', { text: 'Ngữ cảnh' }), h('span', { class: 'u-val', text: c.ctx ? `${fmtTok(c.ctx)} / ${fmtTok(win)} (${Math.round(pct * 100)}%)` : 'chưa có' })), bar(pct, pct > 0.85 ? 'err' : pct > 0.65 ? 'warn' : '')));
       if (c.ctxMax && win < 1000000 && (c.ctxWindow || 0) > win) box.append(h('div', { class: 'u-note', text: `Tự nén khi chạm ${fmtTok(win)} (auto-compact trong cài đặt)` }));
-      // Chi tiết như /context: phần nào đang chiếm ngữ cảnh
-      if (c.ctxCats && c.ctxCats.length) {
-        const VI = { system_prompt: 'System prompt', system_tools: 'Công cụ hệ thống', mcp_instructions: 'Hướng dẫn MCP', mcp_tools: 'Công cụ MCP', skills: 'Skill', messages: 'Tin nhắn', memory_files: 'CLAUDE.md / memory', custom_agents: 'Tác tử tuỳ chỉnh' };
-        box.append(h('div', { class: 'u-cats' }, c.ctxCats.slice().sort((a, b) => b.tokens - a.tokens).map((k) =>
-          h('div', { class: 'u-cat' }, h('span', { text: VI[k.id] || k.name }), h('span', { class: 'u-val', text: fmtTok(k.tokens) })))));
-      }
+      // Chi tiết như /context: phần nào đang chiếm ngữ cảnh (thanh màu + bấm từng dòng xem chi tiết + gợi ý cắt bớt)
+      if (c.ctxCats && c.ctxCats.length) box.append(ctxDetail(c, win));
     }
     const d = S.usage && S.usage.data;
     const rl = d && d.rate_limits;
@@ -1773,9 +1961,10 @@
         if (el.isConnected) state.reposition();
       };
       S.usagePop = render;
+      S.usagePopClose = close;
       render();
       if (c) c.fetchContext();
-    }, { place: 'top', align: 'right', onClose: () => { S.usagePop = null; } });
+    }, { place: 'top', align: 'right', onClose: () => { S.usagePop = null; S.usagePopClose = null; } });
     if (st) fetchUsage(false);
   }
 
@@ -2430,6 +2619,7 @@
           if (!open && CG.motion) CG.motion.tree([...document.querySelectorAll(`#session-list .sess.child[data-parent="${CSS.escape(it.id)}"]`)]);
         },
       }, icon('chevronRight', 11), h('span', { text: kids.length })) : null,
+      S.settings.showCostSide && S.costs[it.id] && S.costs[it.id].c >= 0.01 ? h('span', { class: 's-cost', text: fmtUsd(S.costs[it.id].c), title: 'Chi phí ước tính theo giá API' }) : null,
       h('span', { class: 's-time', text: relTime(it.mtime, true) }),
       star, more);
     more.onclick = (e) => { e.stopPropagation(); sessionMenu(it, more); };
@@ -2504,11 +2694,14 @@
         list.append(head);
         if (!isCol) {
           const open = new Set(S.settings.openPlans || []);
-          for (const g of byPlan.values()) {
+          const bdOf = (pid) => (CG.sched.planBadge ? CG.sched.planBadge(pid) : null);
+          const att = (g) => { const b = bdOf(g.pid); return b && (b[0] === 'wait' || b[0] === 'err') ? 0 : 1; };
+          for (const g of [...byPlan.values()].sort((a, b) => att(a) - att(b))) {
             const run = g.items.some((y) => isRun(y.it)) || (CG.sched.planRunning && CG.sched.planRunning(g.pid));
+            const bd = bdOf(g.pid);
             const exp = open.has(g.pid) || (run && !open.has('-' + g.pid));
             const sub = h('div', { class: 'grp-head sched-plan' + (exp ? '' : ' collapsed'), title: `Kế hoạch “${g.name}” — chuột phải để mở trong Lịch & hàng đợi` }, icon('chevronDown', 12, 'g-chev'),
-              h('span', { class: 'g-name ellipsis', text: g.name }), run ? h('span', { class: 'st run' }) : null, h('span', { class: 'g-count', text: g.items.length }));
+              h('span', { class: 'g-name ellipsis', text: g.name }), bd ? h('span', { class: 'sc-badge sm ' + bd[0], text: bd[1], title: bd[2] || '' }) : run ? h('span', { class: 'st run' }) : null, h('span', { class: 'g-count', text: g.items.length }));
             sub.onclick = () => { const o = new Set(S.settings.openPlans || []); o.delete(g.pid); o.delete('-' + g.pid); if (!exp) o.add(g.pid); else if (run) o.add('-' + g.pid); saveSettings({ openPlans: [...o].slice(-60) }).then(renderSidebar); };
             sub.oncontextmenu = (e) => { e.preventDefault(); menu(pointAnchor(e.clientX, e.clientY), [{ label: 'Mở trong Lịch & hàng đợi', icon: 'clock', onClick: () => CG.sched.open(g.pid) }]); };
             list.append(sub);
@@ -3581,6 +3774,7 @@
     placeConvs,
     // chèn chữ vào ô nhập của phiên chính (sổ tài liệu → "Chèn vào chat")
     insertText: (text) => insertAtCaret(text),
+    loadCosts: () => loadCosts(),
     reloadClaudeSettings: async () => { S.claudeSettings = (await api.claudeSettings()).data || {}; updateComposer(); },
   };
 

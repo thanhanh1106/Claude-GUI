@@ -192,6 +192,7 @@
       if (op === 'list') r = { items: sessionList(a.key).slice(0, Math.max(1, Math.min(50, +a.limit || 20))).map((x) => ({ id: x.id, title: x.title, folder: x.cwd, status: x.status, last_active: new Date(x.mtime).toISOString() })) };
       else if (op === 'resolve') { const x = resolveSession(a.session, a.key); r = x ? { id: x.id, title: x.title } : { error: `Không tìm thấy phiên "${a.session}". Gọi list_sessions để xem danh sách.` }; }
       else if (op === 'send') r = await deliver(a.key, a.id, a.message);
+      else if (op === 'start') r = CG.suggest && CG.suggest.spawn ? await CG.suggest.spawn(a) : { error: 'Claude GUI chưa sẵn sàng' };
     } catch (e) { r = { error: e.message }; }
     api.xsReply(id, r);
   });

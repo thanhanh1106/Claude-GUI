@@ -122,6 +122,30 @@
     if (t.type === 'after') return `⛓ Sau khi phiên “${(t.sess && t.sess.title) || '?'}” xong`;
     return '▶ Chạy khi bấm';
   }
+  // Nhãn trạng thái ngắn (giống "Last run failed" / "Needs input" của bản desktop) — trang Lịch + thanh bên
+  // → [lớp, chữ, giải thích] hoặc null
+  function planBadge(p) {
+    const r = p.run || {};
+    const sids = Object.entries(schedSids()).filter(([, v]) => v.pid === p.id).map(([sid]) => sid);
+    const convs = CG.S && CG.S.convs ? [...CG.S.convs.values()] : [];
+    const ask = sids.some((sid) => { const c = convs.find((x) => x.sid === sid && !x.rs); return c && c.perms && c.perms.size; });
+    if (ask) return ['wait', '● Cần trả lời', 'Một phiên của kế hoạch đang hỏi / xin quyền — mở phiên để trả lời'];
+    const isRun = r.state === 'running' || running.has(p.id);
+    if (p.kind === 'project') {
+      const P = p.proj || {};
+      if (!P.approved) return ['wait', '● Chờ duyệt', 'Bản nháp kế hoạch dự án chờ bạn duyệt'];
+      if (P.hold && r.state === 'paused') return ['wait', '● Cần bạn xem', CG.autopilot ? CG.autopilot.status(p) : ''];
+      if (isRun) { const tk = P.tasks || []; const i = tk.findIndex((t) => t.st === 'run'); return ['run', i >= 0 ? `▶ ${i + 1}/${tk.length}` : '▶ Đang chạy', CG.autopilot ? CG.autopilot.status(p) : '']; }
+    } else if (isRun) return ['run', `▶ ${(r.idx || 0) + 1}/${p.nodes.length}`, `Đang chạy bước ${(r.idx || 0) + 1}/${p.nodes.length}`];
+    if (!p.on) return ['off', '⏸ Tắt', 'Kế hoạch đang tắt'];
+    if (r.state === 'error') return ['err', '✗ Lỗi', r.note || 'Lần chạy vừa rồi lỗi'];
+    if (r.last && r.last.ok === false) return ['err', '✗ Lần cuối lỗi', `${fmtTime(r.last.at)}: ${r.last.note || 'lỗi'}`];
+    if (r.state === 'paused' || r.state === 'waiting') return ['wait2', '⏳ Chờ', statusText(p)];
+    if (r.last && r.last.ok) return ['ok', '✓ ' + fmtShort(r.last.at), `Lần cuối chạy xong lúc ${fmtTime(r.last.at)}`];
+    if (r.state === 'done') return ['ok', '✓ Xong', statusText(p)];
+    return null;
+  }
+  const fmtShort = (t) => { const d = new Date(t), n = new Date(); const hm = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); return d.toDateString() === n.toDateString() ? hm : `${d.getDate()}/${d.getMonth() + 1} ${hm}`; };
   function statusText(p) {
     const r = p.run;
     if (p.kind === 'project' && CG.autopilot) return p.on ? CG.autopilot.status(p) : 'Đang tắt';
@@ -359,6 +383,9 @@
       // lặp lại / mỗi lần giới hạn hồi: sẵn sàng cho lần sau ("Vào lúc" / "Sau khi phiên xong" / hàng đợi: chạy một lần)
       if (p.trig.type === 'repeat' || (p.trig.type.startsWith('reset') && p.trig.everyReset)) r.state = 'idle';
     }
+    // kết quả lần chạy cuối — giữ lại cả khi kế hoạch lặp đã về "idle" (nhãn "✗ Lần cuối lỗi" / "✓ hh:mm")
+    if (ok) r.last = { ok: true, at: Date.now() };
+    else if (r.state === 'error') r.last = { ok: false, at: Date.now(), note: r.note || '' };
     save(); render();
   }
   // giờ chạy tiếp sau khi hết giới hạn: giờ hồi CLI báo trong lỗi, không thì giờ hồi của bảng Sử dụng; luôn ở tương lai
@@ -439,12 +466,16 @@
     const body = h('div', { class: 'sc-body' });
     const list = h('div', { class: 'sc-plans' });
     if (!D.plans.length) list.append(h('div', { class: 'sc-empty' }, h('div', { text: 'Chưa có kế hoạch nào.' }), h('button', { class: 'btn primary sm', text: 'Tạo từ mẫu', onclick: () => templates() })));
-    for (const p of D.plans) {
+    const rank = (p) => { const b = planBadge(p); return b && (b[0] === 'wait' || b[0] === 'err') ? 0 : 1; };
+    for (const p of D.plans.slice().sort((a, b) => rank(a) - rank(b))) {
       const tog = h('span', { class: 'sc-tog' + (p.on ? ' on' : ''), title: p.on ? 'Đang bật — bấm để tắt' : 'Đang tắt — bấm để bật' });
       const card = h('div', { class: 'sc-plan' + (p.id === U.sel ? ' on' : '') + (p.run.state === 'running' ? ' running' : '') },
         h('div', { class: 'nm' }, h('span', { class: 'ellipsis', text: (p.demo ? '[Ví dụ] ' : '') + p.name }), tog),
         h('div', { class: 'tr', text: trigText(p) }),
         h('div', { class: 'meta' }, h('span', { text: p.kind === 'project' ? `🤖 ${p.proj.tasks.length} task` : `${p.nodes.length} bước` }), h('span', { class: 'ellipsis', text: statusText(p) })));
+      const bd = planBadge(p);
+      if (bd) card.querySelector('.nm').insertBefore(h('span', { class: 'sc-badge ' + bd[0], text: bd[1], title: bd[2] || '' }), tog);
+      if (bd && (bd[0] === 'err' || bd[0] === 'wait')) card.classList.add('attn');
       card.onclick = (e) => {
         if (e.target === tog) { p.on = !p.on; if (p.on) p.armedAt = Date.now(); else if (busyPlan(p) || running.has(p.id)) { stopPlan(p); p.run.note = 'Đã tắt.'; } save(); render(); return; }
         U.sel = p.id; U.node = null; render();
@@ -968,7 +999,7 @@
     return { ok: true, limits: L, t: Date.now(), plans: D.plans.filter((p) => !p.demo).map((p) => {
       const r = p.run || {};
       const o = { id: p.id, name: p.name, kind: p.kind || 'plan', on: !!p.on, trig: trigText(p), status: statusText(p), state: r.state || 'idle', note: r.note || '', idx: r.idx || 0, resumeAt: r.resumeAt || 0,
-        busy: busyPlan(p) || running.has(p.id), missed: !!(r.missedAt && p.trig.missed === 'ask' && nextFire(p) === r.missedAt) };
+        badge: planBadge(p), busy: busyPlan(p) || running.has(p.id), missed: !!(r.missedAt && p.trig.missed === 'ask' && nextFire(p) === r.missedAt) };
       if (o.kind === 'project' && CG.autopilot && p.proj) o.proj = CG.autopilot.remoteView(p);
       else o.steps = (p.nodes || []).map((n, i) => ({ kind: n.kind, prompt: String(n.prompt || '').slice(0, 600), st: (r.st && r.st[i]) || 'wait', sid: (r.sids && r.sids[i]) || '', where: n.kind === 'new' ? (n.cwd ? basename(n.cwd) : '') : n.target === 'prev' ? (i ? 'phiên của bước trước' : (p.trig.sess && p.trig.sess.title) || '') : n.targetTitle || '', model: n.model || '', cond: CONDS[n.cond] ? CONDS[n.cond].replace('vài', String(n.waitMin || 10)) : '' }));
       return o;
@@ -990,5 +1021,5 @@
     return { ok: true };
   }
   setTimeout(pushSids, 3000);
-  CG.sched = { queueAfter, remoteSnapshot, remoteAct, sidMap: schedSids, planRunning: (pid) => { const p = D.plans.find((x) => x.id === pid); return !!(p && (p.run.state === 'running' || running.has(p.id))); }, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText, resumeTime }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
+  CG.sched = { planBadge: (pid) => { const p = D.plans.find((x) => x.id === pid); return p ? planBadge(p) : null; }, queueAfter, remoteSnapshot, remoteAct, sidMap: schedSids, planRunning: (pid) => { const p = D.plans.find((x) => x.id === pid); return !!(p && (p.run.state === 'running' || running.has(p.id))); }, addSuggest, pendingQueue, _h: { save, render, waitEnd, waitIdle, limitOut, limits, fmtTime, trigText, resumeTime }, _newPlan: newPlan, nextFire, open: openPage, close: closePage, tour, whatsNew, templates, _go: go, _end: endTour, get plans() { return D.plans; }, runPlan, tick, _D: D, _U: U };
 })();
