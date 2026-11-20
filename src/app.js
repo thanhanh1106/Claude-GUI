@@ -361,9 +361,12 @@
     // trong settings, vd 500k), %, và từng phần (system prompt, công cụ, MCP, skill, tin nhắn…)
     async fetchContext() {
       if (this.rs || this.ctxReq || !(await api.running(this.key))) return;
-      this.ctxReq = 'ctx-' + rid();
-      api.write(this.key, { type: 'control_request', request_id: this.ctxReq, request: { subtype: 'get_context_usage' } });
-      setTimeout(() => { this.ctxReq = null; }, 8000);
+      const id = this.ctxReq = 'ctx-' + rid();
+      this.ctxAsked = Date.now();
+      api.write(this.key, { type: 'control_request', request_id: id, request: { subtype: 'get_context_usage' } });
+      if (this === S.active && S.usagePop) S.usagePop();
+      // CLI tính chi tiết có thể mất 1–2 phút (đếm token từng công cụ MCP) → chờ lâu, không gửi chồng yêu cầu
+      setTimeout(() => { if (this.ctxReq === id) { this.ctxReq = null; this.ctxAsked = 0; if (this === S.active && S.usagePop) S.usagePop(); } }, 180000);
     }
     respond(requestId, response) {
       if (this.rs) return CG.remote.respond(this, requestId, response);
@@ -915,15 +918,18 @@
     onControlResponse(m) {
       const r = m.response || {};
       if (String(r.request_id || '').startsWith('ctx-')) {
-        if (r.request_id === this.ctxReq) this.ctxReq = null;
+        if (r.request_id === this.ctxReq) { this.ctxReq = null; this.ctxAsked = 0; }
         const x = r.response;
         if (r.subtype === 'success' && x && x.totalTokens != null) {
           this.ctx = x.totalTokens;
           if (x.maxTokens) this.ctxMax = x.maxTokens;
           this.ctxCats = (x.categories || []).filter((k) => k.kind === 'used' && k.tokens > 0);
           this.ctxFull = x; // đủ chi tiết cho thẻ Ngữ cảnh: memoryFiles, mcpTools, skills, messageBreakdown…
+          this.ctxAt = Date.now();
+          ctxCacheSave(this);
           if (this === S.active) ctxChanged();
-        }
+          if (this === S.active && S.usagePop) S.usagePop();
+        } else if (this === S.active && S.usagePop) S.usagePop();
         return;
       }
       if (r.subtype === 'error' && String(r.request_id || '').startsWith('gui-')) toast(r.error || 'CLI báo lỗi', true);
@@ -1588,6 +1594,29 @@
     custom_agents: ['Tác tử tuỳ chỉnh', '#7fb069'], messages: ['Hội thoại', '#5aa9ff'],
   };
   const ctxOpen = new Set(); // dòng đang xổ (giữ khi thẻ vẽ lại)
+  // Bộ đệm chi tiết ngữ cảnh theo phiên (localStorage, tối đa 30 phiên) — CLI tính lại mất cả phút
+  const CTX_KEY = 'cg.ctxCache';
+  function ctxCacheSave(c) {
+    if (!c.sid || !c.ctxFull) return;
+    try {
+      const all = JSON.parse(localStorage.getItem(CTX_KEY) || '{}');
+      const x = c.ctxFull;
+      all[c.sid] = { at: c.ctxAt, x: { totalTokens: x.totalTokens, maxTokens: x.maxTokens, categories: x.categories, memoryFiles: x.memoryFiles, mcpTools: (x.mcpTools || []).map((t) => ({ name: t.name, serverName: t.serverName, tokens: t.tokens, isLoaded: t.isLoaded })), skills: x.skills, agents: x.agents, messageBreakdown: x.messageBreakdown, systemTools: x.systemTools } };
+      const ks = Object.keys(all).sort((a, b) => (all[b].at || 0) - (all[a].at || 0));
+      for (const k of ks.slice(30)) delete all[k];
+      localStorage.setItem(CTX_KEY, JSON.stringify(all));
+    } catch {}
+  }
+  function ctxCacheLoad(c) {
+    if (c.ctxCats || !c.sid) return;
+    try {
+      const e = JSON.parse(localStorage.getItem(CTX_KEY) || '{}')[c.sid];
+      if (!e || !e.x) return;
+      c.ctxFull = e.x; c.ctxAt = e.at;
+      c.ctxCats = (e.x.categories || []).filter((k) => k.kind === 'used' && k.tokens > 0);
+      if (!c.ctxMax && e.x.maxTokens) c.ctxMax = e.x.maxTokens;
+    } catch {}
+  }
   function ctxDetail(c, win) {
     const x = c.ctxFull || {};
     const cats = c.ctxCats.slice().sort((a, b) => b.tokens - a.tokens);
@@ -1807,7 +1836,14 @@
       box.append(h('div', { class: 'u-row' }, h('div', { class: 'u-head' }, h('span', { text: 'Ngữ cảnh' }), h('span', { class: 'u-val', text: c.ctx ? `${fmtTok(c.ctx)} / ${fmtTok(win)} (${Math.round(pct * 100)}%)` : 'chưa có' })), bar(pct, pct > 0.85 ? 'err' : pct > 0.65 ? 'warn' : '')));
       if (c.ctxMax && win < 1000000 && (c.ctxWindow || 0) > win) box.append(h('div', { class: 'u-note', text: `Tự nén khi chạm ${fmtTok(win)} (auto-compact trong cài đặt)` }));
       // Chi tiết như /context: phần nào đang chiếm ngữ cảnh (thanh màu + bấm từng dòng xem chi tiết + gợi ý cắt bớt)
-      if (c.ctxCats && c.ctxCats.length) box.append(ctxDetail(c, win));
+      ctxCacheLoad(c);
+      if (c.ctxCats && c.ctxCats.length) {
+        box.append(ctxDetail(c, win));
+        const old = c.ctxAt && Date.now() - c.ctxAt > 60e3;
+        if (c.ctxAsked || old) box.append(h('div', { class: 'u-note', text: (c.ctxAt ? `Chi tiết lúc ${new Date(c.ctxAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : '') + (c.ctxAsked ? ' · đang tính lại…' : '') }));
+      } else if (c.ctxAsked) {
+        box.append(h('div', { class: 'u-note', text: 'Đang phân tích ngữ cảnh từng phần… (CLI có thể mất tới 1–2 phút khi có nhiều công cụ MCP; cứ để đó, xong sẽ tự hiện)' }));
+      }
     }
     const d = S.usage && S.usage.data;
     const rl = d && d.rate_limits;

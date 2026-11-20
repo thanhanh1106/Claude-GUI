@@ -44,6 +44,8 @@ const DEFAULTS = {
   archived: [],
   viewMode: 'normal',
   showDetails: false,
+  showCost: true,
+  showCostSide: true,
   // Giao diện
   theme: 'system',
   zoom: 1,
